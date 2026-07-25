@@ -1023,15 +1023,40 @@ throttled. The scheduler:
   push INSIDE the spawned worker thread, so command-path triggers ("Sync now",
   retry) return instantly and never block the UI. Managed/usage-change triggers
   skip freshness (we already know there is new local usage) and push directly.
+- Is fault-isolated end to end. A source that cannot be read, a batch this
+  client cannot encode, and a batch the server refuses each affect only
+  themselves: `assemble_envelope` validates every batch independently and
+  ships the survivors, so one unparsable harness row can never starve the
+  other sources. `EnvelopeSyncReport` reports `accepted`/`skipped`/`retryable`
+  separately, and `Err` means only "nothing reached the server".
+- Never replays a batch that cannot succeed. A locally unrepresentable batch,
+  or a receipt rejected with a permanent code (`rejection_is_permanent`:
+  `invalid_window`, `invalid_row`, `idempotency_conflict`, …), advances its
+  source's cursor via `discard_batch`. Unrecognized codes are treated as
+  transient, so a server-side change never silently drops a user's usage.
+- Mirrors the server's transport limits locally (`usage_envelope.rs`
+  constants: 5 batches, 500 rows/batch, 1000 rows/envelope, 31-day window,
+  90-day horizon). `clamp_window` pulls long backlogs into range and
+  `normalize_identifier` coerces third-party model ids (Claude Code's
+  `<synthetic>`, ids with spaces) into the accepted charset instead of
+  failing the batch that carries them.
+- Emits batches deterministically. The server keys idempotency on a digest of
+  the serialized batch, so every aggregator uses ordered maps or an explicit
+  sort — an arbitrary iteration order makes an identical replay look like a
+  different payload and come back as `idempotency_conflict`.
 - Native metrics are rolled up client-side into aggregated rows before
   transport (`aggregate_model_usage_rows`), keeping batches under the envelope's
   500-row cap and sending only aggregate counters.
-- Uses a single-flight coordinator (`SYNC_IN_FLIGHT`) to coalesce concurrent
-  triggers into at most one in-flight sync.
+- Uses a single-flight coordinator (`SYNC_IN_FLIGHT`, held by an RAII guard so
+  a panicking worker cannot wedge it) to coalesce concurrent triggers into at
+  most one in-flight sync.
 - Applies bounded exponential backoff (30s → 900s max) on transient failures,
-  reset to 30s on success.
+  reset to 30s on success. The window is enforced in `trigger_sync`
+  (`backoff_elapsed`) and surfaced as the `retry_backoff` off-reason with a
+  `retryAfter` timestamp; gates stay open so "Sync now"/"Retry sync" bypass it.
 - Bounds shutdown sync to 10s so exit cannot hang.
-- Clears auth and stops remote scheduling on 401 while preserving local rows.
+- Clears auth and stops remote scheduling on 401 **and** on JSON-RPC `-32001`,
+  which the server returns with HTTP 200 for a revoked or under-scoped bearer.
 
 #### Consent gate and proactive prompt
 
@@ -1053,11 +1078,30 @@ All network-bound usage-sync commands (`usage_sync_projected_usage`,
 and run on `spawn_blocking`, so opening the Account settings tab never blocks the
 main thread.
 
+#### Rolled-up and raw are two independent streams
+
+basebuild.net needs both shapes, and they land in different tables, so each
+has its own cursor in `UsageSyncSettings`:
+
+| Stream | Tool | Cursor | Principal | Server table |
+| --- | --- | --- | --- | --- |
+| Rolled-up aggregates | `sync_usage_envelope` | `last_envelope_sync_at` | account or guest | `UsageEnvelopeReceipt`/`Row` |
+| Raw per-message rows | `sync_messages` | `last_message_sync_at` | account only | `AppMessageUsage`, `UserUsageSnapshot` |
+| Raw OMP blobs | `sync_raw_usage` | OMP source cursor | account only | `RawUsageBlob` |
+
+They MUST NOT share a cursor: whichever drained first would starve the other.
+`last_envelope_sync_at` is seeded from `last_message_sync_at` on upgrade
+(`get_usage_sync_settings`) so an existing install does not re-send accepted
+windows. Raw message rows carry `ts` in **milliseconds** — `AppMessageUsage.ts`
+is millisecond-based, and sending seconds skews every distribution query.
+
 ### Privacy boundaries
 
 The versioned usage envelope (`usage_envelope.rs`) wraps native chat metrics
 in an allowlisted, validated payload. The validator rejects prompts,
 responses, reasoning, source code, terminal output, tool args/results,
 secrets, credentials, environment values, and raw paths before transport.
-Signed-in accounts use `sync_raw_usage`; guest/private installations use the
-closed envelope only. The two paths never mix.
+Signed-in accounts additionally use the raw paths (`sync_raw_usage`,
+`sync_messages`); guest/private installations are restricted by the server to
+the closed envelope and skip the account-only tools locally rather than
+spending a request on a guaranteed `-32001`.

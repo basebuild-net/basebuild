@@ -8,7 +8,9 @@ use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 
 use crate::events::{AUTH_CHANGED, USAGE_SYNC_STATUS};
-use crate::models::usage_envelope::{build_envelope, SourceKind, UsageBatch, ENVELOPE_VERSION};
+use crate::models::usage_envelope::{
+    assemble_envelope, clamp_window, SourceKind, UsageBatch, ENVELOPE_VERSION,
+};
 use crate::models::usage_sync::{
     AutoSyncStatus, LiveUsage, LiveUsageRow, PlanSummaries, PlanSummary, PlanTimeline,
     PlanTimelineWindow, ProjectedUsage, SourceSyncStatus, SyncAttribution, SyncOffReason,
@@ -23,6 +25,10 @@ use crate::services::storage_service::StorageService;
 
 const MCP_URL: &str = "https://basebuild.net/api/mcp";
 const GUEST_BOOTSTRAP_URL: &str = "https://basebuild.net/api/auth/guest/bootstrap";
+/// JSON-RPC error code the server returns for a revoked, expired, or
+/// under-scoped bearer. It arrives with HTTP 200, so status alone never
+/// reveals an auth failure.
+const MCP_UNAUTHORIZED_CODE: i64 = -32001;
 /// Minimum gap between sync pushes in seconds, even if a trigger fires.
 const MIN_INTER_SYNC_GAP_SECS: i64 = 60;
 /// Default interval (minutes) when the setting is missing or zero.
@@ -133,6 +139,8 @@ static AUTOSYNC_STATUS: Mutex<AutoSyncStatus> = parking_lot::const_mutex(AutoSyn
     attribution: SyncAttribution::PrivateInstallation,
     interval_minutes: DEFAULT_INTERVAL_MINUTES,
     last_sync_at: None,
+    last_attempt_at: None,
+    retry_after: None,
     last_error: None,
     sync_mode: String::new(),
     overall_outcome: None,
@@ -185,18 +193,30 @@ pub fn sync_raw_usage_native() -> Result<String, String> {
         }
     });
 
-    post_mcp(&mode, &rpc_body)
+    let result = post_mcp(&mode, &rpc_body)?;
+    if result.is_error {
+        return Err(format!("OMP raw usage was rejected: {}", result.text));
+    }
+    Ok(result.text)
 }
 
 /// Sync per-message usage rows to basebuild.net via the `sync_messages` MCP
-/// tool. Reads native chat request metrics since the last message-sync cursor
-/// and sends them either as raw rows (server rolls up + owns aggregation) or as
-/// client-side summaries, per the `usage_sync_mode` setting. Advances the
-/// cursor only on a successful push. Returns a human-readable result message.
+/// tool — the RAW half of the data contract. The aggregate envelope answers
+/// "how much", these rows preserve the per-request detail the website needs
+/// for distribution and percentile analysis, and they land in a different
+/// server table (`AppMessageUsage`) than the envelope's rollups.
+///
+/// Account-only: the server denies `sync_messages` to guest principals, so a
+/// private installation skips it rather than burning a request on a refusal.
+/// Advances its own cursor — independent of the envelope's — only after the
+/// server accepts the batch.
 pub fn sync_messages_native() -> Result<String, String> {
     use crate::services::native_chat_service::NativeChatService;
 
     let mode = resolve_auth_mode()?;
+    if matches!(&mode, AuthMode::GuestToken(_)) {
+        return Ok("skipped: raw message rows are available to signed-in accounts only".to_string());
+    }
 
     let mut settings = SettingsService::get_usage_sync_settings()?;
     let since = settings.last_message_sync_at.unwrap_or(0);
@@ -231,10 +251,13 @@ pub fn sync_messages_native() -> Result<String, String> {
     });
 
     let result = post_mcp(&mode, &rpc_body)?;
+    if result.is_error {
+        return Err(format!("raw message rows were rejected: {}", result.text));
+    }
     // Advance the cursor only after the server accepted the batch.
     settings.last_message_sync_at = Some(window_end);
     let _ = SettingsService::set_usage_sync_settings(&settings);
-    Ok(format!("{} rows: {result}", metrics.len()))
+    Ok(format!("{} rows: {}", metrics.len(), result.text))
 }
 
 // ─── Versioned envelope sync for native chat metrics ──────────────────────
@@ -249,11 +272,16 @@ pub fn collect_native_batch() -> Result<UsageBatch, String> {
     use crate::services::native_chat_service::NativeChatService;
 
     let settings = SettingsService::get_usage_sync_settings()?;
-    let since = settings.last_message_sync_at.unwrap_or(0);
+    let since = settings.last_envelope_sync_at.unwrap_or(0);
     let metrics = NativeChatService::metrics_since(since, 5000)?;
 
     let window_start = metrics.iter().map(|m| m.created_at).min().unwrap_or(since);
     let window_end = metrics.iter().map(|m| m.created_at).max().unwrap_or(since);
+    // A device that has been offline (or stuck) for months carries a window
+    // wider than the server accepts. Clamp instead of shipping a batch that
+    // could only come back as `invalid_window`.
+    let (window_start, window_end) =
+        clamp_window(window_start, window_end, now_seconds()).unwrap_or((window_end, window_end));
 
     let rows = aggregate_model_usage_rows(&metrics);
 
@@ -373,34 +401,134 @@ fn aggregate_model_usage_rows(
         .collect()
 }
 
+/// Outcome of one aggregate-envelope push, split by what the caller must do
+/// next. `Err` is reserved for "nothing reached the server at all".
+#[derive(Debug, Default, Clone)]
+pub struct EnvelopeSyncReport {
+    /// Source batches the server durably accepted (or had already accepted).
+    pub accepted: usize,
+    /// Batches abandoned because no retry could ever succeed. Their cursors
+    /// were advanced, so they will not be offered again.
+    pub skipped: usize,
+    /// Batches that failed for a transient reason and stay queued.
+    pub retryable: usize,
+    pub message: String,
+}
+
+impl EnvelopeSyncReport {
+    /// True when the push moved no data and left nothing owed — the caller
+    /// reports "already current" rather than success.
+    pub fn is_idle(&self) -> bool {
+        self.accepted == 0 && self.skipped == 0 && self.retryable == 0
+    }
+}
+
+/// Server rejection codes that a byte-identical retry can never clear. The
+/// batch is abandoned and its cursor advanced; anything else stays queued.
+/// Kept deliberately explicit — an unrecognized code is treated as transient
+/// so a server-side change never silently discards a user's usage.
+fn rejection_is_permanent(code: Option<&str>) -> bool {
+    matches!(
+        code,
+        Some(
+            "invalid_window"
+                | "invalid_rows"
+                | "invalid_row"
+                | "invalid_batch"
+                | "invalid_idempotency_key"
+                | "source_not_allowed"
+                | "idempotency_conflict"
+        )
+    )
+}
+
 /// Sync every available closed-envelope source. Private installations include
 /// OMP aggregates here; signed-in accounts use the richer raw OMP path and
 /// exclude OMP from the envelope to prevent duplicate attribution.
-pub fn sync_envelope_native() -> Result<String, String> {
+///
+/// Every stage is fault-isolated per source: a source that cannot be read, a
+/// batch this client cannot represent, and a batch the server refuses each
+/// affect only themselves. Before this, any one of them failed the whole
+/// envelope and starved every other source indefinitely.
+pub fn sync_envelope_native() -> Result<EnvelopeSyncReport, String> {
     let mode = resolve_auth_mode()?;
     let include_omp = matches!(&mode, AuthMode::GuestToken(_));
     let collections = crate::services::usage_source_service::collect_all_sources(include_omp);
-    for collection in &collections {
-        let state = if collection.batch.is_some() {
-            "pending batch"
-        } else {
-            "no batch"
-        };
-        eprintln!("[SYNC] source {}: {state}", collection.source.as_str());
-        if collection.diagnostic.contains(" error:") {
+    let sources = crate::services::usage_source_service::registered_sources();
+    let discard = |batch: &UsageBatch| {
+        if let Some(source) = sources.iter().find(|source| source.kind() == batch.source) {
+            if let Err(error) = source.discard_batch(batch) {
+                eprintln!(
+                    "[SYNC] source {}: could not discard batch: {error}",
+                    batch.source.as_str()
+                );
+            }
+        }
+    };
+
+    let mut report = EnvelopeSyncReport::default();
+    let mut batches: Vec<UsageBatch> = Vec::new();
+    for collection in collections {
+        if let Some(error) = collection.error {
+            eprintln!(
+                "[SYNC] source {}: collect failed: {error}",
+                collection.source.as_str()
+            );
             record_source_error(collection.source, "Could not read local aggregate usage");
+            report.retryable += 1;
+            continue;
+        }
+        eprintln!(
+            "[SYNC] source {}: {}",
+            collection.source.as_str(),
+            if collection.batch.is_some() {
+                "pending batch"
+            } else {
+                "no batch"
+            }
+        );
+        if let Some(batch) = collection.batch {
+            batches.push(batch);
         }
     }
-    let batches: Vec<UsageBatch> = collections
-        .into_iter()
-        .filter_map(|collection| collection.batch)
-        .collect();
     if batches.is_empty() {
-        return Ok("no new envelope usage data".to_string());
+        return Ok(EnvelopeSyncReport {
+            message: "no new envelope usage data".to_string(),
+            ..report
+        });
     }
 
-    let envelope = build_envelope(batches, now_seconds())
-        .map_err(|error| format!("envelope validation failed: {error}"))?;
+    let (envelope, rejected) = assemble_envelope(batches, now_seconds());
+    for rejection in rejected {
+        if rejection.deferred {
+            eprintln!(
+                "[SYNC] source {}: {} — deferred to the next window",
+                rejection.batch.source.as_str(),
+                rejection.reason
+            );
+            record_source_error(rejection.batch.source, "Deferred to the next sync window");
+            report.retryable += 1;
+        } else {
+            // Unrepresentable locally, so it is unrepresentable on the wire.
+            // Advance past it or this source never syncs again.
+            eprintln!(
+                "[SYNC] source {}: skipping unshippable batch — {}",
+                rejection.batch.source.as_str(),
+                rejection.reason
+            );
+            discard(&rejection.batch);
+            record_source_error(
+                rejection.batch.source,
+                "Skipped usage this device could not encode",
+            );
+            report.skipped += 1;
+        }
+    }
+    let Some(envelope) = envelope else {
+        report.message = "no shippable envelope batches".to_string();
+        return Ok(report);
+    };
+
     let rpc_body = json!({
         "jsonrpc": "2.0",
         "id": 1,
@@ -412,7 +540,10 @@ pub fn sync_envelope_native() -> Result<String, String> {
         }
     });
 
-    let result_text = match post_mcp(&mode, &rpc_body) {
+    // The server signals a fully-rejected envelope with `isError`, so the
+    // acknowledgment must be read on both paths — the payload is the answer,
+    // not the error flag.
+    let result = match post_mcp(&mode, &rpc_body) {
         Ok(result) => result,
         Err(error) => {
             for batch in &envelope.batches {
@@ -421,67 +552,95 @@ pub fn sync_envelope_native() -> Result<String, String> {
             return Err(error);
         }
     };
-    let acknowledgment: Value = serde_json::from_str(&result_text)
+    let acknowledgment: Value = serde_json::from_str(&result.text)
         .map_err(|error| format!("Invalid usage-envelope acknowledgment: {error}"))?;
+
     if acknowledgment.get("ok").and_then(Value::as_bool) != Some(true) {
+        // Whole-envelope refusal: the server sends `code`/`message` and no
+        // receipts. Surface its reason instead of a generic failure.
+        let code = acknowledgment
+            .get("code")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
+        let message = acknowledgment
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or("the server did not accept this envelope");
         for batch in &envelope.batches {
-            record_source_error(batch.source, "Server did not accept this aggregate batch");
+            record_source_error(batch.source, "Server rejected this upload; retry is pending");
         }
-        return Err("Usage envelope was not durably accepted".to_string());
+        return Err(format!("usage envelope rejected ({code}): {message}"));
     }
+
     let receipts = acknowledgment
         .get("receipts")
         .and_then(Value::as_array)
-        .ok_or_else(|| "Usage-envelope acknowledgment omitted receipts".to_string())?;
-    let sources = crate::services::usage_source_service::registered_sources();
-    let mut accepted = 0usize;
-    let mut rejected = 0usize;
+        .map(Vec::as_slice)
+        .unwrap_or_default();
     for batch in &envelope.batches {
         let receipt = receipts.iter().find(|receipt| {
             receipt.get("source").and_then(Value::as_str) == Some(batch.source.as_str())
                 && receipt.get("idempotencyKey").and_then(Value::as_str)
                     == Some(batch.idempotency_key.as_str())
         });
-        let receipt_status = receipt
+        let status = receipt
             .and_then(|receipt| receipt.get("status"))
             .and_then(Value::as_str);
-        if matches!(receipt_status, Some("accepted" | "already_accepted")) {
+        if matches!(status, Some("accepted" | "already_accepted")) {
             if let Some(source) = sources.iter().find(|source| source.kind() == batch.source) {
-                source.advance_checkpoint(batch).map_err(|error| {
-                    record_source_error(
-                        batch.source,
-                        "Accepted usage could not advance its local cursor",
-                    );
-                    format!(
-                        "{} usage was accepted but its local cursor could not advance: {error}",
+                if let Err(error) = source.advance_checkpoint(batch) {
+                    // The server has the data; failing to move our cursor
+                    // only means a duplicate next time, which its idempotency
+                    // key absorbs. Never turn this into a sync failure.
+                    eprintln!(
+                        "[SYNC] source {}: accepted but cursor did not advance: {error}",
                         batch.source.as_str()
-                    )
-                })?;
+                    );
+                }
             }
             let processed_at = receipt
                 .and_then(|receipt| receipt.get("processedAt"))
                 .and_then(Value::as_i64);
             record_source_success(batch.source, now_seconds(), processed_at);
-            accepted += 1;
+            report.accepted += 1;
+            continue;
+        }
+
+        let code = receipt
+            .and_then(|receipt| receipt.get("code"))
+            .and_then(Value::as_str);
+        if status.is_none() {
+            record_source_error(batch.source, "No server receipt; retry is pending");
+            report.retryable += 1;
+        } else if rejection_is_permanent(code) {
+            eprintln!(
+                "[SYNC] source {}: permanently rejected ({}) — skipping window",
+                batch.source.as_str(),
+                code.unwrap_or("unknown")
+            );
+            discard(batch);
+            record_source_error(batch.source, "Server rejected this usage; window skipped");
+            report.skipped += 1;
         } else {
-            record_source_error(batch.source, "Server rejected this aggregate batch");
-            rejected += 1;
+            record_source_error(batch.source, "Server deferred this usage; retry is pending");
+            report.retryable += 1;
         }
     }
-    if rejected > 0 {
-        return Err(format!(
-            "Usage envelope partially accepted: {accepted} accepted, {rejected} rejected"
-        ));
-    }
-    Ok(format!(
-        "envelope v{ENVELOPE_VERSION}: {accepted} source batch(es) accepted"
-    ))
+
+    report.message = format!(
+        "envelope v{ENVELOPE_VERSION}: {} accepted, {} skipped, {} pending",
+        report.accepted, report.skipped, report.retryable
+    );
+    Ok(report)
 }
 
 fn message_row_json(m: &crate::models::native_chat::NativeRequestMetric) -> Value {
     json!({
         "id": m.id,
-        "ts": m.created_at,
+        // `AppMessageUsage.ts` is milliseconds server-side; `created_at` is
+        // seconds. Sending seconds silently skewed every distribution query
+        // by three orders of magnitude.
+        "ts": m.created_at.saturating_mul(1000),
         "provider": m.provider_id,
         "model": m.model_id,
         "effort": m.effort_level,
@@ -589,7 +748,30 @@ fn build_message_summaries(
         })
         .collect()
 }
-fn post_mcp(mode: &AuthMode, rpc_body: &Value) -> Result<String, String> {
+/// A successful MCP `tools/call` round trip. `is_error` is the tool's own
+/// business verdict — the payload still carries the reason, so callers that
+/// understand the tool parse `text` either way.
+pub struct McpToolResult {
+    pub text: String,
+    pub is_error: bool,
+}
+
+/// Clear whichever credential the request used and describe the loss.
+fn invalidate_credential(mode: &AuthMode) -> String {
+    match mode {
+        AuthMode::AccountToken(_) => {
+            let _ = AuthService::clear_auth();
+            "Account token expired or was revoked. Please sign in again.".to_string()
+        }
+        AuthMode::GuestToken(_) => {
+            let _ = AuthService::clear_guest_sync_auth();
+            "Guest sync credential expired or was revoked; retry to register a new credential."
+                .to_string()
+        }
+    }
+}
+
+fn post_mcp(mode: &AuthMode, rpc_body: &Value) -> Result<McpToolResult, String> {
     let token = match mode {
         AuthMode::AccountToken(token) | AuthMode::GuestToken(token) => token,
     };
@@ -603,19 +785,7 @@ fn post_mcp(mode: &AuthMode, rpc_body: &Value) -> Result<String, String> {
     let status = response.status();
     let text = response.text().unwrap_or_default();
     if status == reqwest::StatusCode::UNAUTHORIZED {
-        match mode {
-            AuthMode::AccountToken(_) => {
-                let _ = AuthService::clear_auth();
-                return Err("Account token expired or was revoked. Please sign in again.".into());
-            }
-            AuthMode::GuestToken(_) => {
-                let _ = AuthService::clear_guest_sync_auth();
-                return Err(
-                    "Guest sync credential expired or was revoked; retry to register a new credential."
-                        .into(),
-                );
-            }
-        }
+        return Err(invalidate_credential(mode));
     }
     if !status.is_success() {
         return Err(format!("MCP sync failed ({status}): {text}"));
@@ -627,6 +797,12 @@ fn post_mcp(mode: &AuthMode, rpc_body: &Value) -> Result<String, String> {
             .get("message")
             .and_then(Value::as_str)
             .unwrap_or("Unknown MCP error");
+        // The server answers a revoked, expired or under-scoped bearer with
+        // HTTP 200 and JSON-RPC -32001, so the HTTP 401 branch above never
+        // fires for it. Without this, a dead token retried forever.
+        if error.get("code").and_then(Value::as_i64) == Some(MCP_UNAUTHORIZED_CODE) {
+            return Err(invalidate_credential(mode));
+        }
         return Err(format!("MCP error: {message}"));
     }
     let result = parsed
@@ -639,10 +815,10 @@ fn post_mcp(mode: &AuthMode, rpc_body: &Value) -> Result<String, String> {
         .and_then(|item| item.get("text"))
         .and_then(Value::as_str)
         .ok_or_else(|| "MCP response omitted result content".to_string())?;
-    if result.get("isError").and_then(Value::as_bool) == Some(true) {
-        return Err(format!("MCP tool rejected usage: {result_text}"));
-    }
-    Ok(result_text.to_string())
+    Ok(McpToolResult {
+        text: result_text.to_string(),
+        is_error: result.get("isError").and_then(Value::as_bool) == Some(true),
+    })
 }
 
 // ─── Projected-usage reads (native token, /api/mcp) ───────────────────────
@@ -681,6 +857,11 @@ pub(crate) fn call_mcp_tool(token: &str, tool: &str, arguments: Value) -> Result
             .get("message")
             .and_then(|v| v.as_str())
             .unwrap_or("Unknown MCP error");
+        // -32001 arrives with HTTP 200, so the status branch above misses it.
+        if error.get("code").and_then(Value::as_i64) == Some(MCP_UNAUTHORIZED_CODE) {
+            let _ = AuthService::clear_auth();
+            return Err("Token expired or revoked. Please sign in again.".into());
+        }
         return Err(format!("MCP {tool} error: {message}"));
     }
     // The result content text is itself JSON; parse it out.
@@ -906,6 +1087,11 @@ fn parse_plan_timeline_window(row: &Value) -> PlanTimelineWindow {
 /// publicly). All fields are metadata only — no prompts, code, or secrets.
 pub fn sync_environment_native() -> Result<String, String> {
     let mode = resolve_auth_mode()?;
+    if matches!(&mode, AuthMode::GuestToken(_)) {
+        // The server restricts guest tokens to envelope writes; calling this
+        // only earns a -32001 that would clear a perfectly good credential.
+        return Ok("skipped: environment metadata requires a signed-in account".to_string());
+    }
     let env = collect_environment();
     let rpc_body = json!({
         "jsonrpc": "2.0",
@@ -916,7 +1102,11 @@ pub fn sync_environment_native() -> Result<String, String> {
             "arguments": env,
         }
     });
-    post_mcp(&mode, &rpc_body)
+    let result = post_mcp(&mode, &rpc_body)?;
+    if result.is_error {
+        return Err(format!("environment metadata was rejected: {}", result.text));
+    }
+    Ok(result.text)
 }
 
 /// Gather environment metadata from local DB + filesystem. Each section is
@@ -1109,34 +1299,36 @@ fn current_source_statuses(previous: &[SourceSyncStatus]) -> Vec<SourceSyncStatu
         .collect()
 }
 
-fn record_source_success(source: SourceKind, accepted_at: i64, processed_at: Option<i64>) {
-    let mut status = AUTOSYNC_STATUS.lock().clone();
-    status.sources = current_source_statuses(&status.sources);
+/// Apply a mutation to one source's status row under a single lock.
+/// The rows are refreshed first so a source registered since the last read
+/// still gets its update.
+fn update_source_status(source: SourceKind, apply: impl FnOnce(&mut SourceSyncStatus)) {
+    let mut status = AUTOSYNC_STATUS.lock();
+    let refreshed = current_source_statuses(&status.sources);
+    status.sources = refreshed;
     if let Some(entry) = status
         .sources
         .iter_mut()
         .find(|entry| entry.source == source.as_str())
     {
+        apply(entry);
+    }
+}
+
+fn record_source_success(source: SourceKind, accepted_at: i64, processed_at: Option<i64>) {
+    update_source_status(source, |entry| {
         entry.pending_retry = false;
         entry.last_success_at = Some(accepted_at);
         entry.last_processed_at = processed_at.or(entry.last_processed_at);
         entry.last_error = None;
-    }
-    *AUTOSYNC_STATUS.lock() = status;
+    });
 }
 
 fn record_source_error(source: SourceKind, message: &str) {
-    let mut status = AUTOSYNC_STATUS.lock().clone();
-    status.sources = current_source_statuses(&status.sources);
-    if let Some(entry) = status
-        .sources
-        .iter_mut()
-        .find(|entry| entry.source == source.as_str())
-    {
+    update_source_status(source, |entry| {
         entry.pending_retry = true;
         entry.last_error = Some(message.to_string());
-    }
-    *AUTOSYNC_STATUS.lock() = status;
+    });
 }
 
 /// Pure decision for why usage sync is off, given the resolved gate inputs.
@@ -1169,26 +1361,43 @@ fn resolve_off_reason(
 pub fn autosync_status() -> AutoSyncStatus {
     let settings = SettingsService::get_usage_sync_settings().unwrap_or_default();
     let consent = AnalyticsService::get_consent().unwrap_or_default();
-    let mut status = AUTOSYNC_STATUS.lock().clone();
-    status.enabled = settings.auto_sync_usage;
-    status.interval_minutes = settings.auto_sync_interval_minutes.max(1);
-    status.sync_mode = settings.usage_sync_mode.clone();
-    status.attribution = if has_account_token() {
+    let attribution = if has_account_token() {
         SyncAttribution::Account
     } else {
         SyncAttribution::PrivateInstallation
     };
-    status.sources = current_source_statuses(&status.sources);
+    // Single locked section: a clone-mutate-store would drop any per-source
+    // update the sync thread recorded while this ran.
+    let mut status = AUTOSYNC_STATUS.lock();
+    status.enabled = settings.auto_sync_usage;
+    status.interval_minutes = settings.auto_sync_interval_minutes.max(1);
+    status.sync_mode = settings.usage_sync_mode.clone();
+    status.attribution = attribution;
+    let refreshed = current_source_statuses(&status.sources);
+    status.sources = refreshed;
     let any_source_available = status.sources.iter().any(|source| source.available);
+    status.retry_after = match (status.last_error.is_some(), status.last_attempt_at) {
+        (true, Some(attempt)) => Some(attempt + BACKOFF_SECS.load(Ordering::SeqCst) as i64),
+        _ => None,
+    };
     status.off_reason = resolve_off_reason(
         consent.upload_enabled,
         consent.consented_at.is_some(),
         settings.auto_sync_usage,
         any_source_available,
     );
+    // Gates still pass during a backoff window — the schedule is simply
+    // waiting, and "Retry sync" bypasses it. Reporting `retry_backoff` here
+    // tells the user why nothing is happening without disabling the controls.
     status.gates_pass = status.off_reason.is_none();
-    *AUTOSYNC_STATUS.lock() = status.clone();
-    status
+    if status.gates_pass {
+        if let Some(retry_after) = status.retry_after {
+            if retry_after > now_seconds() {
+                status.off_reason = Some(SyncOffReason::RetryBackoff);
+            }
+        }
+    }
+    status.clone()
 }
 
 /// Read the current backoff in seconds. Reset to `INITIAL_BACKOFF_SECS`
@@ -1219,24 +1428,48 @@ pub fn set_usage_sync_mode(mode: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Trigger a sync push now (manual or opportunistic). Re-checks gates and
-/// freshness (unless `skip_freshness` is true), then calls
-/// `sync_raw_usage_native`. Records last_sync_at / last_error and emits a
-/// status event. Non-blocking on failure.
+/// Releases the single-flight guard on every exit path, including a panic in
+/// the sync thread. A leaked flag used to wedge sync until the next restart.
+struct SyncInFlightGuard;
+
+impl SyncInFlightGuard {
+    /// `None` when a sync is already running — the caller coalesces into it.
+    fn acquire() -> Option<Self> {
+        (!SYNC_IN_FLIGHT.swap(true, Ordering::SeqCst)).then_some(Self)
+    }
+}
+
+impl Drop for SyncInFlightGuard {
+    fn drop(&mut self) {
+        SYNC_IN_FLIGHT.store(false, Ordering::SeqCst);
+    }
+}
+
+/// Decide the coordinated outcome from each path's own verdict.
+///
+/// The native aggregate envelope is the PRIMARY source. OMP raw usage and the
+/// raw per-message rows are enrichment: their failure is recorded per-source
+/// but never downgrades the coordinator, so a flaky OMP install or an
+/// account-only tool skipped by a guest does not raise a coordinator error
+/// when the aggregates went through.
 fn coordinated_usage_outcome(
     omp: &Result<String, String>,
-    envelope: &Result<String, String>,
+    envelope: &Result<EnvelopeSyncReport, String>,
 ) -> SyncOverallOutcome {
-    // The native envelope is the PRIMARY source. OMP raw usage is best-effort
-    // enrichment: its failure is recorded per-source (Source status row) but
-    // never downgrades the overall outcome, so a flaky/absent OMP install does
-    // not raise a coordinator error when native usage synced fine.
     let omp_work = omp
         .as_ref()
         .is_ok_and(|message| !message.starts_with("skipped:"));
     match envelope {
+        // Nothing reached the server at all.
         Err(_) => SyncOverallOutcome::Failed,
-        Ok(message) if message.starts_with("no new") => {
+        Ok(report) if report.retryable > 0 => {
+            if report.accepted > 0 || report.skipped > 0 || omp_work {
+                SyncOverallOutcome::Partial
+            } else {
+                SyncOverallOutcome::Failed
+            }
+        }
+        Ok(report) if report.is_idle() => {
             if omp_work {
                 SyncOverallOutcome::Success
             } else {
@@ -1247,6 +1480,20 @@ fn coordinated_usage_outcome(
     }
 }
 
+/// Whether the failure backoff window has elapsed. Backoff was previously
+/// computed and never consulted, so a permanently failing sync retried at
+/// full cadence forever.
+fn backoff_elapsed(now: i64) -> bool {
+    let status = AUTOSYNC_STATUS.lock();
+    let Some(last) = status.last_attempt_at else {
+        return true;
+    };
+    if status.last_error.is_none() {
+        return true;
+    }
+    now - last >= BACKOFF_SECS.load(Ordering::SeqCst) as i64
+}
+
 pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
     eprintln!("[SYNC] trigger_sync reason={reason} skip_freshness={skip_freshness}");
     if !gates_pass() {
@@ -1255,30 +1502,39 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
     }
     // Single-flight: if a sync is already in flight, coalesce this trigger
     // into the pending one rather than launching a duplicate.
-    if SYNC_IN_FLIGHT.swap(true, Ordering::SeqCst) {
+    let Some(guard) = SyncInFlightGuard::acquire() else {
         eprintln!("[SYNC] single-flight: a sync is already in flight — coalescing");
         return;
-    }
+    };
     eprintln!("[SYNC] gates_pass=true");
-    // Debounce: enforce a minimum gap between pushes.
     let now = now_seconds();
-    {
-        let status = AUTOSYNC_STATUS.lock().clone();
-        if let Some(last) = status.last_sync_at {
-            if now - last < MIN_INTER_SYNC_GAP_SECS {
-                eprintln!(
-                    "[SYNC] debounced — last sync was {}s ago, min gap is {}s",
-                    now - last,
-                    MIN_INTER_SYNC_GAP_SECS
-                );
-                SYNC_IN_FLIGHT.store(false, Ordering::SeqCst);
-                return;
-            }
+    // Debounce: enforce a minimum gap between pushes.
+    if let Some(last) = AUTOSYNC_STATUS.lock().last_sync_at {
+        if now - last < MIN_INTER_SYNC_GAP_SECS {
+            eprintln!(
+                "[SYNC] debounced — last sync was {}s ago, min gap is {}s",
+                now - last,
+                MIN_INTER_SYNC_GAP_SECS
+            );
+            return;
         }
     }
+    // Honour the failure backoff unless the user explicitly asked to retry.
+    if !skip_freshness && !backoff_elapsed(now) {
+        eprintln!(
+            "[SYNC] backing off — {}s window has not elapsed",
+            BACKOFF_SECS.load(Ordering::SeqCst)
+        );
+        return;
+    }
+    AUTOSYNC_STATUS.lock().last_attempt_at = Some(now);
+
     let app2 = app.clone();
     let reason_owned = reason.to_string();
     thread::spawn(move || {
+        // Moved into the thread so the flag clears when this closure ends,
+        // however it ends.
+        let _guard = guard;
         // The freshness check runs HERE, off the caller thread, so command-path
         // triggers ("Sync now" / retry) never block the UI on a network call.
         // Account principals use the read-side freshness tool; guests push the
@@ -1304,13 +1560,23 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
         };
         if !should_push {
             eprintln!("[SYNC] should_push=false — aborting");
-            SYNC_IN_FLIGHT.store(false, Ordering::SeqCst);
             return;
         }
         eprintln!("[SYNC] thread started — calling sync_envelope_native (native first)…");
-        let messages_result = sync_envelope_native();
+        let envelope_result = sync_envelope_native();
         eprintln!(
             "[SYNC] sync_envelope_native: {}",
+            match &envelope_result {
+                Ok(report) => format!("ok: {}", report.message),
+                Err(e) => format!("ERR: {e}"),
+            }
+        );
+        // Raw per-message rows travel alongside the aggregates: the envelope
+        // gives the website rollups, these give it the underlying detail.
+        eprintln!("[SYNC] calling sync_messages_native (raw rows)…");
+        let messages_result = sync_messages_native();
+        eprintln!(
+            "[SYNC] sync_messages_native: {}",
             match &messages_result {
                 Ok(m) => format!("ok: {m}"),
                 Err(e) => format!("ERR: {e}"),
@@ -1352,10 +1618,8 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
             _ => {}
         }
 
-        let outcome = coordinated_usage_outcome(&result, &messages_result);
-        let mut status = AUTOSYNC_STATUS.lock().clone();
-        status.overall_outcome = Some(outcome);
-        let usage_error = match (&result, &messages_result) {
+        let outcome = coordinated_usage_outcome(&result, &envelope_result);
+        let usage_error = match (&result, &envelope_result) {
             (Err(omp), Err(envelope)) => Some(format!("OMP: {omp}; aggregates: {envelope}")),
             (Err(omp), _) => Some(format!("OMP: {omp}")),
             (_, Err(envelope)) => Some(format!("Aggregates: {envelope}")),
@@ -1368,7 +1632,6 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
                 | SyncOverallOutcome::NothingToSync
         );
         if completed_any {
-            status.last_sync_at = Some(now);
             if let Ok(mut settings) = SettingsService::get_usage_sync_settings() {
                 settings.last_usage_sync_at = Some(now);
                 settings.last_provider_fingerprint = current_provider_fingerprint();
@@ -1376,21 +1639,38 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
                 let _ = SettingsService::set_usage_sync_settings(&settings);
             }
         }
-        if matches!(
-            outcome,
-            SyncOverallOutcome::Success | SyncOverallOutcome::NothingToSync
-        ) {
-            status.last_error = None;
-            BACKOFF_SECS.store(INITIAL_BACKOFF_SECS, Ordering::SeqCst);
-        } else {
-            status.last_error = Some(match outcome {
-                SyncOverallOutcome::Partial => {
-                    "Some usage sources failed; retry is pending".to_string()
+
+        // One locked read-modify-write. The previous clone-mutate-store lost
+        // any per-source update a concurrent path recorded in between.
+        {
+            let mut status = AUTOSYNC_STATUS.lock();
+            status.overall_outcome = Some(outcome);
+            if completed_any {
+                status.last_sync_at = Some(now);
+            }
+            match outcome {
+                SyncOverallOutcome::Success | SyncOverallOutcome::NothingToSync => {
+                    status.last_error = None;
+                    BACKOFF_SECS.store(INITIAL_BACKOFF_SECS, Ordering::SeqCst);
                 }
-                _ => "Usage sync failed; retry is pending".to_string(),
-            });
-            let current = BACKOFF_SECS.load(Ordering::SeqCst);
-            BACKOFF_SECS.store((current * 2).min(MAX_BACKOFF_SECS), Ordering::SeqCst);
+                SyncOverallOutcome::Partial => {
+                    status.last_error =
+                        Some("Some usage sources failed; retry is pending".to_string());
+                    let current = BACKOFF_SECS.load(Ordering::SeqCst);
+                    BACKOFF_SECS.store((current * 2).min(MAX_BACKOFF_SECS), Ordering::SeqCst);
+                }
+                SyncOverallOutcome::Failed => {
+                    // Carry the real reason, not a generic banner: the server
+                    // and transport both name what went wrong.
+                    status.last_error = Some(
+                        usage_error
+                            .clone()
+                            .unwrap_or_else(|| "Usage sync failed; retry is pending".to_string()),
+                    );
+                    let current = BACKOFF_SECS.load(Ordering::SeqCst);
+                    BACKOFF_SECS.store((current * 2).min(MAX_BACKOFF_SECS), Ordering::SeqCst);
+                }
+            }
         }
 
         let environment_note = if env_result.is_ok() {
@@ -1403,8 +1683,14 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
         } else {
             "advisor feedback not uploaded"
         };
+        let raw_note = match &messages_result {
+            Ok(message) if message.starts_with("skipped:") => "raw rows not applicable",
+            Ok(message) if message.starts_with("no new") => "raw rows already current",
+            Ok(_) => "raw rows synced",
+            Err(_) => "raw rows not uploaded",
+        };
         let message = format!(
-            "{reason_owned}: usage {}; {environment_note}; {feedback_note}",
+            "{reason_owned}: usage {}; {raw_note}; {environment_note}; {feedback_note}",
             match outcome {
                 SyncOverallOutcome::Success => "synced",
                 SyncOverallOutcome::Partial => "partially synced; retry pending",
@@ -1430,9 +1716,6 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
         {
             let _ = app2.emit(AUTH_CHANGED, ());
         }
-        *AUTOSYNC_STATUS.lock() = status;
-        // Release the single-flight guard.
-        SYNC_IN_FLIGHT.store(false, Ordering::SeqCst);
     });
 }
 
@@ -1591,13 +1874,15 @@ pub fn sync_on_exit() {
     // Blocking sync with a timeout — we can't hang the exit forever.
     let (tx, rx) = std::sync::mpsc::channel();
     thread::spawn(move || {
-        let msgs = sync_envelope_native();
+        let envelope = sync_envelope_native();
+        let rows = sync_messages_native();
         let raw = sync_raw_usage_native();
         let feedback = sync_execution_advisor_feedback_native();
         eprintln!(
-            "[SYNC] sync_on_exit: raw={:?}, msgs={:?}, advisor_feedback={:?}",
+            "[SYNC] sync_on_exit: envelope={:?}, rows={:?}, raw={:?}, advisor_feedback={:?}",
+            envelope.is_ok(),
+            rows.is_ok(),
             raw.is_ok(),
-            msgs.is_ok(),
             feedback.is_ok()
         );
         let _ = tx.send(());
@@ -1624,6 +1909,26 @@ mod tests {
 
     fn error() -> Result<String, String> {
         Err("transport failed".to_string())
+    }
+
+    fn envelope_error() -> Result<EnvelopeSyncReport, String> {
+        Err("transport failed".to_string())
+    }
+
+    fn report(accepted: usize, skipped: usize, retryable: usize) -> Result<EnvelopeSyncReport, String> {
+        Ok(EnvelopeSyncReport {
+            accepted,
+            skipped,
+            retryable,
+            message: "test".to_string(),
+        })
+    }
+
+    fn envelope_idle() -> Result<EnvelopeSyncReport, String> {
+        Ok(EnvelopeSyncReport {
+            message: "no new envelope usage data".to_string(),
+            ..Default::default()
+        })
     }
 
     #[test]
@@ -1668,7 +1973,7 @@ mod tests {
     #[test]
     fn coordinated_outcome_does_not_let_skipped_omp_hide_envelope_failure() {
         assert_eq!(
-            coordinated_usage_outcome(&ok("skipped: OMP not installed"), &error()),
+            coordinated_usage_outcome(&ok("skipped: OMP not installed"), &envelope_error()),
             SyncOverallOutcome::Failed
         );
     }
@@ -1677,13 +1982,13 @@ mod tests {
     fn coordinated_outcome_treats_omp_as_best_effort_native_primary() {
         // Native envelope failed → overall Failed regardless of OMP.
         assert_eq!(
-            coordinated_usage_outcome(&ok("OMP synced"), &error()),
+            coordinated_usage_outcome(&ok("OMP synced"), &envelope_error()),
             SyncOverallOutcome::Failed
         );
         // Native envelope accepted, OMP raw failed → still Success (OMP is
         // best-effort enrichment and never downgrades the coordinator).
         assert_eq!(
-            coordinated_usage_outcome(&error(), &ok("envelope v1: 1 source accepted")),
+            coordinated_usage_outcome(&error(), &report(1, 0, 0)),
             SyncOverallOutcome::Success
         );
     }
@@ -1691,12 +1996,235 @@ mod tests {
     #[test]
     fn coordinated_outcome_reports_nothing_to_sync_only_without_failures() {
         assert_eq!(
-            coordinated_usage_outcome(
-                &ok("skipped: OMP not installed"),
-                &ok("no new envelope usage data"),
-            ),
+            coordinated_usage_outcome(&ok("skipped: OMP not installed"), &envelope_idle()),
             SyncOverallOutcome::NothingToSync
         );
+    }
+
+    #[test]
+    fn coordinated_outcome_is_partial_when_one_source_still_owes_data() {
+        // The point of fault isolation: a source that failed must not erase
+        // the sources that succeeded, and must not be reported as clean.
+        assert_eq!(
+            coordinated_usage_outcome(&ok("skipped: OMP not installed"), &report(1, 0, 1)),
+            SyncOverallOutcome::Partial
+        );
+        // Nothing landed and something is still owed → a real failure.
+        assert_eq!(
+            coordinated_usage_outcome(&ok("skipped: OMP not installed"), &report(0, 0, 1)),
+            SyncOverallOutcome::Failed
+        );
+    }
+
+    #[test]
+    fn coordinated_outcome_counts_a_permanently_skipped_batch_as_progress() {
+        // A window the server will never accept is abandoned, not retried.
+        // Reporting it as failure would keep the device in a loop it cannot
+        // exit — the whole bug this replaced.
+        assert_eq!(
+            coordinated_usage_outcome(&ok("skipped: OMP not installed"), &report(0, 1, 0)),
+            SyncOverallOutcome::Success
+        );
+    }
+
+    #[test]
+    fn permanent_rejections_are_abandoned_and_unknown_ones_are_retried() {
+        for code in [
+            "invalid_window",
+            "invalid_rows",
+            "invalid_row",
+            "invalid_batch",
+            "invalid_idempotency_key",
+            "source_not_allowed",
+            "idempotency_conflict",
+        ] {
+            assert!(rejection_is_permanent(Some(code)), "{code} must not retry");
+        }
+        // Transient and unrecognized codes keep the data queued — a server
+        // change must never silently discard a user's usage.
+        for code in [
+            Some("quota_exceeded"),
+            Some("processing_failed"),
+            Some("token_revoked"),
+            Some("something_new"),
+            None,
+        ] {
+            assert!(!rejection_is_permanent(code), "{code:?} must retry");
+        }
+    }
+
+    /// End-to-end local proof of the outage: a Claude Code history containing
+    /// `<synthetic>` used to fail envelope assembly, which took native usage
+    /// down with it and left the device unable to sync anything, forever.
+    #[test]
+    fn a_poisoned_harness_history_no_longer_blocks_native_usage() {
+        use crate::models::usage_envelope::{assemble_envelope, validate_envelope};
+
+        let (_dir, _guard) = crate::test_util::test::isolated_home();
+        let home = tempfile::TempDir::new().unwrap();
+        let projects = home.path().join(".claude").join("projects");
+        std::fs::create_dir_all(&projects).unwrap();
+        let now = now_seconds();
+        let stamp = |offset: i64| {
+            // Claude Code writes ISO-8601; keep it inside the retention window.
+            let secs = now - offset;
+            chrono_like_iso(secs)
+        };
+        std::fs::write(
+            projects.join("session.jsonl"),
+            format!(
+                "{}\n{}\n",
+                json!({
+                    "type": "assistant",
+                    "message": {"model": "<synthetic>", "usage": {"input_tokens": 3, "output_tokens": 1}},
+                    "timestamp": stamp(600)
+                }),
+                json!({
+                    "type": "assistant",
+                    "message": {"model": "claude-opus-4-8", "usage": {"input_tokens": 40, "output_tokens": 9}},
+                    "timestamp": stamp(300)
+                }),
+            ),
+        )
+        .unwrap();
+        // Restore on unwind too: a leaked HOME would follow every later test
+        // in this process.
+        let _home_guard = HomeVarGuard::set(home.path());
+
+        let conn = StorageService::connect().unwrap();
+        conn.execute(
+            "INSERT INTO native_chat_sessions (id, project_path, title, profile_id, provider_id,
+                 model_id, effort_level, status, run_state, created_at, updated_at)
+             VALUES ('s1', '/test', 'Chat', 'basebuild-native', 'openai', 'gpt-5.1', 'medium',
+                 'ready', 'idle', ?1, ?1)",
+            rusqlite::params![now],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO native_request_metrics (id, session_id, provider_id, model_id,
+                 effort_level, started_at, input_tokens, output_tokens, outcome, created_at)
+             VALUES ('m1', 's1', 'openai', 'gpt-5.1', 'medium', ?1, 100, 50, 'success', ?2)",
+            rusqlite::params![now * 1000, now - 120],
+        )
+        .unwrap();
+        drop(conn);
+
+        let collections =
+            crate::services::usage_source_service::collect_all_sources(false);
+        let batches: Vec<_> = collections
+            .into_iter()
+            .filter_map(|collection| collection.batch)
+            .collect();
+        assert!(
+            batches.iter().any(|b| b.source == SourceKind::ClaudeCode),
+            "the harness history must still be collected, not skipped wholesale"
+        );
+
+        let (envelope, rejected) = assemble_envelope(batches, now);
+        let envelope = envelope.expect("an envelope must be shippable");
+        validate_envelope(&envelope).expect("assembled envelope must be wire-valid");
+        assert!(
+            rejected.is_empty(),
+            "nothing should be dropped: {:?}",
+            rejected.iter().map(|r| &r.reason).collect::<Vec<_>>()
+        );
+        assert!(
+            envelope.batches.iter().any(|b| b.source == SourceKind::Native),
+            "native usage must ship alongside the harness batch"
+        );
+    }
+
+    /// Scoped `HOME` override. The harness readers resolve their data
+    /// directories from it, and the variable is process-global, so a test
+    /// that leaks it on failure poisons everything that runs after.
+    struct HomeVarGuard(Option<std::ffi::OsString>);
+
+    impl HomeVarGuard {
+        fn set(path: &std::path::Path) -> Self {
+            let previous = std::env::var_os("HOME");
+            std::env::set_var("HOME", path);
+            Self(previous)
+        }
+    }
+
+    impl Drop for HomeVarGuard {
+        fn drop(&mut self) {
+            match self.0.take() {
+                Some(value) => std::env::set_var("HOME", value),
+                None => std::env::remove_var("HOME"),
+            }
+        }
+    }
+
+    /// Minimal UTC ISO-8601 formatter — the harness reader's parser only
+    /// needs `YYYY-MM-DDTHH:MM:SSZ`, and the crate has no chrono dependency.
+    fn chrono_like_iso(epoch_secs: i64) -> String {
+        let days = epoch_secs.div_euclid(86_400);
+        let rem = epoch_secs.rem_euclid(86_400);
+        // Civil-from-days (Howard Hinnant), the inverse of the reader's.
+        let z = days + 719_468;
+        let era = z.div_euclid(146_097);
+        let doe = z - era * 146_097;
+        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        let mp = (5 * doy + 2) / 153;
+        let day = doy - (153 * mp + 2) / 5 + 1;
+        let month = if mp < 10 { mp + 3 } else { mp - 9 };
+        let year = era * 400 + yoe + i64::from(month <= 2);
+        format!(
+            "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+            rem / 3600,
+            (rem % 3600) / 60,
+            rem % 60
+        )
+    }
+
+    /// Live contract check against basebuild.net. Not part of the default
+    /// suite (it needs network and registers a guest installation); run it
+    /// deliberately after touching the envelope wire format:
+    ///
+    /// ```text
+    /// cargo test --lib live_envelope_round_trip -- --ignored --nocapture
+    /// ```
+    #[test]
+    #[ignore = "network: talks to basebuild.net and registers a guest installation"]
+    fn live_envelope_round_trip_is_accepted_by_the_server() {
+        let (_dir, _guard) = crate::test_util::test::isolated_home();
+        let now = now_seconds();
+
+        let conn = StorageService::connect().unwrap();
+        conn.execute(
+            "INSERT INTO native_chat_sessions (id, project_path, title, profile_id, provider_id,
+                 model_id, effort_level, status, run_state, created_at, updated_at)
+             VALUES ('s1', '/test', 'Chat', 'basebuild-native', 'local-models',
+                 'lmstudio:google/gemma-4-e4b', 'high', 'ready', 'idle', ?1, ?1)",
+            rusqlite::params![now],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO native_request_metrics (id, session_id, provider_id, model_id,
+                 effort_level, started_at, duration_ms, input_tokens, output_tokens,
+                 cost_total, outcome, subscription_source, created_at)
+             VALUES ('m1', 's1', 'local-models', 'lmstudio:google/gemma-4-e4b', 'high',
+                 ?1, 1200, 100, 50, 0.0, 'success', 'unknown', ?2)",
+            rusqlite::params![now * 1000, now - 120],
+        )
+        .unwrap();
+        drop(conn);
+
+        let report = sync_envelope_native().expect("envelope push must reach the server");
+        eprintln!("[live] {}", report.message);
+        // The harness sources read the developer's real history, so the batch
+        // count varies by machine; what must hold is that everything offered
+        // was accepted and nothing was dropped or left owing.
+        assert!(report.accepted >= 1, "server must accept the native batch");
+        assert_eq!(report.retryable, 0, "nothing may be left pending");
+        assert_eq!(report.skipped, 0, "nothing may be dropped as unshippable");
+
+        // The cursors advanced, so an immediate second pass has nothing owed —
+        // proof the accept path is wired, not just the transport.
+        let again = sync_envelope_native().expect("second pass must succeed");
+        assert!(again.is_idle(), "expected nothing to sync, got {again:?}");
     }
 
     #[test]

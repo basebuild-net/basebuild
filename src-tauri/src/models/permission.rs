@@ -205,15 +205,20 @@ pub struct UsageSyncSettings {
     /// Epoch seconds of the last successful sync, when any.
     #[serde(default)]
     pub last_usage_sync_at: Option<i64>,
-    /// Detail level for the app→basebuild.net message sync: "rows" (send
-    /// per-message rows; the server rolls up + owns aggregation) or "summary"
-    /// (roll up client-side, send summaries).
+    /// Detail level for the per-message raw sync: "rows" (send per-message
+    /// rows; the server owns aggregation) or "summary" (roll up client-side).
     #[serde(default = "default_usage_sync_mode")]
     pub usage_sync_mode: String,
-    /// created_at (epoch seconds) of the last message row synced — the cursor
-    /// for the incremental message sync.
+    /// created_at (epoch seconds) of the last raw per-message row accepted by
+    /// `sync_messages`. Independent of the aggregate cursor below: the two
+    /// paths feed different server tables and must drain independently, or
+    /// whichever ran first would starve the other.
     #[serde(default)]
     pub last_message_sync_at: Option<i64>,
+    /// window_end (epoch seconds) of the last aggregate envelope batch the
+    /// server accepted for the native source.
+    #[serde(default)]
+    pub last_envelope_sync_at: Option<i64>,
     /// Managed-trigger state: a stable fingerprint of the set of connected
     /// providers/accounts. When this changes between trigger evaluations a
     /// sync fires before the next scheduled tick. Opaque to the server.
@@ -237,6 +242,7 @@ impl Default for UsageSyncSettings {
             last_usage_sync_at: None,
             usage_sync_mode: default_usage_sync_mode(),
             last_message_sync_at: None,
+            last_envelope_sync_at: None,
             last_provider_fingerprint: None,
             last_known_request_total: None,
         }

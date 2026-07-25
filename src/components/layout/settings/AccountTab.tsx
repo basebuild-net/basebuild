@@ -144,6 +144,14 @@ const OUTCOME_LABELS: Record<SyncOverallOutcome, string> = {
 };
 
 export function usageSyncOffReasonText(status: AutoSyncStatus): string | null {
+  // The backoff window is the one "off" reason that keeps the gates open:
+  // the schedule is waiting, but Sync now / Retry sync still work.
+  if (status.offReason === "retry_backoff") {
+    const at = status.retryAfter ? formatSyncTime(status.retryAfter) : null;
+    return at
+      ? `A previous attempt failed. The next scheduled retry is at ${at} — or retry now.`
+      : "A previous attempt failed. A retry is waiting for its backoff window.";
+  }
   if (status.gatesPass) return null;
   switch (status.offReason) {
     case "usage_sharing_disabled":
@@ -154,8 +162,6 @@ export function usageSyncOffReasonText(status: AutoSyncStatus): string | null {
       return "Usage sharing isn't on yet. Turn on Share anonymous aggregate usage below to sync.";
     case "no_sources_available":
       return "No supported local usage sources are currently available.";
-    case "retry_backoff":
-      return "A previous attempt failed. A retry is waiting for its backoff window.";
     default:
       return "Usage sync is off. Review Share anonymous aggregate usage below.";
   }

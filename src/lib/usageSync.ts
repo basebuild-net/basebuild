@@ -96,6 +96,10 @@ export type AutoSyncStatus = {
   attribution: SyncAttribution;
   intervalMinutes: number;
   lastSyncAt?: number;
+  /** Epoch seconds of the last attempt, successful or not. */
+  lastAttemptAt?: number;
+  /** Epoch seconds when the next scheduled attempt becomes eligible. */
+  retryAfter?: number;
   lastError?: string;
   /** Usage sync detail mode: "rows" (server rolls up) or "summary". */
   syncMode?: string;

@@ -210,6 +210,15 @@ pub struct AutoSyncStatus {
     /// Epoch seconds of the last successful coordinated sync, when any.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_sync_at: Option<i64>,
+    /// Epoch seconds of the last coordinated ATTEMPT, successful or not.
+    /// Distinct from `last_sync_at`: the retry backoff is measured from the
+    /// attempt, so a permanently failing sync actually slows down.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_attempt_at: Option<i64>,
+    /// Epoch seconds when the next automatic attempt becomes eligible, when
+    /// the coordinator is currently backing off after a failure.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_after: Option<i64>,
     /// Last coordinator error message, when any.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_error: Option<String>,
@@ -265,6 +274,8 @@ mod tests {
             attribution: SyncAttribution::Account,
             interval_minutes: 60,
             last_sync_at: Some(100),
+            last_attempt_at: Some(100),
+            retry_after: None,
             last_error: None,
             sync_mode: "summary".to_string(),
             overall_outcome: Some(SyncOverallOutcome::Partial),

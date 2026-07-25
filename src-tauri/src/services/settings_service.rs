@@ -329,7 +329,18 @@ impl SettingsService {
             // for "toggle doesn't stick" — previously an unparseable row
             // surfaced as an error and callers fell back to unwrap_or_default
             // while the stored value was ignored.
-            Some(v) => Ok(serde_json::from_str(&v).unwrap_or_default()),
+            Some(v) => {
+                let mut settings: UsageSyncSettings =
+                    serde_json::from_str(&v).unwrap_or_default();
+                // Before the split, the aggregate envelope and the raw
+                // per-message sync shared `last_message_sync_at`. Seed the new
+                // aggregate cursor from it so an upgrade does not re-send
+                // every window the server already accepted.
+                if settings.last_envelope_sync_at.is_none() {
+                    settings.last_envelope_sync_at = settings.last_message_sync_at;
+                }
+                Ok(settings)
+            }
             None => Ok(UsageSyncSettings::default()),
         }
     }

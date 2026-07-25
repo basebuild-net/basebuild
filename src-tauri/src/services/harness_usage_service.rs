@@ -21,7 +21,9 @@ use std::time::SystemTime;
 use rusqlite::params;
 use serde_json::{json, Value};
 
-use crate::models::usage_envelope::{SourceKind, UsageBatch};
+use crate::models::usage_envelope::{
+    clamp_window, normalize_identifier, SourceKind, UsageBatch, MAX_ROWS_PER_BATCH,
+};
 use crate::services::storage_service::StorageService;
 
 /// Maximum lines parsed per collect call — bounds startup cost on large
@@ -283,13 +285,32 @@ impl crate::services::usage_source_service::UsageSource for HarnessSource {
         if entries.is_empty() {
             return Ok(None);
         }
-        let (rows, window_start, window_end) = aggregate_entries(self.kind(), &entries);
+        // `read_entries` filters whole FILES by mtime, so an appended session
+        // file re-yields every entry it ever held. Filtering by entry
+        // timestamp here is what makes a collect incremental: without it each
+        // pass re-parses and re-uploads the entire history under a colliding
+        // idempotency key.
+        let (rows, window_start, window_end) = aggregate_entries(self.kind(), &entries, since);
         if rows.is_empty() {
             return Ok(None);
         }
+        // Harness histories routinely predate the server's 90-day retention
+        // horizon and span more than its 31-day window cap. Clamping here
+        // keeps a first-ever collect from producing a batch that could only
+        // ever be rejected; the trailing history is dropped rather than
+        // retried forever.
+        let Some((window_start, window_end)) = clamp_window(window_start, window_end, now_seconds())
+        else {
+            // Nothing in range: bank the checkpoint so we never re-read it.
+            self.set_checkpoint(window_end)?;
+            return Ok(None);
+        };
         Ok(Some(UsageBatch {
             source: self.kind(),
-            idempotency_key: format!("harness:{}:{window_start}:{window_end}:v1", self.kind().as_str()),
+            idempotency_key: format!(
+                "harness:{}:{window_start}:{window_end}:v1",
+                self.kind().as_str()
+            ),
             window_start,
             window_end,
             rows,
@@ -309,7 +330,13 @@ impl crate::services::usage_source_service::UsageSource for HarnessSource {
 }
 
 /// Aggregate parsed entries into schema-safe per-(provider, model, hour) rows.
-fn aggregate_entries(source: SourceKind, entries: &[Value]) -> (Vec<Value>, i64, i64) {
+///
+/// Entries at or before `since` are skipped, so a re-read of an appended
+/// session file yields only what is new. Identifiers are normalized to the
+/// wire charset and rows are capped at the server's per-batch limit: an entry
+/// the schema cannot express is coarsened or dropped, never allowed to fail
+/// the batch it rides in.
+fn aggregate_entries(source: SourceKind, entries: &[Value], since: i64) -> (Vec<Value>, i64, i64) {
     use std::collections::HashMap;
 
     #[derive(Default)]
@@ -333,15 +360,24 @@ fn aggregate_entries(source: SourceKind, entries: &[Value]) -> (Vec<Value>, i64,
             SourceKind::OpenCode => extract_opencode(entry),
             _ => continue,
         };
-        if model == "unknown" || ts == 0 {
+        if model == "unknown" || ts == 0 || ts <= since {
             continue;
         }
+        // Harness ids are third-party strings (Claude Code writes
+        // `<synthetic>`; others use spaces or parentheses). Coerce them into
+        // the wire charset and skip only what is unsalvageable.
+        let (Some(provider), Some(model)) = (
+            normalize_identifier(&provider),
+            normalize_identifier(&model),
+        ) else {
+            continue;
+        };
         let hour = ts - (ts % 3600);
         let acc = map
             .entry((provider.clone(), model.clone(), hour))
             .or_insert_with(|| Acc {
-                provider: provider.clone(),
-                model: model.clone(),
+                provider,
+                model,
                 ts_min: ts,
                 ts_max: ts,
                 ..Default::default()
@@ -357,8 +393,53 @@ fn aggregate_entries(source: SourceKind, entries: &[Value]) -> (Vec<Value>, i64,
 
     let window_start = map.values().map(|acc| acc.ts_min).min().unwrap_or(0);
     let window_end = map.values().map(|acc| acc.ts_max).max().unwrap_or(0);
-    let rows = map
-        .into_values()
+
+    let mut accs: Vec<Acc> = if map.len() > MAX_ROWS_PER_BATCH {
+        // Too many hourly buckets for one batch. Coarsen to per-(provider,
+        // model) totals rather than dropping usage — the batch window already
+        // carries the time bounds.
+        let mut coarse: HashMap<(String, String), Acc> = HashMap::new();
+        for acc in map.into_values() {
+            let entry = coarse
+                .entry((acc.provider.clone(), acc.model.clone()))
+                .or_insert_with(|| Acc {
+                    provider: acc.provider.clone(),
+                    model: acc.model.clone(),
+                    ts_min: acc.ts_min,
+                    ts_max: acc.ts_max,
+                    ..Default::default()
+                });
+            entry.requests += acc.requests;
+            entry.input += acc.input;
+            entry.output += acc.output;
+            entry.cache_read += acc.cache_read;
+            entry.cost += acc.cost;
+            entry.ts_min = entry.ts_min.min(acc.ts_min);
+            entry.ts_max = entry.ts_max.max(acc.ts_max);
+        }
+        coarse.into_values().collect()
+    } else {
+        map.into_values().collect()
+    };
+    if accs.len() > MAX_ROWS_PER_BATCH {
+        // Still over budget (a harness with hundreds of distinct models):
+        // keep the heaviest rows, which carry nearly all the signal.
+        accs.sort_unstable_by(|a, b| b.requests.cmp(&a.requests).then(a.model.cmp(&b.model)));
+        accs.truncate(MAX_ROWS_PER_BATCH);
+    }
+    // Deterministic order is load-bearing, not cosmetic: the server keys
+    // idempotency on a digest of the serialized batch, so a HashMap's
+    // arbitrary iteration order made an identical replay look like a
+    // different payload and come back as `idempotency_conflict`.
+    accs.sort_unstable_by(|a, b| {
+        a.provider
+            .cmp(&b.provider)
+            .then(a.model.cmp(&b.model))
+            .then(a.ts_min.cmp(&b.ts_min))
+    });
+
+    let rows = accs
+        .into_iter()
         .map(|a| {
             json!({
                 "kind": "model_usage",
@@ -379,6 +460,24 @@ fn aggregate_entries(source: SourceKind, entries: &[Value]) -> (Vec<Value>, i64,
         })
         .collect();
     (rows, window_start, window_end)
+}
+
+/// Harness timestamps arrive in seconds or milliseconds depending on the
+/// tool. Anything past year 5138 in seconds is milliseconds.
+fn normalize_epoch_seconds(value: i64) -> i64 {
+    if value > 100_000_000_000 {
+        value / 1000
+    } else {
+        value
+    }
+}
+
+/// Current time in epoch seconds.
+fn now_seconds() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or_default()
 }
 
 /// Claude Code: assistant entries with `message.model` + `message.usage`.
@@ -450,10 +549,12 @@ fn extract_opencode(entry: &Value) -> (String, String, i64, i64, i64, f64, i64) 
         .and_then(|t| t.get("cache"))
         .and_then(|v| v.as_i64())
         .unwrap_or(0);
+    // OpenCode records these in milliseconds; older builds used seconds.
     let ts = entry
         .get("createdAt")
         .and_then(|v| v.as_i64())
         .or_else(|| entry.get("completedAt").and_then(|v| v.as_i64()))
+        .map(normalize_epoch_seconds)
         .unwrap_or(0);
     (provider, model, input, output, cache_read, 0.0, ts)
 }
@@ -623,7 +724,8 @@ mod tests {
             },
             "timestamp": "2026-07-18T12:34:56Z"
         });
-        let (rows, window_start, window_end) = aggregate_entries(SourceKind::ClaudeCode, &[entry]);
+        let (rows, window_start, window_end) =
+            aggregate_entries(SourceKind::ClaudeCode, &[entry], 0);
         assert_eq!(rows.len(), 1);
         assert!(window_start > 0);
         assert!(window_end > 0);
@@ -634,6 +736,121 @@ mod tests {
         assert!(row.get("message").is_none());
         assert!(row.get("model").is_some());
         assert!(row.get("inputTokens").is_some());
+    }
+
+    #[test]
+    fn synthetic_model_ids_are_normalized_not_dropped_onto_the_wire() {
+        // Claude Code writes `<synthetic>` for internally generated turns.
+        // Emitting it verbatim failed local envelope validation, which took
+        // down every other source with it — sync never succeeded again.
+        let entries = vec![
+            json!({
+                "message": {"model": "<synthetic>", "usage": {"input_tokens": 10, "output_tokens": 5}},
+                "timestamp": "2026-07-18T12:34:56Z"
+            }),
+            json!({
+                "message": {"model": "claude-opus-4-8", "usage": {"input_tokens": 20, "output_tokens": 7}},
+                "timestamp": "2026-07-18T12:34:57Z"
+            }),
+        ];
+        let (rows, _start, _end) = aggregate_entries(SourceKind::ClaudeCode, &entries, 0);
+        assert_eq!(rows.len(), 2);
+        for row in &rows {
+            crate::models::usage_envelope::validate_row(row)
+                .expect("every harness row must be shippable");
+        }
+        let models: Vec<&str> = rows
+            .iter()
+            .filter_map(|row| row.get("model").and_then(|m| m.as_str()))
+            .collect();
+        assert!(models.contains(&"synthetic"), "got {models:?}");
+        assert!(models.contains(&"claude-opus-4-8"), "got {models:?}");
+    }
+
+    #[test]
+    fn aggregation_is_incremental_and_byte_stable() {
+        // Two independent failures the server surfaced as `idempotency_conflict`:
+        // re-reading an appended file re-emitted the whole history, and HashMap
+        // iteration order made an identical replay serialize differently, so the
+        // digest never matched the receipt already on file.
+        let base = 1_784_000_000i64;
+        let entries: Vec<Value> = ["alpha-1", "beta-2", "gamma-3", "delta-4"]
+            .iter()
+            .enumerate()
+            .map(|(i, model)| {
+                json!({
+                    "providerID": "anthropic",
+                    "modelID": model,
+                    "tokens": {"input": 1, "output": 1},
+                    "createdAt": base + i as i64 * 7200
+                })
+            })
+            .collect();
+
+        let (first, _s, first_end) = aggregate_entries(SourceKind::OpenCode, &entries, 0);
+        let (again, _s, _e) = aggregate_entries(SourceKind::OpenCode, &entries, 0);
+        assert_eq!(
+            serde_json::to_string(&first).unwrap(),
+            serde_json::to_string(&again).unwrap(),
+            "identical input must serialize identically or the server sees a conflict"
+        );
+
+        // A second pass after the checkpoint has nothing left to send.
+        let (drained, _s, _e) = aggregate_entries(SourceKind::OpenCode, &entries, first_end);
+        assert!(drained.is_empty(), "already-synced entries must not re-send");
+
+        // …but a newly appended entry does.
+        let mut appended = entries.clone();
+        appended.push(json!({
+            "providerID": "anthropic",
+            "modelID": "epsilon-5",
+            "tokens": {"input": 1, "output": 1},
+            "createdAt": first_end + 3600
+        }));
+        let (fresh, _s, _e) = aggregate_entries(SourceKind::OpenCode, &appended, first_end);
+        assert_eq!(fresh.len(), 1);
+        assert_eq!(fresh[0]["model"], "epsilon-5");
+    }
+
+    #[test]
+    fn aggregate_stays_within_the_server_row_budget() {
+        // A long harness history produces one bucket per (model, hour); the
+        // server refuses a batch over 500 rows, so aggregation must coarsen
+        // rather than emit a batch that can only be rejected.
+        let base = 1_784_000_000i64;
+        let entries: Vec<Value> = (0..(MAX_ROWS_PER_BATCH as i64 + 250))
+            .map(|i| {
+                json!({
+                    "providerID": "anthropic",
+                    "modelID": "claude-sonnet-4",
+                    "tokens": {"input": 1, "output": 1},
+                    "createdAt": base + i * 3600
+                })
+            })
+            .collect();
+        let (rows, _start, _end) = aggregate_entries(SourceKind::OpenCode, &entries, 0);
+        assert!(rows.len() <= MAX_ROWS_PER_BATCH, "got {} rows", rows.len());
+        // Coarsening preserves the totals rather than discarding usage.
+        let requests: i64 = rows
+            .iter()
+            .filter_map(|row| row.get("requests").and_then(Value::as_i64))
+            .sum();
+        assert_eq!(requests, MAX_ROWS_PER_BATCH as i64 + 250);
+    }
+
+    #[test]
+    fn opencode_millisecond_timestamps_are_read_as_seconds() {
+        // OpenCode records `createdAt` in milliseconds; taking it verbatim
+        // put every row ~53,000 years in the future, past the server's skew
+        // tolerance, so the batch could never be accepted.
+        let entry = json!({
+            "providerID": "anthropic",
+            "modelID": "claude-sonnet-4",
+            "tokens": {"input": 1, "output": 1},
+            "createdAt": 1_784_378_096_000i64
+        });
+        let (_p, _m, _i, _o, _c, _cost, ts) = extract_opencode(&entry);
+        assert_eq!(ts, 1_784_378_096);
     }
 
     #[test]
