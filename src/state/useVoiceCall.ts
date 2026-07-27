@@ -421,10 +421,15 @@ export function useVoiceCall({ profile, onTranscript, addLog }: UseVoiceCallOpti
     if (next && stateRef.current === "capturing") stopRecorder(true);
   }, [addLog, stopRecorder]);
 
+  const clearError = useCallback(() => {
+    setError(null);
+    setPermissionDenied(false);
+  }, []);
   return {
     state,
     level,
     error,
+    clearError,
     permissionDenied,
     support,
     callActive,

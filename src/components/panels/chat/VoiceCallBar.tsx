@@ -1,4 +1,4 @@
-import { Loader2, Mic, MicOff, PhoneOff, Settings2, Volume2 } from "lucide-react";
+import { Loader2, Mic, MicOff, PhoneOff, Settings2, Volume2, X } from "lucide-react";
 import type { VoiceProfile } from "../../../lib/voice";
 import type { VoiceState } from "../../../state/useVoiceCall";
 
@@ -31,6 +31,8 @@ export type VoiceCallBarProps = {
   /** Raw RMS from the analyser, roughly 0 to 0.3 for speech. */
   level: number;
   muted: boolean;
+  /** Whether a call is actually active (vs just showing a permission error). */
+  callActive: boolean;
   error: string | null;
   /** True when getUserMedia was blocked, not just unavailable. */
   permissionDenied: boolean;
@@ -47,6 +49,7 @@ export function VoiceCallBar({
   state,
   level,
   muted,
+  callActive,
   error,
   permissionDenied,
   profile,
@@ -109,31 +112,35 @@ export function VoiceCallBar({
       ) : null}
 
       <div className="voice-call-actions">
-        <button
-          className="btn btn-sm"
-          type="button"
-          title={muted ? "Unmute the microphone" : "Mute the microphone without ending the call"}
-          aria-pressed={muted}
-          onClick={onToggleMute}
-        >
-          {muted ? <MicOff size={13} /> : <Mic size={13} />}
-        </button>
-        <button
-          className="btn btn-sm"
-          type="button"
-          title="Voice settings: provider, model, speech engine and reply voice"
-          onClick={onOpenSettings}
-        >
-          <Settings2 size={13} />
-        </button>
+        {callActive ? (
+          <>
+            <button
+              className="btn btn-sm"
+              type="button"
+              title={muted ? "Unmute the microphone" : "Mute the microphone without ending the call"}
+              aria-pressed={muted}
+              onClick={onToggleMute}
+            >
+              {muted ? <MicOff size={13} /> : <Mic size={13} />}
+            </button>
+            <button
+              className="btn btn-sm"
+              type="button"
+              title="Voice settings: provider, model, speech engine and reply voice"
+              onClick={onOpenSettings}
+            >
+              <Settings2 size={13} />
+            </button>
+          </>
+        ) : null}
         <button
           className="btn btn-sm voice-call-end"
           type="button"
-          title="End the voice call and release the microphone"
+          title={callActive ? "End the voice call and release the microphone" : "Dismiss this message"}
           onClick={onEnd}
         >
-          <PhoneOff size={13} />
-          <span>End</span>
+          {callActive ? <PhoneOff size={13} /> : <X size={13} />}
+          <span>{callActive ? "End" : "Dismiss"}</span>
         </button>
       </div>
 
