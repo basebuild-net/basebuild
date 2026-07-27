@@ -3508,17 +3508,18 @@ export function ChatPanel({
         ) : null}
         {activeQuestions.length === 0 && !focusedIdeaBatch ? (
         <div className="chat-composer-box">
-          {voice.callActive ? (
+          {voice.callActive || voice.permissionDenied ? (
             <VoiceCallBar
               state={voice.state}
               level={voice.level}
+              callActive={voice.callActive}
               muted={voice.muted}
               error={voice.error}
               permissionDenied={voice.permissionDenied}
               profile={voiceProfile}
               modelName={modelName}
               onToggleMute={voice.toggleMute}
-              onEnd={endVoiceCall}
+              onEnd={voice.callActive ? endVoiceCall : voice.clearError}
               onOpenSettings={() => setShowVoiceSettings(true)}
               onOpenMicSettings={() => void openUrl("ms-settings:privacy-microphone")}
             />
