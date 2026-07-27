@@ -3752,7 +3752,7 @@ export function ChatPanel({
               {voice.support.mic ? (
                 <>
                   <button
-                    className={`btn chat-send-btn chat-voice-btn${voice.state === "capturing" && !voice.callActive ? " is-capturing" : ""}`}
+                    className={`btn chat-voice-btn${voice.state === "capturing" && !voice.callActive ? " is-capturing" : ""}`}
                     type="button"
                     title={
                       voiceReady
@@ -3767,7 +3767,7 @@ export function ChatPanel({
                     <Mic size={14} />
                   </button>
                   <button
-                    className={`btn chat-send-btn chat-call-btn${voice.callActive ? " is-active" : ""}`}
+                    className={`btn chat-call-btn${voice.callActive ? " is-active" : ""}`}
                     type="button"
                     title={
                       voice.callActive
