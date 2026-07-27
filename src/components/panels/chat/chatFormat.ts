@@ -265,3 +265,53 @@ export function resolveAssistantLabel(
   }
   return selectedModel?.label ?? modelId ?? "Assistant";
 }
+
+/**
+ * Longest reply we will read aloud before cutting it off. Speech runs at
+ * roughly 15 characters per second, so this is about a minute of talking:
+ * past that the user wants to read, not listen.
+ */
+const MAX_SPEECH_CHARS = 900;
+
+/**
+ * Flatten an assistant reply into something worth hearing.
+ *
+ * Markdown read literally is unbearable: a speech engine will happily
+ * pronounce every backtick, pipe and asterisk, and it will spell out a
+ * forty-line diff one bracket at a time. Code is summarized rather than
+ * spoken, because nobody has ever wanted a patch read to them.
+ */
+export function speechText(markdown: string): string {
+  let text = markdown;
+  // Fenced code: announce it, never read it.
+  text = text.replace(/```[\s\S]*?```/g, " (code block) ");
+  // Inline code: short spans are usually a name worth saying, long ones are
+  // paths or snippets that are noise out loud.
+  text = text.replace(/`([^`]+)`/g, (_match, inner: string) =>
+    inner.length <= 40 ? inner : " (code) ",
+  );
+  // Links: keep the label, drop the target.
+  text = text.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
+  // Images contribute nothing audible.
+  text = text.replace(/!\[[^\]]*\]\([^)]*\)/g, " ");
+  // Headings, list bullets and blockquote markers become sentence breaks.
+  text = text.replace(/^\s{0,3}#{1,6}\s+/gm, "");
+  text = text.replace(/^\s*[-*+]\s+/gm, ". ");
+  text = text.replace(/^\s*\d+\.\s+/gm, ". ");
+  text = text.replace(/^\s*>\s?/gm, "");
+  // Table pipes and horizontal rules are pure visual structure.
+  text = text.replace(/^\s*\|.*\|\s*$/gm, " ");
+  text = text.replace(/^\s*([-*_])\1{2,}\s*$/gm, " ");
+  // Emphasis markers around a word, keeping the word.
+  text = text.replace(/(\*\*|__|\*|_|~~)(.*?)\1/g, "$2");
+  text = text.replace(/\s+/g, " ").replace(/\s+([.,!?;:])/g, "$1").trim();
+  // Collapse the runs of ". . ." the list rewrites above can leave behind.
+  text = text.replace(/(\.\s*){2,}/g, ". ").trim();
+  if (text.length <= MAX_SPEECH_CHARS) return text;
+  // Cut on a sentence boundary when one is close to the limit, so the readback
+  // does not stop mid-word.
+  const clipped = text.slice(0, MAX_SPEECH_CHARS);
+  const lastStop = Math.max(clipped.lastIndexOf(". "), clipped.lastIndexOf("! "), clipped.lastIndexOf("? "));
+  const body = lastStop > MAX_SPEECH_CHARS * 0.6 ? clipped.slice(0, lastStop + 1) : clipped;
+  return `${body.trim()} There is more on screen.`;
+}

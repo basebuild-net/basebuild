@@ -121,19 +121,31 @@ impl ProviderModelCatalogService {
                 continue;
             }
 
-            // Stamp-mismatch check: if cached rows are bundled-source and
-            // their catalog version doesn't match the current bundled
-            // catalog, replace them with current bundled models. This
-            // self-heals stale bundled rows without manual DB surgery.
+            // Stamp-mismatch self-heal, offline. Every row a merge writes
+            // carries the bundled catalog version its capability data was
+            // reconciled against, so a row whose stamp is missing or older
+            // cannot know what the current catalog learned since.
+            //
+            // Bundled rows are replaced outright by the current catalog set.
+            // Discovered rows are kept and re-enriched in place: discovery
+            // knows which models the account can actually reach, the catalog
+            // knows capabilities no live endpoint reports. Bundled models the
+            // cache is missing are folded in, which is what the refresh merge
+            // would have produced from its static sources. Persisting the
+            // result re-stamps every row, so this runs once per catalog
+            // version and never triggers a network call.
             let current_version = model_catalog::CATALOG_VERSION.trim();
-            let bundled_stale = provider_cached.iter().any(|item| {
-                item.model.source == "bundled"
-                    && item.bundled_version.as_deref() != Some(current_version)
-            });
-            if bundled_stale {
-                let fresh = bundled_models(&spec.id);
-                let _ = Self::replace_provider_cache(&spec.id, fresh.clone(), "bundled", None);
-                models.extend(fresh);
+            let stale_stamp = provider_cached
+                .iter()
+                .any(|item| item.bundled_version.as_deref() != Some(current_version));
+            if stale_stamp {
+                let healed = heal_provider_rows(&spec.id, &provider_cached);
+                // A live failure recorded against these rows is still true:
+                // reconciling capability metadata says nothing about whether
+                // the provider answered last time it was asked.
+                let error = provider_cached.iter().find_map(|item| item.error.clone());
+                let _ = Self::replace_provider_cache(&spec.id, healed.clone(), "bundled", error);
+                models.extend(healed);
                 continue;
             }
 
@@ -440,7 +452,7 @@ impl ProviderModelCatalogService {
         // The catalog sync below only runs once at least one provider is stale.
         if !force {
             match credential {
-                None if Self::has_cached_provider(&spec.id)? => return Ok(()),
+                None if Self::provider_cache_merged(&spec.id)? => return Ok(()),
                 Some(_) if Self::provider_cache_fresh(&spec.id)? => return Ok(()),
                 _ => {}
             }
@@ -776,80 +788,7 @@ impl ProviderModelCatalogService {
                 label = spec.label
             )
         })?;
-        let entries = payload
-            .get("data")
-            .and_then(Value::as_array)
-            .ok_or_else(|| {
-                format!(
-                    "{label} model payload did not include a data array.",
-                    label = spec.label
-                )
-            })?;
-
-        let mut models = Vec::new();
-        for entry in entries {
-            let id = entry
-                .get("id")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .trim();
-            if id.is_empty() {
-                continue;
-            }
-            models.push(model_with_source(
-                NativeModel {
-                    id: id.to_string(),
-                    provider_id: spec.id.to_string(),
-                    label: model_label(&spec.id, id),
-                    supports_effort: supports_reasoning(&spec.id, id),
-                    supports_streaming: true,
-                    supports_tools: true,
-                    local_only: false,
-                    context_window: extract_i64(
-                        entry,
-                        &[
-                            "context_window",
-                            "contextWindow",
-                            "context_length",
-                            "max_context_window",
-                            "maxContextWindow",
-                        ],
-                    ),
-                    max_tokens: extract_i64(
-                        entry,
-                        &[
-                            "max_output_tokens",
-                            "maxOutputTokens",
-                            "max_tokens",
-                            "maxTokens",
-                        ],
-                    ),
-                    supports_reasoning: supports_reasoning(&spec.id, id),
-                    supported_efforts: if supports_reasoning(&spec.id, id) {
-                        effort_ids()
-                    } else {
-                        Vec::new()
-                    },
-                    supports_images: supports_images(id),
-                    supports_audio_input: false,
-                    supports_audio_output: false,
-                    voice: None,
-                    source: "provider_discovered".to_string(),
-                    model_api_id: None,
-                    api_kind: String::new(),
-                    base_url: String::new(),
-                    cost_input: None,
-                    cost_output: None,
-                    detected_by: Vec::new(),
-                    running: false,
-                },
-                "provider_discovered",
-            ));
-        }
-
-        models.sort_by(|a, b| a.label.cmp(&b.label));
-        models.dedup_by(|a, b| a.id == b.id && a.provider_id == b.provider_id);
-        Ok(models)
+        models_from_openai_payload(&spec.id, &spec.label, &payload)
     }
 
     /// Discover models via `omp models <provider> --json --no-extensions`.
@@ -971,6 +910,13 @@ impl ProviderModelCatalogService {
                 "omp_cli",
             ));
         }
+        // The `omp models` payload states modalities but never a voice route,
+        // and states nothing at all for a provider OMP lists thinly. Adopt
+        // what the bundled catalog knows about each id it recognises without
+        // contradicting anything the payload did state.
+        for model in models.iter_mut() {
+            enrich_from_catalog(provider_id, model);
+        }
         models.sort_by(|a, b| a.label.cmp(&b.label));
         models.dedup_by(|a, b| a.id == b.id && a.provider_id == b.provider_id);
         Ok(models)
@@ -1039,7 +985,7 @@ impl ProviderModelCatalogService {
         } else {
             Vec::new()
         };
-        let models = entries
+        let mut models: Vec<NativeModel> = entries
             .iter()
             .filter_map(|entry| {
                 let id = entry
@@ -1131,6 +1077,12 @@ impl ProviderModelCatalogService {
                 ))
             })
             .collect();
+        // The hosted directory is a fallback for a provider whose own
+        // endpoint just failed, so it is the least likely source to carry
+        // capability detail. Enrich it from the bundled catalog too.
+        for model in models.iter_mut() {
+            enrich_from_catalog(&spec.id, model);
+        }
         Ok(Some(models))
     }
     fn cached_models() -> DbResult<Vec<CachedModel>> {
@@ -1210,9 +1162,22 @@ impl ProviderModelCatalogService {
         source: &str,
         error: Option<String>,
     ) -> DbResult<()> {
-        let conn = StorageService::connect()?;
+        let mut conn = StorageService::connect()?;
         let now = now_seconds();
-        conn.execute(
+        // Every row a merge writes carries the bundled catalog version its
+        // capability data was reconciled against, not just the bundled ones:
+        // discovered rows are enriched from the same catalog and go stale the
+        // same way. It doubles as the marker that a provider ran its own
+        // merge, because `catalog_sync_service`'s bulk upsert leaves it NULL.
+        let bundled_version = model_catalog::CATALOG_VERSION.trim();
+        // Delete plus reinsert in one transaction. A row that fails to write
+        // halfway through otherwise leaves the provider holding a truncated
+        // model list with the deletion already committed, which reads to the
+        // user as models that silently disappeared.
+        let tx = conn
+            .transaction()
+            .map_err(|e| format!("Failed to open model cache transaction: {e}"))?;
+        tx.execute(
             "DELETE FROM native_provider_model_cache WHERE provider_id = ?1",
             params![provider_id],
         )
@@ -1222,11 +1187,6 @@ impl ProviderModelCatalogService {
                 source
             } else {
                 model.source.as_str()
-            };
-            let bundled_version = if row_source == "bundled" {
-                Some(model_catalog::CATALOG_VERSION.trim().to_string())
-            } else {
-                None
             };
             let detected_by = if model.detected_by.is_empty() {
                 vec![row_source.to_string()]
@@ -1241,7 +1201,7 @@ impl ProviderModelCatalogService {
                 .voice
                 .as_ref()
                 .and_then(|voice| serde_json::to_string(voice).ok());
-            conn.execute(
+            tx.execute(
                 "INSERT INTO native_provider_model_cache
                  (provider_id, model_id, label, context_window, max_tokens, supports_reasoning,
                   supported_efforts, supports_images, source, synced_at, error, model_api_id,
@@ -1276,6 +1236,8 @@ impl ProviderModelCatalogService {
             )
             .map_err(|e| format!("Failed to save model cache row: {e}"))?;
         }
+        tx.commit()
+            .map_err(|e| format!("Failed to commit model cache: {e}"))?;
         Ok(())
     }
 
@@ -1313,11 +1275,40 @@ impl ProviderModelCatalogService {
         Ok(count > 0)
     }
 
+    /// True when this provider's cache was produced by its own refresh merge.
+    ///
+    /// `catalog_sync_service` upserts remote catalog rows for every provider
+    /// before any provider merges, so rows can exist for a provider that has
+    /// never run one. Those rows carry none of what the merge contributes
+    /// (the bundled catalog set, live discovery, capability enrichment) yet
+    /// they satisfy a bare "are there rows?" test, and because every sync
+    /// re-stamps `synced_at` they keep satisfying the freshness test too.
+    /// Treating them as a completed sync is what freezes a provider on a
+    /// subset of its models forever. `bundled_version` is written only by
+    /// `replace_provider_cache`, so it is what tells the two apart.
+    fn provider_cache_merged(provider_id: &str) -> DbResult<bool> {
+        let conn = StorageService::connect()?;
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM native_provider_model_cache
+                 WHERE provider_id = ?1 AND bundled_version IS NOT NULL",
+                params![provider_id],
+                |row| row.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(count > 0)
+    }
+
+    /// Whether this provider's own merge ran recently enough to skip. Only
+    /// merged rows count, for the reason spelled out on
+    /// [`Self::provider_cache_merged`]: a shared catalog sync must not be
+    /// able to keep a provider looking freshly synced on someone else's work.
     fn provider_cache_fresh(provider_id: &str) -> DbResult<bool> {
         let conn = StorageService::connect()?;
         let synced_at: Option<i64> = conn
             .query_row(
-                "SELECT MAX(synced_at) FROM native_provider_model_cache WHERE provider_id = ?1 AND error IS NULL",
+                "SELECT MAX(synced_at) FROM native_provider_model_cache
+                 WHERE provider_id = ?1 AND error IS NULL AND bundled_version IS NOT NULL",
                 params![provider_id],
                 |row| row.get(0),
             )
@@ -1740,6 +1731,188 @@ fn bundled_from_catalog(provider_id: &str, cm: &model_catalog::CatalogModel) -> 
         },
         "bundled",
     )
+}
+
+/// The bundled catalog entry backing a discovered model id, or None.
+///
+/// Live endpoints qualify ids in their own ways: OpenRouter-style
+/// `openai/gpt-realtime-2.1`, Gemini-style `models/gemini-3-pro`. Catalog
+/// keys are bare, so the exact id is tried first and the segment after the
+/// last `/` second. Nothing looser is attempted on purpose: a wrong match
+/// silently attributes another model's capabilities, which is worse for the
+/// user than no enrichment at all.
+fn catalog_entry_for(
+    provider_id: &str,
+    model_id: &str,
+) -> Option<&'static model_catalog::CatalogModel> {
+    let models = model_catalog::CATALOG.get(provider_id)?;
+    if let Some(entry) = models.get(model_id) {
+        return Some(entry);
+    }
+    models.get(model_id.rsplit_once('/')?.1)
+}
+
+/// Fold the bundled catalog's capability metadata into a live-discovered row.
+///
+/// Discovery answers "which models does this account have?"; the catalog
+/// answers "what can each model do?". A `/v1/models` listing is a bare id
+/// list, so a row built from it alone throws away every capability the
+/// catalog knows. That is why voice-capable models disappear for exactly the
+/// users who have an API key: discovery wins the record and nulls the voice
+/// block the bundled catalog was carrying.
+///
+/// Enrichment is additive. It fills in what the live endpoint could not
+/// state and never contradicts what it did: a flag already set stays set, a
+/// context window or cost the endpoint reported is kept, and a model the
+/// listing did not return is never conjured up. Routing fields (`api_kind`,
+/// `base_url`, `model_api_id`) are deliberately untouched, because the
+/// refresh merge already prefers the catalog record for those and guessing an
+/// endpoint from a name match is how a chat turn reaches the wrong host.
+fn enrich_from_catalog(provider_id: &str, model: &mut NativeModel) {
+    let Some(entry) = catalog_entry_for(provider_id, &model.id) else {
+        return;
+    };
+
+    // Voice is the metadata no live listing carries. A row that already has
+    // a block keeps it; only a missing one is filled.
+    if model.voice.is_none() {
+        model.voice = entry.voice.clone();
+    }
+    model.supports_audio_input |= entry.accepts_audio();
+    model.supports_audio_output |= entry.emits_audio();
+    model.supports_images |= entry.input.iter().any(|m| m == "image");
+
+    if !model.supports_reasoning && entry.reasoning {
+        model.supports_reasoning = true;
+        model.supports_effort = true;
+        if model.supported_efforts.is_empty() {
+            model.supported_efforts = effort_ids();
+        }
+    }
+    if model.context_window.is_none() {
+        model.context_window = entry.context_window;
+    }
+    if model.max_tokens.is_none() {
+        model.max_tokens = entry.max_tokens;
+    }
+    if model.cost_input.is_none() && entry.cost.input != 0.0 {
+        model.cost_input = Some(entry.cost.input);
+    }
+    if model.cost_output.is_none() && entry.cost.output != 0.0 {
+        model.cost_output = Some(entry.cost.output);
+    }
+}
+
+/// Parse an OpenAI-compatible `/v1/models` payload into discovered rows.
+///
+/// Split out from the HTTP call so the mapping, including the catalog
+/// enrichment that decides whether a discovered model keeps its voice route,
+/// is testable without a socket.
+fn models_from_openai_payload(
+    provider_id: &str,
+    provider_label: &str,
+    payload: &Value,
+) -> DbResult<Vec<NativeModel>> {
+    let entries = payload
+        .get("data")
+        .and_then(Value::as_array)
+        .ok_or_else(|| format!("{provider_label} model payload did not include a data array."))?;
+
+    let mut models = Vec::new();
+    for entry in entries {
+        let id = entry
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .trim();
+        if id.is_empty() {
+            continue;
+        }
+        let reasoning = supports_reasoning(provider_id, id);
+        let mut model = model_with_source(
+            NativeModel {
+                id: id.to_string(),
+                provider_id: provider_id.to_string(),
+                label: model_label(provider_id, id),
+                supports_effort: reasoning,
+                supports_streaming: true,
+                supports_tools: true,
+                local_only: false,
+                context_window: extract_i64(
+                    entry,
+                    &[
+                        "context_window",
+                        "contextWindow",
+                        "context_length",
+                        "max_context_window",
+                        "maxContextWindow",
+                    ],
+                ),
+                max_tokens: extract_i64(
+                    entry,
+                    &[
+                        "max_output_tokens",
+                        "maxOutputTokens",
+                        "max_tokens",
+                        "maxTokens",
+                    ],
+                ),
+                supports_reasoning: reasoning,
+                supported_efforts: if reasoning { effort_ids() } else { Vec::new() },
+                supports_images: supports_images(id),
+                supports_audio_input: false,
+                supports_audio_output: false,
+                voice: None,
+                source: "provider_discovered".to_string(),
+                model_api_id: None,
+                api_kind: String::new(),
+                base_url: String::new(),
+                cost_input: None,
+                cost_output: None,
+                detected_by: Vec::new(),
+                running: false,
+            },
+            "provider_discovered",
+        );
+        // A bare id list states nothing about audio, voice or cost. Adopt what
+        // the bundled catalog knows about this exact model before the row is
+        // cached, or the capability is lost until the next catalog refresh.
+        enrich_from_catalog(provider_id, &mut model);
+        models.push(model);
+    }
+
+    models.sort_by(|a, b| a.label.cmp(&b.label));
+    models.dedup_by(|a, b| a.id == b.id && a.provider_id == b.provider_id);
+    Ok(models)
+}
+
+/// Reconcile a provider's cached rows against the current bundled catalog,
+/// offline. Driven by the stamp-mismatch branch in
+/// [`ProviderModelCatalogService::catalog`], which documents why each rule
+/// is what it is.
+fn heal_provider_rows(provider_id: &str, cached: &[&CachedModel]) -> Vec<NativeModel> {
+    let bundled = bundled_models(provider_id);
+    let mut healed: Vec<NativeModel> = Vec::with_capacity(bundled.len() + cached.len());
+    let mut kept: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for item in cached {
+        // A bundled row is owned by the catalog: once the catalog drops the
+        // id, the row is stale data rather than a discovery finding, so it is
+        // not carried over. Ids the catalog still lists come back below.
+        if item.model.source == "bundled" {
+            continue;
+        }
+        let mut model = item.model.clone();
+        enrich_from_catalog(provider_id, &mut model);
+        kept.insert(model.id.clone());
+        healed.push(model);
+    }
+    healed.extend(
+        bundled
+            .into_iter()
+            .filter(|model| !kept.contains(&model.id)),
+    );
+    healed.sort_by(|a, b| a.label.cmp(&b.label));
+    healed
 }
 
 /// The native (ChatGPT-subscription) `openai-codex` provider's models. The
@@ -2432,5 +2605,290 @@ mod tests {
         assert!(!read.model.supports_audio_input);
         assert!(!read.model.supports_audio_output);
         assert!(read.model.voice.is_none());
+    }
+
+    /// Exactly the row `catalog_sync_service::sync_catalog` writes: the
+    /// remote catalog's own columns, source `catalog_sync`, no
+    /// `bundled_version` stamp. One is written for every provider in the
+    /// remote catalog before any provider runs its own merge.
+    fn insert_catalog_sync_row(provider_id: &str, model_id: &str, label: &str) {
+        let conn = StorageService::connect().unwrap();
+        conn.execute(
+            "INSERT INTO native_provider_model_cache
+             (provider_id, model_id, label, context_window, max_tokens, supports_reasoning,
+              supported_efforts, supports_images, source, synced_at, error, model_api_id,
+              api_kind, base_url, detected_by)
+             VALUES (?1, ?2, ?3, 128000, 128000, 1, '[\"low\",\"medium\",\"high\",\"xhigh\"]', 0,
+                     'catalog_sync', ?4, NULL, NULL, 'openai-codex-responses',
+                     'https://chatgpt.com/backend-api', '[\"catalog_sync\"]')",
+            params![provider_id, model_id, label, now_seconds()],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn discovered_openai_listing_keeps_the_catalogs_realtime_voice_route() {
+        // A live `/v1/models` listing is a bare id list. Building rows from it
+        // alone produced `voice: None`, which is why having an API key was
+        // enough to make every voice-capable model vanish from the picker:
+        // discovery won the record and nulled what the catalog knew.
+        let payload = serde_json::json!({
+            "data": [{ "id": "gpt-4" }, { "id": "gpt-realtime-2.1" }]
+        });
+        let models = models_from_openai_payload("openai", "OpenAI", &payload).unwrap();
+
+        let realtime = models
+            .iter()
+            .find(|m| m.id == "gpt-realtime-2.1")
+            .expect("the discovered id is preserved verbatim");
+        assert_eq!(realtime.source, "provider_discovered");
+        let voice = realtime
+            .voice
+            .as_ref()
+            .expect("the catalog voice block is adopted");
+        assert_eq!(voice.level, model_catalog::VoiceLevel::Realtime);
+        assert_eq!(voice.billing, Some(model_catalog::VoiceBilling::ApiKey));
+        assert!(voice.barge_in);
+        assert!(realtime.supports_audio_input);
+        assert!(realtime.supports_audio_output);
+        // Capabilities the id heuristics get wrong come from the catalog too.
+        assert!(realtime.supports_images);
+        assert!(realtime.supports_reasoning);
+        assert_eq!(realtime.context_window, Some(128_000));
+        assert_eq!(realtime.cost_input, Some(4.0));
+
+        // A text-only sibling in the same listing stays silent: enrichment
+        // reads the catalog, it does not assume.
+        let text_only = models.iter().find(|m| m.id == "gpt-4").unwrap();
+        assert!(text_only.voice.is_none());
+        assert!(!text_only.supports_audio_input);
+        assert!(!text_only.supports_audio_output);
+    }
+
+    #[test]
+    fn enrichment_matches_a_qualified_id_by_its_last_segment_only() {
+        let payload = serde_json::json!({
+            "data": [{ "id": "openai/gpt-realtime-2.1" }, { "id": "gpt-realtime" }]
+        });
+        let models = models_from_openai_payload("openai", "OpenAI", &payload).unwrap();
+
+        let qualified = models
+            .iter()
+            .find(|m| m.id == "openai/gpt-realtime-2.1")
+            .expect("a qualified id is stored exactly as the endpoint returned it");
+        assert_eq!(
+            qualified.voice.as_ref().map(|v| v.level),
+            Some(model_catalog::VoiceLevel::Realtime)
+        );
+
+        // A prefix is not a match. Looser matching would attribute one
+        // model's capabilities to another, which is worse than none.
+        let prefix = models.iter().find(|m| m.id == "gpt-realtime").unwrap();
+        assert!(prefix.voice.is_none());
+        assert!(!prefix.supports_audio_input);
+    }
+
+    #[test]
+    fn enrichment_never_invents_models_the_listing_did_not_return() {
+        let payload = serde_json::json!({ "data": [{ "id": "gpt-4o" }] });
+        let models = models_from_openai_payload("openai", "OpenAI", &payload).unwrap();
+
+        // The bundled catalog lists dozens of openai models. Enrichment
+        // adopts metadata for the one id discovery returned and adds nothing.
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].id, "gpt-4o");
+        assert!(bundled_models("openai").len() > 1);
+    }
+
+    #[test]
+    fn enrichment_leaves_an_unknown_id_exactly_as_discovered() {
+        let payload = serde_json::json!({ "data": [{ "id": "an-unlisted-preview" }] });
+        let models = models_from_openai_payload("openai", "OpenAI", &payload).unwrap();
+
+        let unknown = &models[0];
+        assert!(unknown.voice.is_none());
+        assert!(unknown.context_window.is_none());
+        assert!(unknown.max_tokens.is_none());
+        assert!(unknown.cost_input.is_none());
+        assert!(!unknown.supports_audio_input);
+        assert!(!unknown.supports_audio_output);
+    }
+
+    #[test]
+    fn enrichment_never_overwrites_a_value_the_endpoint_stated() {
+        // The endpoint knows this account's real limits; the catalog only
+        // knows the published defaults, so a stated value wins.
+        let payload = serde_json::json!({
+            "data": [{
+                "id": "gpt-realtime-2.1",
+                "context_window": 4096,
+                "max_output_tokens": 512
+            }]
+        });
+        let models = models_from_openai_payload("openai", "OpenAI", &payload).unwrap();
+        let stated = &models[0];
+        assert_eq!(stated.context_window, Some(4096));
+        assert_eq!(stated.max_tokens, Some(512));
+        // The capability the endpoint could not state still lands.
+        assert!(stated.voice.is_some());
+
+        // The `omp models` and hosted-directory paths do state audio
+        // modalities. A stated `true` survives a catalog entry that carries
+        // no audio at all, so enrichment can only ever add capability.
+        let mut stated_audio = NativeModel {
+            supports_audio_input: true,
+            supports_audio_output: true,
+            supports_images: true,
+            ..voice_test_model("gpt-4")
+        };
+        enrich_from_catalog("openai", &mut stated_audio);
+        assert!(stated_audio.supports_audio_input);
+        assert!(stated_audio.supports_audio_output);
+        assert!(stated_audio.supports_images);
+        assert!(
+            stated_audio.voice.is_none(),
+            "gpt-4 carries no catalog voice block to adopt"
+        );
+    }
+
+    #[test]
+    fn stale_stamp_reenriches_discovered_rows_without_a_network_call() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&directory);
+        ProviderModelCatalogService::invalidate();
+
+        // A row an older build's discovery path wrote: right id, no voice, no
+        // audio, stamped with a catalog version that is no longer current.
+        let conn = StorageService::connect().unwrap();
+        conn.execute(
+            "INSERT INTO native_provider_model_cache
+             (provider_id, model_id, label, supports_reasoning, supported_efforts,
+              supports_images, source, synced_at, bundled_version, detected_by)
+             VALUES ('openai', 'gpt-realtime-2.1', 'GPT realtime 2.1', 0, '[]', 0,
+                     'provider_discovered', ?1, 'an-older-catalog',
+                     '[\"provider_discovered\"]')",
+            params![now_seconds()],
+        )
+        .unwrap();
+
+        let started = std::time::Instant::now();
+        let catalog = ProviderModelCatalogService::catalog();
+        let elapsed = started.elapsed();
+        // The heal reads the embedded catalog and the local DB, nothing else.
+        // A network round-trip would blow this budget several times over.
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "offline re-enrichment took {elapsed:?}"
+        );
+
+        let realtime = catalog
+            .models
+            .iter()
+            .find(|m| m.provider_id == "openai" && m.id == "gpt-realtime-2.1")
+            .expect("the discovered row survives the heal");
+        // Kept, not deleted: discovery is still why this row is here.
+        assert_eq!(realtime.source, "provider_discovered");
+        assert_eq!(
+            realtime.voice.as_ref().map(|v| v.level),
+            Some(model_catalog::VoiceLevel::Realtime)
+        );
+        assert!(realtime.supports_audio_input);
+        assert!(realtime.supports_audio_output);
+
+        // The stamp is persisted, so this runs once per catalog version
+        // instead of rewriting the cache on every read.
+        let stamps: Vec<Option<String>> = ProviderModelCatalogService::cached_models()
+            .unwrap()
+            .into_iter()
+            .filter(|item| item.model.provider_id == "openai")
+            .map(|item| item.bundled_version)
+            .collect();
+        assert!(!stamps.is_empty());
+        assert!(stamps
+            .iter()
+            .all(|stamp| stamp.as_deref() == Some(model_catalog::CATALOG_VERSION.trim())));
+        ProviderModelCatalogService::invalidate();
+    }
+
+    #[test]
+    fn catalog_sync_seeded_codex_cache_resolves_to_the_full_catalog_set() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&directory);
+        ProviderModelCatalogService::invalidate();
+
+        // The realistic install path behind "openai-codex shows one model".
+        // `sync_catalog` runs once per refresh and upserts the remote
+        // catalog's rows for every provider BEFORE any provider runs its own
+        // merge, so openai-codex ends up holding whatever the remote listed
+        // and nothing else. Its own merge, the only thing that contributes
+        // `native_codex_oauth_models`, then never runs: the sync rows make the
+        // cache look present and freshly synced, and every later refresh
+        // re-stamps `synced_at`, so the provider stays frozen on that row.
+        insert_catalog_sync_row("openai-codex", "gpt-5.4", "GPT-5.4");
+
+        assert!(
+            !ProviderModelCatalogService::provider_cache_merged("openai-codex").unwrap(),
+            "a sync-seeded cache is not a completed provider merge"
+        );
+        assert!(
+            !ProviderModelCatalogService::provider_cache_fresh("openai-codex").unwrap(),
+            "and it must not satisfy the refresh fast path either"
+        );
+
+        // Seven models today. The bundled catalog is refreshed from
+        // basebuild.net, so the pin is "every one of them resolves", not a
+        // literal count; the bug was a set of one.
+        let expected = bundled_models("openai-codex");
+        assert!(expected.len() > 1);
+
+        let catalog = ProviderModelCatalogService::catalog();
+        let codex: Vec<&NativeModel> = catalog
+            .models
+            .iter()
+            .filter(|m| m.provider_id == "openai-codex")
+            .collect();
+        assert_eq!(codex.len(), expected.len());
+        for want in &expected {
+            assert!(
+                codex.iter().any(|got| got.id == want.id),
+                "codex model {} should resolve from the bundled catalog",
+                want.id
+            );
+        }
+        // The remote row is folded in rather than dropped: the catalog sync
+        // knows things the bundled file does not.
+        assert!(codex.iter().any(|m| m.id == "gpt-5.4"));
+        let provider = catalog
+            .providers
+            .iter()
+            .find(|p| p.id == "openai-codex")
+            .expect("codex is in the provider list");
+        assert_eq!(provider.model_count as usize, expected.len());
+
+        // Healed once: the rows now carry the stamp.
+        assert!(ProviderModelCatalogService::provider_cache_merged("openai-codex").unwrap());
+        ProviderModelCatalogService::invalidate();
+    }
+
+    #[test]
+    fn a_completed_merge_satisfies_the_refresh_fast_path() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&directory);
+
+        insert_catalog_sync_row("openai-codex", "gpt-5.4", "GPT-5.4");
+        assert!(!ProviderModelCatalogService::provider_cache_fresh("openai-codex").unwrap());
+
+        ProviderModelCatalogService::replace_provider_cache(
+            "openai-codex",
+            native_codex_oauth_models(),
+            "bundled",
+            None,
+        )
+        .unwrap();
+
+        // Once the provider's own merge has written its rows the fast path is
+        // free to skip it, which is what keeps refresh off the network.
+        assert!(ProviderModelCatalogService::provider_cache_merged("openai-codex").unwrap());
+        assert!(ProviderModelCatalogService::provider_cache_fresh("openai-codex").unwrap());
     }
 }
