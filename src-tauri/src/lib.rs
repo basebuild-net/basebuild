@@ -169,6 +169,7 @@ use commands::{
         close_terminal, create_terminal, list_terminals, resize_terminal, terminal_replay,
         write_terminal,
     },
+    tool_catalog::{tool_catalog_list, tool_download, tool_download_delete, tool_downloads_list},
     updater::{
         apply_downloaded_update, check_for_updates, clear_skipped_update, download_update,
         get_skipped_update_version, skip_update_version,
@@ -704,6 +705,10 @@ pub fn run() {
             voice_profile_set,
             voice_transcribe,
             voice_reset_mic_permission,
+            tool_catalog_list,
+            tool_downloads_list,
+            tool_download,
+            tool_download_delete,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Basebuild")

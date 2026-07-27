@@ -1509,6 +1509,14 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     }
     case "voice_reset_mic_permission":
       return undefined as T;
+    case "tool_catalog_list":
+      return [] as T;
+    case "tool_downloads_list":
+      return [] as T;
+    case "tool_download":
+      return { toolId: String(args.toolId ?? ""), quant: String(args.quant ?? ""), localPath: "", sizeBytes: 0 } as T;
+    case "tool_download_delete":
+      return undefined as T;
     case "native_chat_steer": {
       // Mirrors the backend contract: a steer is accepted only while a turn is
       // actually in flight, otherwise the caller falls back to a normal send.

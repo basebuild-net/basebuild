@@ -13,7 +13,7 @@ pub struct StorageService;
 // Increment whenever `initialize` gains a schema-changing migration. Existing
 // databases run the idempotent initializer once per version; current databases
 // skip its ~50 table/column probes entirely on normal launches.
-const CURRENT_SCHEMA_VERSION: i64 = 11;
+const CURRENT_SCHEMA_VERSION: i64 = 12;
 
 impl StorageService {
     pub fn state_db_path() -> Result<PathBuf, String> {
@@ -1538,6 +1538,29 @@ impl StorageService {
                     vad_silence_ms INTEGER NOT NULL DEFAULT 900,
                     barge_in INTEGER NOT NULL DEFAULT 1,
                     updated_at INTEGER NOT NULL
+                )",
+                [],
+            );
+        }
+
+        // Migration (tool-models): downloaded offline tool models. One row per
+        // (tool id, quantization) pair. The `local_path` is absolute under the
+        // Basebuild data dir so it survives app updates. `size_bytes` is the
+        // actual downloaded size, verified against the catalog's expected size
+        // before the row is inserted.
+        let has_tool_models = connection
+            .prepare("SELECT tool_id FROM downloaded_tool_models LIMIT 0")
+            .is_ok();
+        if !has_tool_models {
+            let _ = connection.execute(
+                "CREATE TABLE IF NOT EXISTS downloaded_tool_models (
+                    tool_id TEXT NOT NULL,
+                    quant TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    local_path TEXT NOT NULL,
+                    size_bytes INTEGER NOT NULL,
+                    downloaded_at INTEGER NOT NULL,
+                    PRIMARY KEY (tool_id, quant)
                 )",
                 [],
             );

@@ -3,6 +3,14 @@ import { ModalPortal } from "../../ModalPortal";
 import { OptionList } from "../../layout/OptionList";
 import { useEscapeKey } from "../../../lib/useEscapeKey";
 import type { NativeProviderCatalog } from "../../../lib/native-chat";
+import {
+  toolCatalogList,
+  toolDownloadsList,
+  toolDownload,
+  toolDownloadDelete,
+  type CatalogTool,
+  type DownloadedToolModel,
+} from "../../../lib/toolCatalog";
 import type { SttEngine, VoiceMode, VoiceProfile } from "../../../lib/voice";
 
 /**
@@ -26,6 +34,16 @@ const ENGINE_OPTIONS: { id: SttEngine; label: string; title: string }[] = [
     id: "local_whisper",
     label: "Local Whisper",
     title: "Whisper running on this machine. Offline and free, not wired up yet.",
+  },
+  {
+    id: "parakeet_unified_en",
+    label: "Parakeet EN",
+    title: "Offline English transcription via transcribe.cpp. Download a model below, then speak.",
+  },
+  {
+    id: "parakeet_tdt_v3",
+    label: "Parakeet V3",
+    title: "Offline multilingual transcription (25 European languages) via transcribe.cpp. Download a model below.",
   },
 ];
 
@@ -70,6 +88,62 @@ export function VoiceSettingsModal({ profile, catalog, onSave, onClose }: VoiceS
     window.speechSynthesis.addEventListener("voiceschanged", read);
     return () => window.speechSynthesis.removeEventListener("voiceschanged", read);
   }, []);
+
+  // Offline STT tool catalog and download state. Loaded once when the modal
+  // opens; the download list is refreshed after each download/delete.
+  const [sttTools, setSttTools] = useState<CatalogTool[]>([]);
+  const [downloads, setDownloads] = useState<DownloadedToolModel[]>([]);
+  const [downloading, setDownloading] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+
+  const refreshDownloads = () => {
+    void toolDownloadsList().then(setDownloads).catch(() => {});
+  };
+
+  useEffect(() => {
+    void toolCatalogList("speechToText")
+      .then(setSttTools)
+      .catch(() => setSttTools([]));
+    refreshDownloads();
+  }, []);
+
+  const isParakeetEngine =
+    draft.sttEngine === "parakeet_tdt_v3" || draft.sttEngine === "parakeet_unified_en";
+
+  const selectedToolId =
+    draft.sttEngine === "parakeet_tdt_v3"
+      ? "parakeet-tdt-0.6b-v3"
+      : draft.sttEngine === "parakeet_unified_en"
+        ? "parakeet-unified-en-0.6b"
+        : null;
+
+  const selectedTool = sttTools.find((t) => t.id === selectedToolId) ?? null;
+
+  const handleDownload = (toolId: string, quant: string) => {
+    setDownloading(`${toolId}:${quant}`);
+    setDownloadError(null);
+    void toolDownload("speechToText", toolId, quant)
+      .then(() => {
+        refreshDownloads();
+      })
+      .catch((error: unknown) => {
+        setDownloadError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => setDownloading(null));
+  };
+
+  const handleDelete = (toolId: string, quant: string) => {
+    setDownloading(`${toolId}:${quant}:delete`);
+    setDownloadError(null);
+    void toolDownloadDelete(toolId, quant)
+      .then(() => {
+        refreshDownloads();
+      })
+      .catch((error: unknown) => {
+        setDownloadError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => setDownloading(null));
+  };
 
   const providers = useMemo(
     () => (catalog?.providers ?? []).filter((provider) => provider.configured),
@@ -175,6 +249,83 @@ export function VoiceSettingsModal({ profile, catalog, onSave, onClose }: VoiceS
                     onChange={(event) => patch({ sttModelId: event.target.value })}
                   />
                 </label>
+              ) : isParakeetEngine && selectedTool ? (
+                <div className="voice-stt-downloads">
+                  <p className="text-sm">
+                    {selectedTool.description}
+                  </p>
+                  <p className="text-muted text-sm">
+                    Languages: {selectedTool.languages.length > 0
+                      ? selectedTool.languages.join(", ")
+                      : "language-agnostic"}
+                    {" \u00b7 "}
+                    License: {selectedTool.license}
+                  </p>
+                  {downloadError ? (
+                    <p className="text-sm" style={{ color: "var(--bb-danger)" }}>
+                      {downloadError}
+                    </p>
+                  ) : null}
+                  <div className="voice-stt-file-list">
+                    {selectedTool.files.map((file) => {
+                      const isDownloaded = downloads.some(
+                        (d) => d.toolId === selectedTool.id && d.quant === file.quant,
+                      );
+                      const isDownloading =
+                        downloading === `${selectedTool.id}:${file.quant}`;
+                      const isDeleting =
+                        downloading === `${selectedTool.id}:${file.quant}:delete`;
+                      const isDefault = file.quant === selectedTool.defaultQuant;
+                      return (
+                        <div
+                          key={file.quant}
+                          className="voice-stt-file-row"
+                          title={`${file.quant} \u00b7 ${(file.sizeBytes / 1024 / 1024).toFixed(0)} MB`}
+                        >
+                          <span className="voice-stt-file-label">
+                            {file.quant}
+                            {isDefault ? " (recommended)" : ""}
+                            {" \u00b7 "}
+                            {(file.sizeBytes / 1024 / 1024).toFixed(0)} MB
+                          </span>
+                          {isDownloaded ? (
+                            <button
+                              className="btn btn-sm"
+                              type="button"
+                              title="Remove the downloaded model file from disk"
+                              disabled={isDeleting}
+                              onClick={() => handleDelete(selectedTool.id, file.quant)}
+                            >
+                              {isDeleting ? "Removing..." : "Remove"}
+                            </button>
+                          ) : (
+                            <button
+                              className="btn btn-sm btn-primary"
+                              type="button"
+                              title={`Download ${file.quant} (${(file.sizeBytes / 1024 / 1024).toFixed(0)} MB)`}
+                              disabled={isDownloading}
+                              onClick={() => handleDownload(selectedTool.id, file.quant)}
+                            >
+                              {isDownloading ? "Downloading..." : "Download"}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-muted text-sm">
+                    Requires transcribe-cli in PATH. Install from
+                    {" "}
+                    <a
+                      href="https://github.com/handy-computer/transcribe.cpp"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      transcribe.cpp
+                    </a>
+                    .
+                  </p>
+                </div>
               ) : (
                 <p className="text-muted text-sm">
                   This engine is not wired up yet. Dictation will report that clearly rather than sending silence.

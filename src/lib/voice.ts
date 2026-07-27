@@ -10,7 +10,9 @@ import { invoke } from "@tauri-apps/api/core";
 export type SttEngine =
   | "openai_whisper"
   | "windows_native"
-  | "local_whisper";
+  | "local_whisper"
+  | "parakeet_tdt_v3"
+  | "parakeet_unified_en";
 
 export type VoiceMode = "push_to_talk" | "call";
 

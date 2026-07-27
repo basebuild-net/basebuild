@@ -18,6 +18,12 @@ pub enum SttEngine {
     WindowsNative,
     /// whisper.cpp via a local model file. Offline, no key.
     LocalWhisper,
+    /// Parakeet TDT V3 (multilingual, 25 European languages) via
+    /// transcribe.cpp. Offline, no key, requires a downloaded GGUF model.
+    ParakeetTdtV3,
+    /// Parakeet Unified EN 0.6B (English) via transcribe.cpp. Offline, no
+    /// key, requires a downloaded GGUF model.
+    ParakeetUnifiedEn,
 }
 
 impl SttEngine {
@@ -26,6 +32,8 @@ impl SttEngine {
             SttEngine::OpenaiWhisper => "openai_whisper",
             SttEngine::WindowsNative => "windows_native",
             SttEngine::LocalWhisper => "local_whisper",
+            SttEngine::ParakeetTdtV3 => "parakeet_tdt_v3",
+            SttEngine::ParakeetUnifiedEn => "parakeet_unified_en",
         }
     }
 
@@ -36,6 +44,8 @@ impl SttEngine {
         match value {
             "windows_native" => SttEngine::WindowsNative,
             "local_whisper" => SttEngine::LocalWhisper,
+            "parakeet_tdt_v3" => SttEngine::ParakeetTdtV3,
+            "parakeet_unified_en" => SttEngine::ParakeetUnifiedEn,
             _ => SttEngine::OpenaiWhisper,
         }
     }
