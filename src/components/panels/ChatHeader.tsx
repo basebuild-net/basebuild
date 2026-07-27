@@ -5,6 +5,7 @@ import {
   ChevronDown,
   Command,
   FolderGit2,
+  Settings,
   GitBranch,
   GitPullRequest,
   MoreHorizontal,
@@ -69,6 +70,8 @@ type ChatHeaderProps = {
   onStartVoiceCall?: (() => void) | null;
   /** Whether a voice call is currently active. */
   voiceCallActive?: boolean;
+  /** Open the voice settings modal (engine, STT downloads, TTS, call mode). */
+  onOpenVoiceSettings?: () => void;
   onDragStart?: (e: React.MouseEvent) => void;
   onDragEnd?: () => void;
   onDragOver?: (e: React.DragEvent) => void;
@@ -210,6 +213,13 @@ export function ChatHeader(props: ChatHeaderProps) {
         : "Start a hands-free voice call: continuous listening, talk over the agent to interrupt",
       icon: <Phone size={11} />,
       onSelect: props.onStartVoiceCall,
+    }] : []),
+    ...(props.onOpenVoiceSettings ? [{
+      key: "voice-settings",
+      label: "Voice settings",
+      title: "Configure speech-to-text engine, download offline models, and adjust reply readback",
+      icon: <Settings size={11} />,
+      onSelect: props.onOpenVoiceSettings,
     }] : []),
     { key: "debug", label: props.debugMode ? "Hide debug events" : "Show debug events", title: props.debugMode ? "Turn debug event rendering off" : "Show raw event data in tool cards", icon: <Bug size={11} />, onSelect: props.onToggleDebug },
     ...(props.prRecommendation ? [{

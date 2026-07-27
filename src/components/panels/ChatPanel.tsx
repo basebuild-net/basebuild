@@ -2989,6 +2989,7 @@ export function ChatPanel({
           else void startVoiceCall();
         } : null}
         voiceCallActive={voice.callActive}
+        onOpenVoiceSettings={() => setShowVoiceSettings(true)}
       />
       {/* Messages area */}
       <ChatTranscript
