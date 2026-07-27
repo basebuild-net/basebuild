@@ -4694,7 +4694,7 @@
 			"contextWindow": null,
 			"maxTokens": null,
 			"voice": {
-				"level": "cascade",
+				"level": "tts",
 				"billing": "api_key",
 				"transports": [],
 				"turnDetection": [],
@@ -6860,7 +6860,7 @@
 			"contextWindow": null,
 			"maxTokens": null,
 			"voice": {
-				"level": "cascade",
+				"level": "tts",
 				"billing": "api_key",
 				"transports": [],
 				"turnDetection": [],
@@ -6890,7 +6890,7 @@
 			"contextWindow": null,
 			"maxTokens": null,
 			"voice": {
-				"level": "cascade",
+				"level": "tts",
 				"billing": "api_key",
 				"transports": [],
 				"turnDetection": [],
@@ -15868,7 +15868,7 @@
 			"contextWindow": 128000,
 			"maxTokens": 16384,
 			"voice": {
-				"level": "cascade",
+				"level": "tts",
 				"billing": "api_key",
 				"transports": [],
 				"turnDetection": [],
