@@ -5010,3 +5010,4 @@ body[data-surface-dragging="true"] .surface-unlink-dropzone:hover { border-color
 .voice-stt-file-row { display: flex; align-items: center; justify-content: space-between; gap: var(--bb-space-2); font-size: 12px; padding: 4px 0; }
 .voice-stt-file-label { color: var(--bb-text-secondary); }
 .voice-stt-file-row .btn-sm { font-size: 11px; padding: 2px 8px; }
+.voice-stt-error { color: var(--bb-danger); }

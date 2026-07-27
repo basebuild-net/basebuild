@@ -262,7 +262,7 @@ export function VoiceSettingsModal({ profile, catalog, onSave, onClose }: VoiceS
                     License: {selectedTool.license}
                   </p>
                   {downloadError ? (
-                    <p className="text-sm" style={{ color: "var(--bb-danger)" }}>
+                    <p className="voice-stt-error text-sm">
                       {downloadError}
                     </p>
                   ) : null}
