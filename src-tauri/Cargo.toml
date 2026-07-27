@@ -46,6 +46,8 @@ uuid = { version = "1", features = ["v4"] }
 [target.'cfg(windows)'.dependencies]
 # Console attach for debug builds (main.rs) — the app itself is windowless.
 windows-sys = { version = "0.61", features = ["Win32_System_Console"] }
+webview2-com = "0.38"
+windows-core = "0.61"
 
 [dev-dependencies]
 tempfile = "3"

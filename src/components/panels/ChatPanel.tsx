@@ -3522,6 +3522,7 @@ export function ChatPanel({
               onEnd={voice.callActive ? endVoiceCall : voice.clearError}
               onOpenSettings={() => setShowVoiceSettings(true)}
               onOpenMicSettings={() => void openUrl("ms-settings:privacy-microphone")}
+              onResetMicPermission={() => void voice.resetMicPermission()}
             />
           ) : null}
           {bgGateActive ? (

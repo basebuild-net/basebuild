@@ -173,7 +173,7 @@ use commands::{
         apply_downloaded_update, check_for_updates, clear_skipped_update, download_update,
         get_skipped_update_version, skip_update_version,
     },
-    voice::{voice_profile_get, voice_profile_set, voice_transcribe},
+    voice::{voice_profile_get, voice_profile_set, voice_reset_mic_permission, voice_transcribe},
     workspace::{get_workspace_restore_state, save_workspace_restore_state},
     workspaces::{workspace_create, workspace_is_supported, workspace_list, workspace_remove},
 };
@@ -703,6 +703,7 @@ pub fn run() {
             voice_profile_get,
             voice_profile_set,
             voice_transcribe,
+            voice_reset_mic_permission,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Basebuild")

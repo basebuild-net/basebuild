@@ -288,7 +288,9 @@ dependencies = [
  "toml 0.8.2",
  "urlencoding",
  "uuid",
+ "webview2-com",
  "which",
+ "windows-core 0.61.2",
  "windows-sys 0.61.2",
 ]
 

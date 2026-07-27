@@ -4981,6 +4981,8 @@ body[data-surface-dragging="true"] .surface-unlink-dropzone:hover { border-color
 .voice-call-perm-error { display: inline-flex; align-items: center; gap: var(--bb-space-2); max-width: 60%; white-space: normal; }
 .voice-call-perm-fix { flex-shrink: 0; color: var(--bb-cta); border-color: var(--bb-cta-border); font-weight: 600; }
 .voice-call-perm-fix:hover { background: var(--bb-cta); color: var(--bb-on-cta); }
+.voice-call-perm-alt { flex-shrink: 0; color: var(--bb-text-muted); border-color: var(--bb-border); font-weight: 400; }
+.voice-call-perm-alt:hover { background: var(--bb-surface-hover); color: var(--bb-text); }
 .voice-call-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; margin-left: auto; }
 .voice-call-end { color: var(--bb-danger); border-color: var(--bb-danger-border); display: inline-flex; align-items: center; gap: 4px; }
 .voice-call-end:hover { background: var(--bb-danger); color: var(--bb-on-danger); }
