@@ -32,11 +32,15 @@ export type VoiceCallBarProps = {
   level: number;
   muted: boolean;
   error: string | null;
+  /** True when getUserMedia was blocked, not just unavailable. */
+  permissionDenied: boolean;
   profile: VoiceProfile | null;
   modelName: string;
   onToggleMute: () => void;
   onEnd: () => void;
   onOpenSettings: () => void;
+  /** Open the OS mic privacy settings so the user can re-grant access. */
+  onOpenMicSettings: () => void;
 };
 
 export function VoiceCallBar({
@@ -44,11 +48,13 @@ export function VoiceCallBar({
   level,
   muted,
   error,
+  permissionDenied,
   profile,
   modelName,
   onToggleMute,
   onEnd,
   onOpenSettings,
+  onOpenMicSettings,
 }: VoiceCallBarProps) {
   // Speech RMS lives in a narrow band near zero, so scale before clamping or
   // the meter never leaves the first bar.
@@ -83,9 +89,23 @@ export function VoiceCallBar({
       </span>
 
       {error ? (
-        <span className="voice-call-error" title={error}>
-          {error}
-        </span>
+        permissionDenied ? (
+          <span className="voice-call-error voice-call-perm-error">
+            <span title={error}>{error}</span>
+            <button
+              className="btn btn-sm voice-call-perm-fix"
+              type="button"
+              title="Open the microphone privacy settings so you can re-enable access for this app"
+              onClick={onOpenMicSettings}
+            >
+              Open mic settings
+            </button>
+          </span>
+        ) : (
+          <span className="voice-call-error" title={error}>
+            {error}
+          </span>
+        )
       ) : null}
 
       <div className="voice-call-actions">

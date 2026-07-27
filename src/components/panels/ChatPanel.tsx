@@ -3514,11 +3514,13 @@ export function ChatPanel({
               level={voice.level}
               muted={voice.muted}
               error={voice.error}
+              permissionDenied={voice.permissionDenied}
               profile={voiceProfile}
               modelName={modelName}
               onToggleMute={voice.toggleMute}
               onEnd={endVoiceCall}
               onOpenSettings={() => setShowVoiceSettings(true)}
+              onOpenMicSettings={() => void openUrl("ms-settings:privacy-microphone")}
             />
           ) : null}
           {bgGateActive ? (

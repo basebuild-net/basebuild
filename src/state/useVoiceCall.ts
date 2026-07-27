@@ -86,6 +86,7 @@ export function useVoiceCall({ profile, onTranscript, addLog }: UseVoiceCallOpti
   const [state, setState] = useState<VoiceState>("off");
   const [level, setLevel] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [permissionDenied, setPermissionDenied] = useState(false);
   const [callActive, setCallActive] = useState(false);
   const [support, setSupport] = useState<VoiceSupport>({ mic: true, tts: true, reason: null });
   const [muted, setMuted] = useState(false);
@@ -328,11 +329,20 @@ export function useVoiceCall({ profile, onTranscript, addLog }: UseVoiceCallOpti
         noiseFloorRef.current = SPEECH_FLOOR;
       }
       setError(null);
+      setPermissionDenied(false);
       return true;
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(`Microphone unavailable: ${message}`);
-      addLog("error", "Microphone access denied", message);
+      const name = err instanceof DOMException ? err.name : "";
+      if (name === "NotAllowedError" || name === "SecurityError") {
+        setPermissionDenied(true);
+        setError("Microphone access was blocked. Click the button to open settings and re-enable it.");
+        addLog("warn", "Microphone permission denied", name);
+      } else {
+        setPermissionDenied(false);
+        const message = err instanceof Error ? err.message : String(err);
+        setError(`Microphone unavailable: ${message}`);
+        addLog("error", "Microphone access denied", message);
+      }
       return false;
     }
   }, [addLog]);
@@ -406,7 +416,6 @@ export function useVoiceCall({ profile, onTranscript, addLog }: UseVoiceCallOpti
 
   const toggleMute = useCallback(() => {
     const next = !mutedRef.current;
-    mutedRef.current = next;
     setMuted(next);
     addLog("debug", "Voice mute toggled", `muted=${next}`);
     if (next && stateRef.current === "capturing") stopRecorder(true);
@@ -416,6 +425,7 @@ export function useVoiceCall({ profile, onTranscript, addLog }: UseVoiceCallOpti
     state,
     level,
     error,
+    permissionDenied,
     support,
     callActive,
     muted,
