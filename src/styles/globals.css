@@ -4992,7 +4992,7 @@ body[data-surface-dragging="true"] .surface-unlink-dropzone:hover { border-color
 .voice-level-bar { width: 2px; height: 4px; background: var(--bb-border); border-radius: var(--bb-radius-full); transition: height 0.06s linear, background-color 0.06s linear; }
 .voice-level-bar.is-lit { height: 12px; background: var(--bb-cta); }
 /* Composer microphone and call buttons, sized to match the send button. */
-.chat-voice-btn, .chat-call-btn { background: var(--bb-surface); border: 1px solid var(--bb-border); color: var(--bb-text-secondary); }
+.chat-voice-btn, .chat-call-btn { flex-shrink: 0; height: 28px; width: 28px; display: flex; align-items: center; justify-content: center; border-radius: var(--bb-radius-full); background: var(--bb-surface); border: 1px solid var(--bb-border); color: var(--bb-text-secondary); }
 .chat-voice-btn:hover:not(:disabled), .chat-call-btn:hover:not(:disabled) { color: var(--bb-text); border-color: var(--bb-cta); }
 .chat-voice-btn.is-capturing { border-color: var(--bb-cta); background: var(--bb-cta); color: var(--bb-on-cta); }
 .chat-call-btn.is-active { border-color: var(--bb-danger); color: var(--bb-danger); }
