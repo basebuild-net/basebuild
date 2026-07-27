@@ -9,6 +9,7 @@ import {
   GitPullRequest,
   MoreHorizontal,
   Pencil,
+  Phone,
   Plus,
   Sparkles,
   X,
@@ -64,6 +65,10 @@ type ChatHeaderProps = {
   sessionId?: string | null;
   /** Copy the chat session ID to clipboard. */
   onCopySessionId?: () => void;
+  /** Start a hands-free voice call. Null when voice is unsupported. */
+  onStartVoiceCall?: (() => void) | null;
+  /** Whether a voice call is currently active. */
+  voiceCallActive?: boolean;
   onDragStart?: (e: React.MouseEvent) => void;
   onDragEnd?: () => void;
   onDragOver?: (e: React.DragEvent) => void;
@@ -197,6 +202,15 @@ export function ChatHeader(props: ChatHeaderProps) {
     { key: "assign", label: "Assign plan", title: "Assign a ready plan to this chat", icon: <Sparkles size={11} />, onSelect: props.onAssignPlan },
     { key: "copy", label: "Copy conversation", title: "Copy the conversation as markdown", icon: <CopyIcon />, disabled: !props.canCopyConversation, onSelect: props.onCopyConversation },
     ...(props.onCopySessionId ? [{ key: "copy-id", label: "Copy chat ID", title: "Copy the chat session identifier", icon: <CopyIcon />, onSelect: props.onCopySessionId }] : []),
+    ...(props.onStartVoiceCall ? [{
+      key: "voice-call",
+      label: props.voiceCallActive ? "End voice call" : "Start voice call",
+      title: props.voiceCallActive
+        ? "Hang up the active voice call and release the microphone"
+        : "Start a hands-free voice call: continuous listening, talk over the agent to interrupt",
+      icon: <Phone size={11} />,
+      onSelect: props.onStartVoiceCall,
+    }] : []),
     { key: "debug", label: props.debugMode ? "Hide debug events" : "Show debug events", title: props.debugMode ? "Turn debug event rendering off" : "Show raw event data in tool cards", icon: <Bug size={11} />, onSelect: props.onToggleDebug },
     ...(props.prRecommendation ? [{
       key: "pull-request",

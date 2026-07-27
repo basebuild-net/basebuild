@@ -54,5 +54,6 @@ pub mod terminal_service;
 pub mod tool_runtime_service;
 pub mod updater_service;
 pub mod usage_source_service;
+pub mod voice_service;
 pub mod workspace_service;
 pub mod worktree_service;

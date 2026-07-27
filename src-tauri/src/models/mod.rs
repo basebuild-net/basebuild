@@ -33,4 +33,5 @@ pub mod storage;
 pub mod terminal;
 pub mod usage_envelope;
 pub mod usage_sync;
+pub mod voice;
 pub mod workspace;

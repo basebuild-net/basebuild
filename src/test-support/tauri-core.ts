@@ -173,6 +173,23 @@ type MergeReviewEntry = {
   createdAt: number;
 };
 
+/** Mirrors the Rust VoiceProfile wire shape (camelCase across the bridge). */
+type MockVoiceProfile = {
+  enabled: boolean;
+  providerId: string;
+  modelId: string;
+  effortLevel: string;
+  sttEngine: "openai_whisper" | "windows_native" | "local_whisper";
+  sttProviderId: string;
+  sttModelId: string;
+  ttsEnabled: boolean;
+  ttsVoice: string | null;
+  ttsRate: number;
+  mode: "push_to_talk" | "call";
+  vadSilenceMs: number;
+  bargeIn: boolean;
+};
+
 type E2eState = {
   projectPath: string;
   sessions: Session[];
@@ -190,6 +207,8 @@ type E2eState = {
   nativeChatMessages: NativeChatMessage[];
   /** Session ids with an in-flight native_chat_send, so native_chat_steer can answer honestly. */
   nativeChatRunning: string[];
+  /** Voice preferences, mirroring the Rust VoiceProfile wire shape. */
+  voiceProfile: MockVoiceProfile;
   nativeRequestMetrics: NativeRequestMetric[];
   categories: Category[];
   ideas: Idea[];
@@ -232,7 +251,7 @@ type E2eState = {
   notificationSettings: { overrides: Record<string, string> };
 };
 
-const globalState = globalThis as typeof globalThis & { __BASEBUILD_E2E_STATE__?: E2eState; __BASEBUILD_E2E_FIXTURE__?: string; __BASEBUILD_E2E_PICK_PROJECT_PATH__?: string; __BASEBUILD_E2E_PICKER_DELAY_MS__?: number; __BASEBUILD_E2E_RESTORE_DELAY_MS__?: number; __BASEBUILD_E2E_BOOTSTRAP_DELAY_MS__?: number; __BASEBUILD_E2E_INVOKE_DELAY_MS__?: number; __BASEBUILD_E2E_SLOW_COMMANDS__?: string[] };
+const globalState = globalThis as typeof globalThis & { __BASEBUILD_E2E_STATE__?: E2eState; __BASEBUILD_E2E_FIXTURE__?: string; __BASEBUILD_E2E_PICK_PROJECT_PATH__?: string; __BASEBUILD_E2E_PICKER_DELAY_MS__?: number; __BASEBUILD_E2E_RESTORE_DELAY_MS__?: number; __BASEBUILD_E2E_BOOTSTRAP_DELAY_MS__?: number; __BASEBUILD_E2E_INVOKE_DELAY_MS__?: number; __BASEBUILD_E2E_SLOW_COMMANDS__?: string[]; __BASEBUILD_E2E_TRANSCRIPT__?: string };
 
 
 function panelGridFor(panelId: string, chatSessionId: string | null = null): string {
@@ -396,6 +415,21 @@ function state(): E2eState {
       nativeChatSessions: [],
       nativeChatMessages: [],
       nativeChatRunning: [],
+      voiceProfile: {
+        enabled: false,
+        providerId: "",
+        modelId: "",
+        effortLevel: "medium",
+        sttEngine: "openai_whisper",
+        sttProviderId: "openai",
+        sttModelId: "whisper-1",
+        ttsEnabled: true,
+        ttsVoice: null,
+        ttsRate: 1,
+        mode: "call",
+        vadSilenceMs: 900,
+        bargeIn: true,
+      },
       nativeRequestMetrics: [],
       nativeToolEvents: [],
       categories: [],
@@ -1453,6 +1487,26 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     }
     case "native_chat_messages":
       return s.nativeChatMessages.filter((message) => message.sessionId === args.sessionId) as T;
+    case "voice_profile_get":
+      return s.voiceProfile as T;
+    case "voice_profile_set": {
+      const next = args.profile as MockVoiceProfile | undefined;
+      if (!next) throw new Error("Voice profile is required.");
+      s.voiceProfile = { ...s.voiceProfile, ...next };
+      return s.voiceProfile as T;
+    }
+    case "voice_transcribe": {
+      // The real command ships captured audio to an STT engine. A spec cannot
+      // synthesise Opus, so the transcript is scripted through a global and the
+      // mock asserts only the parts of the request the UI actually controls.
+      const request = args.request as { audioBase64?: string; mimeType?: string; modelId?: string } | undefined;
+      if (!request?.audioBase64) throw new Error("Audio payload is required.");
+      return {
+        text: globalState.__BASEBUILD_E2E_TRANSCRIPT__ ?? "",
+        engine: s.voiceProfile.sttEngine,
+        durationMs: 40,
+      } as T;
+    }
     case "native_chat_steer": {
       // Mirrors the backend contract: a steer is accepted only while a turn is
       // actually in flight, otherwise the caller falls back to a normal send.

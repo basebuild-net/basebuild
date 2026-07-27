@@ -13,7 +13,7 @@ pub struct StorageService;
 // Increment whenever `initialize` gains a schema-changing migration. Existing
 // databases run the idempotent initializer once per version; current databases
 // skip its ~50 table/column probes entirely on normal launches.
-const CURRENT_SCHEMA_VERSION: i64 = 10;
+const CURRENT_SCHEMA_VERSION: i64 = 11;
 
 impl StorageService {
     pub fn state_db_path() -> Result<PathBuf, String> {
@@ -1509,6 +1509,38 @@ impl StorageService {
                     params![serde_json::to_string(&settings).unwrap_or_default()],
                 );
             }
+        }
+
+        // Migration (voice-runtime): single-row voice profile. The row is
+        // pinned to id 1 by a CHECK constraint so the table can never grow a
+        // second, ambiguous profile. Column defaults mirror
+        // `VoiceProfile::default()`; a database with no row at all reads back
+        // the same defaults through VoiceService, so a fresh install never
+        // fails on the first read.
+        let has_voice_profile = connection
+            .prepare("SELECT id FROM voice_profile LIMIT 0")
+            .is_ok();
+        if !has_voice_profile {
+            let _ = connection.execute(
+                "CREATE TABLE IF NOT EXISTS voice_profile (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    enabled INTEGER NOT NULL DEFAULT 0,
+                    provider_id TEXT NOT NULL DEFAULT '',
+                    model_id TEXT NOT NULL DEFAULT '',
+                    effort_level TEXT NOT NULL DEFAULT 'medium',
+                    stt_engine TEXT NOT NULL DEFAULT 'openai_whisper',
+                    stt_provider_id TEXT NOT NULL DEFAULT 'openai',
+                    stt_model_id TEXT NOT NULL DEFAULT 'whisper-1',
+                    tts_enabled INTEGER NOT NULL DEFAULT 1,
+                    tts_voice TEXT,
+                    tts_rate REAL NOT NULL DEFAULT 1.0,
+                    mode TEXT NOT NULL DEFAULT 'call',
+                    vad_silence_ms INTEGER NOT NULL DEFAULT 900,
+                    barge_in INTEGER NOT NULL DEFAULT 1,
+                    updated_at INTEGER NOT NULL
+                )",
+                [],
+            );
         }
 
         Ok(())

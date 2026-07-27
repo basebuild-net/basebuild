@@ -4952,3 +4952,51 @@ body[data-surface-dragging="true"] .surface-unlink-dropzone:hover { border-color
 .activity-sidebar-row.is-background-agent .activity-sidebar-row-icon { color: var(--bb-info); animation: bg-agent-tab-pulse 2s ease-in-out infinite; }
 .activity-sidebar-row-meta.is-error { color: var(--bb-negative, #e5484d); font-weight: 600; }
 .activity-sidebar-row-meta.is-succeeded { color: var(--bb-positive, #46a758); }
+/* ─── Voice call ─── */
+/* The in-call strip sits inside the composer box, above the textarea. Its
+   left border is the state light: one glance says whether the mic is live. */
+.voice-call-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--bb-space-2);
+  flex-wrap: wrap;
+  padding: 5px 8px;
+  margin-bottom: 6px;
+  border: 1px solid var(--bb-border);
+  border-left: 2px solid var(--bb-muted);
+  background: var(--bb-surface);
+  border-radius: var(--bb-radius-sm);
+  font-size: 11px;
+}
+.voice-call-bar[data-voice-state="idle"] { border-left-color: var(--bb-cta); }
+.voice-call-bar[data-voice-state="capturing"] { border-left-color: var(--bb-cta); background: color-mix(in srgb, var(--bb-cta) 8%, var(--bb-surface)); }
+.voice-call-bar[data-voice-state="transcribing"] { border-left-color: var(--bb-info); }
+.voice-call-bar[data-voice-state="speaking"] { border-left-color: var(--bb-info); background: color-mix(in srgb, var(--bb-info) 8%, var(--bb-surface)); }
+.voice-call-bar[data-voice-state="muted"] { border-left-color: var(--bb-warning); }
+.voice-call-status { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; color: var(--bb-text); }
+.voice-call-state { font-weight: 600; }
+.voice-call-spinner { animation: bb-spin 1s linear infinite; }
+.voice-call-model { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+.voice-call-error { color: var(--bb-danger); font-size: 10px; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.voice-call-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; margin-left: auto; }
+.voice-call-end { color: var(--bb-danger); border-color: var(--bb-danger-border); display: inline-flex; align-items: center; gap: 4px; }
+.voice-call-end:hover { background: var(--bb-danger); color: var(--bb-on-danger); }
+/* Live input meter. Bars are fixed width so the strip never reflows as the
+   level moves, which would jitter every control beside it. */
+.voice-level { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; flex-shrink: 0; }
+.voice-level-bar { width: 2px; height: 4px; background: var(--bb-border); border-radius: var(--bb-radius-full); transition: height 0.06s linear, background-color 0.06s linear; }
+.voice-level-bar.is-lit { height: 12px; background: var(--bb-cta); }
+/* Composer microphone and call buttons, sized to match the send button. */
+.chat-voice-btn, .chat-call-btn { background: var(--bb-surface); border: 1px solid var(--bb-border); color: var(--bb-text-secondary); }
+.chat-voice-btn:hover:not(:disabled), .chat-call-btn:hover:not(:disabled) { color: var(--bb-text); border-color: var(--bb-cta); }
+.chat-voice-btn.is-capturing { border-color: var(--bb-cta); background: var(--bb-cta); color: var(--bb-on-cta); }
+.chat-call-btn.is-active { border-color: var(--bb-danger); color: var(--bb-danger); }
+.chat-call-btn.is-active:hover { background: var(--bb-danger); color: var(--bb-on-danger); }
+/* ─── Voice settings modal ─── */
+.voice-settings-modal { width: min(520px, 92vw); }
+.voice-settings-body { display: flex; flex-direction: column; gap: 14px; max-height: 62vh; overflow-y: auto; }
+.voice-settings-section { display: flex; flex-direction: column; gap: 8px; }
+.voice-settings-section h3 { margin: 0; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--bb-muted); }
+.voice-settings-field { display: flex; align-items: center; justify-content: space-between; gap: var(--bb-space-2); font-size: 12px; }
+.voice-settings-field > span { flex-shrink: 0; color: var(--bb-text-secondary); }
+.voice-settings-field > .input, .voice-settings-field > select.input { flex: 1; min-width: 0; max-width: 60%; }
