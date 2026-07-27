@@ -194,6 +194,16 @@ pub struct NativeModel {
     pub supports_reasoning: bool,
     pub supported_efforts: Vec<String>,
     pub supports_images: bool,
+    /// Whether the model accepts audio input. Cheap filter flag; mirrors
+    /// LiteLLM's `supports_audio_input`.
+    #[serde(default)]
+    pub supports_audio_input: bool,
+    /// Whether the model emits audio. Mirrors LiteLLM's `supports_audio_output`.
+    #[serde(default)]
+    pub supports_audio_output: bool,
+    /// Full voice detail. None means no voice capability.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voice: Option<crate::models::model_catalog::CatalogVoice>,
     pub source: String,
     /// Provider-specific model API id (e.g. "umans-glm-5.2") sent in the
     /// provider's chat request body. Null for legacy bundled/discovered rows;
@@ -284,6 +294,18 @@ pub struct NativeChatSendResult {
     /// True when the turn was handled by the offline local coordinator rather
     /// than an external provider.
     pub offline: bool,
+}
+
+/// Outcome of injecting a message into an in-flight agent loop. When the run
+/// finished before the message could be handed over, `delivered` is false and
+/// no row was persisted, so the caller re-sends the draft as a normal turn.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeChatSteerResult {
+    /// True when a running loop accepted the message.
+    pub delivered: bool,
+    /// The persisted user message row, present only when delivered.
+    pub message: Option<NativeChatMessage>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

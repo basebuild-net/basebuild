@@ -1,8 +1,11 @@
 //! Core tool runtime for the native agent loop.
 //!
-//! Implements the six tools the model can call: `read_file`, `write_file`,
-//! `edit_file`, `list_files`, `search_files`, and `run_command`. All file
-//! tools are workspace-scoped: paths are canonicalized and prefix-checked
+//! `registry()` is the authoritative list of the tools the model can call:
+//! workspace file tools, `run_command`, skill lookups, the loop-intercepted
+//! interaction tools, and local planning readouts, including
+//! `project_status`, which reports Basebuild's own plans, plan runs, ideas,
+//! and git working state from local state alone. All file tools are
+//! workspace-scoped: paths are canonicalized and prefix-checked
 //! against the workspace root after symlink resolution, so `..` traversal
 //! and symlink escapes are rejected. `run_command` executes with its cwd
 //! inside the workspace. Escape attempts return an error result to the
@@ -354,6 +357,29 @@ pub fn registry() -> Vec<ToolDef> {
             },
             kind: ToolKind::ReadOnly,
             execute: get_execution_advice,
+        },
+        ToolDef {
+            schema: ToolSchema {
+                name: "project_status".to_string(),
+                description: "Report Basebuild's own local project state: plans grouped by status, active and recent plan runs, captured ideas, and the current git branch with a working-tree summary. Every value is read from the local Basebuild database and the local repository. The report contains no credentials, no secrets, and no absolute paths. This is the right way to answer questions about what is planned, what is running, and what is outstanding, and it should be read before proposing new work so proposals build on what already exists instead of guessing or shelling out.".to_string(),
+                parameters: json!({
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "sections": {
+                            "type": "array",
+                            "maxItems": 4,
+                            "items": {
+                                "type": "string",
+                                "enum": ["plans", "runs", "ideas", "git"]
+                            },
+                            "description": "Which sections to include. Omit for all sections."
+                        }
+                    }
+                }),
+            },
+            kind: ToolKind::ReadOnly,
+            execute: project_status,
         },
         ToolDef {
             schema: ToolSchema {
@@ -1285,6 +1311,360 @@ fn get_execution_advice(workspace_root: &Path, args: &Value) -> ToolResult {
     }
 }
 
+/// Section names `project_status` understands, in the order they are
+/// rendered. The report order is fixed so the model sees a stable shape
+/// regardless of the order the sections were requested in.
+const PROJECT_STATUS_SECTIONS: [&str; 4] = ["plans", "runs", "ideas", "git"];
+/// Maximum plans listed individually before the tail is summarized.
+const PROJECT_STATUS_MAX_PLANS: usize = 20;
+/// Maximum active (non-terminal) runs listed before the tail is summarized.
+const PROJECT_STATUS_MAX_ACTIVE_RUNS: usize = 20;
+/// Maximum finished runs listed after the active ones.
+const PROJECT_STATUS_MAX_TERMINAL_RUNS: usize = 5;
+/// Maximum concept ideas listed by title.
+const PROJECT_STATUS_MAX_IDEAS: usize = 10;
+/// Maximum characters of any user-authored title echoed into the report.
+const PROJECT_STATUS_MAX_LABEL: usize = 120;
+
+/// One shared rejection message so a bad `sections` argument always names the
+/// values the model is allowed to pass.
+fn project_status_section_error(offender: &str) -> String {
+    format!(
+        "Invalid 'sections' argument: {offender}. Valid sections are: plans, runs, ideas, git. Omit 'sections' for all of them."
+    )
+}
+
+/// Collapse a user-authored title into one bounded single-line label. Titles
+/// are free text, so an embedded newline would forge a section heading in the
+/// report and a very long title would crowd out the rest of the status.
+fn project_status_label(raw: &str) -> String {
+    let single_line = raw
+        .split(|c: char| c.is_whitespace() || c.is_control())
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    if single_line.is_empty() {
+        return "(untitled)".to_string();
+    }
+    if single_line.chars().count() <= PROJECT_STATUS_MAX_LABEL {
+        return single_line;
+    }
+    let head: String = single_line.chars().take(PROJECT_STATUS_MAX_LABEL).collect();
+    format!("{head}...")
+}
+
+/// Count occurrences of each status label, preserving first-seen order so the
+/// summary line reflects the service's own ordering rather than a hash order.
+fn project_status_counts<'a>(statuses: impl Iterator<Item = &'a str>) -> Vec<(&'a str, usize)> {
+    let mut counts: Vec<(&'a str, usize)> = Vec::new();
+    for status in statuses {
+        match counts.iter_mut().find(|(name, _)| *name == status) {
+            Some(entry) => entry.1 += 1,
+            None => counts.push((status, 1)),
+        }
+    }
+    counts
+}
+
+/// Render `(status, count)` pairs as `status n, status n`.
+fn project_status_format_counts(counts: &[(&str, usize)]) -> String {
+    counts
+        .iter()
+        .map(|(name, count)| format!("{name} {count}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Plan-status counts plus a bounded listing. Takes the already-fetched
+/// result because the runs section reuses the same query for plan titles.
+fn project_status_plans(plans: &Result<Vec<crate::models::plan::Plan>, String>) -> String {
+    let plans = match plans {
+        Ok(plans) => plans,
+        Err(error) => return format!("Unavailable: {error}"),
+    };
+    if plans.is_empty() {
+        return "No plans yet.".to_string();
+    }
+    let counts = project_status_counts(plans.iter().map(|plan| plan.status.as_str()));
+    let mut lines = vec![format!(
+        "{} total ({}).",
+        plans.len(),
+        project_status_format_counts(&counts)
+    )];
+    for plan in plans.iter().take(PROJECT_STATUS_MAX_PLANS) {
+        lines.push(format!(
+            "- [{}] {} ({})",
+            plan.status.as_str(),
+            project_status_label(&plan.title),
+            plan.id
+        ));
+    }
+    if plans.len() > PROJECT_STATUS_MAX_PLANS {
+        lines.push(format!(
+            "... and {} more not listed.",
+            plans.len() - PROJECT_STATUS_MAX_PLANS
+        ));
+    }
+    lines.join("\n")
+}
+
+/// Active runs first (those are what the user can still act on), then the
+/// most recent finished ones for context. `plans` is only a title lookup: a
+/// failed plan query degrades a run to its plan id, never drops it.
+fn project_status_runs(
+    runs: &Result<Vec<crate::models::plan_run::PlanRun>, String>,
+    plans: &Result<Vec<crate::models::plan::Plan>, String>,
+) -> String {
+    use crate::models::plan_run::{PlanRun, PlanRunStatus};
+
+    let runs = match runs {
+        Ok(runs) => runs,
+        Err(error) => return format!("Unavailable: {error}"),
+    };
+    if runs.is_empty() {
+        return "No plan runs recorded.".to_string();
+    }
+    let titles = plans.as_deref().unwrap_or(&[]);
+    let describe = |run: &PlanRun| -> String {
+        let plan = titles
+            .iter()
+            .find(|plan| plan.id == run.plan_id)
+            .map(|plan| project_status_label(&plan.title))
+            .unwrap_or_else(|| format!("plan {}", run.plan_id));
+        format!("- [{}] {} (run {})", run.status.as_str(), plan, run.id)
+    };
+    let is_terminal = |status: PlanRunStatus| {
+        matches!(
+            status,
+            PlanRunStatus::Succeeded | PlanRunStatus::Failed | PlanRunStatus::Cancelled
+        )
+    };
+
+    let counts = project_status_counts(runs.iter().map(|run| run.status.as_str()));
+    let mut lines = vec![format!(
+        "{} total ({}).",
+        runs.len(),
+        project_status_format_counts(&counts)
+    )];
+
+    let active: Vec<&PlanRun> = runs.iter().filter(|run| !is_terminal(run.status)).collect();
+    if active.is_empty() {
+        lines.push("No active runs.".to_string());
+    } else {
+        lines.push(format!("Active ({}):", active.len()));
+        for run in active.iter().copied().take(PROJECT_STATUS_MAX_ACTIVE_RUNS) {
+            lines.push(describe(run));
+        }
+        if active.len() > PROJECT_STATUS_MAX_ACTIVE_RUNS {
+            lines.push(format!(
+                "... and {} more active.",
+                active.len() - PROJECT_STATUS_MAX_ACTIVE_RUNS
+            ));
+        }
+    }
+
+    // The service returns newest first, so the head of the terminal slice is
+    // already the most recent finished work.
+    let terminal: Vec<&PlanRun> = runs.iter().filter(|run| is_terminal(run.status)).collect();
+    if !terminal.is_empty() {
+        lines.push(format!(
+            "Most recent finished ({} of {}):",
+            terminal.len().min(PROJECT_STATUS_MAX_TERMINAL_RUNS),
+            terminal.len()
+        ));
+        for run in terminal.iter().copied().take(PROJECT_STATUS_MAX_TERMINAL_RUNS) {
+            lines.push(describe(run));
+        }
+    }
+    lines.join("\n")
+}
+
+/// Idea counts across the full status set plus the open concepts by title.
+/// Every status is printed even at zero so an absent status is never read as
+/// a gap in the report.
+fn project_status_ideas(ideas: &Result<Vec<crate::models::idea::Idea>, String>) -> String {
+    use crate::models::idea::{Idea, IdeaStatus};
+
+    let ideas = match ideas {
+        Ok(ideas) => ideas,
+        Err(error) => return format!("Unavailable: {error}"),
+    };
+    if ideas.is_empty() {
+        return "No ideas captured yet.".to_string();
+    }
+    let summary = [
+        IdeaStatus::Concept,
+        IdeaStatus::Picked,
+        IdeaStatus::Rejected,
+        IdeaStatus::Archived,
+    ]
+    .iter()
+    .map(|status| {
+        format!(
+            "{} {}",
+            status.as_str(),
+            ideas.iter().filter(|idea| idea.status == *status).count()
+        )
+    })
+    .collect::<Vec<_>>()
+    .join(", ");
+    let mut lines = vec![format!("{} total ({}).", ideas.len(), summary)];
+
+    let concepts: Vec<&Idea> = ideas
+        .iter()
+        .filter(|idea| idea.status == IdeaStatus::Concept)
+        .collect();
+    if concepts.is_empty() {
+        lines.push("No open concepts.".to_string());
+    } else {
+        for idea in concepts.iter().copied().take(PROJECT_STATUS_MAX_IDEAS) {
+            lines.push(format!("- {}", project_status_label(&idea.title)));
+        }
+        if concepts.len() > PROJECT_STATUS_MAX_IDEAS {
+            lines.push(format!(
+                "... and {} more concepts.",
+                concepts.len() - PROJECT_STATUS_MAX_IDEAS
+            ));
+        }
+    }
+    lines.join("\n")
+}
+
+/// Branch and a one-line working-tree summary. Never file contents, never a
+/// diff, never a path: only counts and the branch/upstream ref names.
+fn project_status_git(workspace_root: &Path) -> String {
+    let status = match crate::services::git_service::GitService::status(workspace_root) {
+        Ok(status) => status,
+        // A workspace without a repository is a normal state, not a tool
+        // failure, and git's error text can carry absolute paths.
+        Err(_) => return "Git: not a repository or unavailable.".to_string(),
+    };
+    let mut branch = format!("Branch: {}", status.branch.branch);
+    if status.unborn {
+        branch.push_str(" (no commits yet)");
+    }
+    if let Some(upstream) = &status.branch.upstream {
+        branch.push_str(&format!(", upstream {upstream}"));
+    }
+    if status.branch.ahead > 0 || status.branch.behind > 0 {
+        branch.push_str(&format!(
+            ", ahead {}, behind {}",
+            status.branch.ahead, status.branch.behind
+        ));
+    }
+    let tree = if status.staged.is_empty() && status.unstaged.is_empty() && status.untracked.is_empty()
+    {
+        "Working tree: clean.".to_string()
+    } else {
+        format!(
+            "Working tree: {} staged, {} unstaged, {} untracked.",
+            status.staged.len(),
+            status.unstaged.len(),
+            status.untracked.len()
+        )
+    };
+    format!("{branch}\n{tree}")
+}
+
+/// Report Basebuild's own local view of the project: plans, plan runs, ideas,
+/// and git working state, all read from the local database and repository.
+///
+/// Every section degrades to an explicit line rather than failing the call: a
+/// status report that half works is more useful than an error, and a silently
+/// omitted section would read to the model as "nothing exists" and send it
+/// off proposing work that is already planned or running.
+fn project_status(workspace_root: &Path, args: &Value) -> ToolResult {
+    let requested: Vec<&'static str> = match args.get("sections") {
+        None | Some(Value::Null) => PROJECT_STATUS_SECTIONS.to_vec(),
+        Some(Value::Array(items)) => {
+            let mut requested: Vec<&'static str> = Vec::with_capacity(items.len());
+            for item in items {
+                let name = match item.as_str() {
+                    Some(name) => name.trim(),
+                    None => {
+                        return ToolResult::failure(project_status_section_error(
+                            "section names must be strings",
+                        ))
+                    }
+                };
+                match PROJECT_STATUS_SECTIONS.iter().find(|known| **known == name) {
+                    Some(known) => {
+                        if !requested.contains(known) {
+                            requested.push(*known);
+                        }
+                    }
+                    None => {
+                        return ToolResult::failure(project_status_section_error(&format!(
+                            "unknown section '{name}'"
+                        )))
+                    }
+                }
+            }
+            // An explicit empty array asks for nothing useful; treat it the
+            // same as omitting the argument.
+            if requested.is_empty() {
+                PROJECT_STATUS_SECTIONS.to_vec()
+            } else {
+                requested
+            }
+        }
+        Some(_) => {
+            return ToolResult::failure(project_status_section_error(
+                "'sections' must be an array of strings",
+            ))
+        }
+    };
+
+    // The workspace root doubles as the project key for the plan/idea
+    // services. Only its final component is ever printed.
+    let project_path = workspace_root.to_string_lossy();
+    let project_name = workspace_root
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_else(|| "(workspace)".to_string());
+
+    // One plan query backs two sections: the plans listing and the run title
+    // lookup. Skip it entirely when neither section was requested.
+    let plans = if requested.contains(&"plans") || requested.contains(&"runs") {
+        crate::services::plan_service::PlanService::list_for_project(&project_path)
+    } else {
+        Ok(Vec::new())
+    };
+
+    let mut report = format!("# Project status: {project_name}\n");
+    for section in PROJECT_STATUS_SECTIONS
+        .iter()
+        .filter(|section| requested.contains(*section))
+    {
+        let (heading, body) = match *section {
+            "plans" => ("Plans", project_status_plans(&plans)),
+            "runs" => (
+                "Plan runs",
+                project_status_runs(
+                    &crate::services::plan_runner_service::PlanRunnerService::list_runs_for_project(
+                        &project_path,
+                    ),
+                    &plans,
+                ),
+            ),
+            "ideas" => (
+                "Ideas",
+                project_status_ideas(
+                    &crate::services::session_service::SessionService::list_ideas_for_project(
+                        &project_path,
+                    ),
+                ),
+            ),
+            // `requested` only ever holds PROJECT_STATUS_SECTIONS values, so
+            // the remaining arm is `git`. Matched as the default rather than
+            // unreachable!() so a future section can never panic the tool.
+            _ => ("Git", project_status_git(workspace_root)),
+        };
+        report.push_str(&format!("\n## {heading}\n{body}\n"));
+    }
+    truncate_output(report)
+}
+
 /// Fallback executor for the propose_ideas tool. The agent loop intercepts
 /// this tool before it reaches the generic executor and calls
 /// SessionService::create_idea instead. This function exists only so the
@@ -2052,6 +2432,84 @@ mod tests {
                 },
                 "required": ["schemaVersion", "effort", "difficulty", "impact", "risk", "confidence", "rationale", "grounding", "requiredCapabilities", "constraints", "missingEvidence", "alternatives"]
             })
+        );
+    }
+
+    #[test]
+    fn project_status_is_registered_read_only() {
+        let tool = registry()
+            .into_iter()
+            .find(|tool| tool.schema.name == "project_status")
+            .expect("project_status tool");
+        assert_eq!(tool.kind, ToolKind::ReadOnly);
+        assert_eq!(
+            tool.schema.parameters["properties"]["sections"]["items"]["enum"],
+            json!(["plans", "runs", "ideas", "git"])
+        );
+        assert!(
+            tool.schema.parameters.get("required").is_none(),
+            "sections must stay optional"
+        );
+    }
+
+    #[test]
+    fn project_status_rejects_unknown_section() {
+        let dir = workspace();
+        let result = project_status(dir.path(), &json!({ "sections": ["plans", "deployments"] }));
+        assert_eq!(result.status, "failed");
+        assert!(
+            result.content.contains("deployments"),
+            "failure names the offending section: {}",
+            result.content
+        );
+        for valid in ["plans", "runs", "ideas", "git"] {
+            assert!(
+                result.content.contains(valid),
+                "failure names valid section {valid}: {}",
+                result.content
+            );
+        }
+    }
+
+    #[test]
+    fn project_status_empty_workspace_reports_every_section() {
+        let dir = workspace();
+        let root = dir.path();
+        let result = project_status(root, &json!({}));
+        assert_eq!(result.status, "succeeded");
+        for heading in ["## Plans", "## Plan runs", "## Ideas", "## Git"] {
+            assert!(
+                result.content.contains(heading),
+                "missing {heading} in:\n{}",
+                result.content
+            );
+        }
+        let absolute = root.to_string_lossy().to_string();
+        assert!(
+            !result.content.contains(&absolute),
+            "report leaked the absolute workspace path:\n{}",
+            result.content
+        );
+    }
+
+    #[test]
+    fn project_status_sections_filter_selects_one_section() {
+        let dir = workspace();
+        let result = project_status(dir.path(), &json!({ "sections": ["git"] }));
+        assert_eq!(result.status, "succeeded");
+        assert!(result.content.contains("## Git"));
+        assert!(!result.content.contains("## Plans"));
+        assert!(!result.content.contains("## Plan runs"));
+        assert!(!result.content.contains("## Ideas"));
+        // A bare temp dir is normally not a repository, but the section must
+        // state something either way instead of going silently missing.
+        assert!(
+            result
+                .content
+                .contains("Git: not a repository or unavailable.")
+                || result.content.contains("Branch: "),
+            "git section states a branch or an explicit unavailable line:\n{}",
+            result.content
         );
     }
 }

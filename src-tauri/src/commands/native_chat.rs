@@ -4,8 +4,8 @@ use crate::{
     models::native_chat::{
         ChatModelDefault, NativeChatBootstrap, NativeChatHistoryEntry, NativeChatMessage,
         NativeChatSendRequest, NativeChatSendResult, NativeChatSession, NativeChatStartRequest,
-        NativeGenerateIdeasRequest, NativeGenerateIdeasResult, NativeProviderCatalog,
-        NativeProviderCatalogRefreshRequest, NativeProviderCredentialInput,
+        NativeChatSteerResult, NativeGenerateIdeasRequest, NativeGenerateIdeasResult,
+        NativeProviderCatalog, NativeProviderCatalogRefreshRequest, NativeProviderCredentialInput,
         NativeProviderLoginState, NativeRequestMetric, NativeRequestMetricsSummary,
         NativeToolApprovalRequest, NativeToolApprovalResult, NativeToolEvent, ProviderAccount,
         ProviderAccountUsage, ResolvedChatModelDefault,
@@ -244,6 +244,19 @@ pub async fn native_chat_send(
     tauri::async_runtime::spawn_blocking(move || NativeChatService::send_message(&app, request))
         .await
         .map_err(|e| format!("Chat send task panicked: {e}"))?
+}
+
+/// Inject a message into the agent loop already running for this session.
+/// Returns `delivered: false` when the run finished first, which the composer
+/// treats as "send this normally" so the draft is never lost.
+#[tauri::command]
+pub async fn native_chat_steer(
+    session_id: String,
+    content: String,
+) -> Result<NativeChatSteerResult, String> {
+    tauri::async_runtime::spawn_blocking(move || NativeChatService::steer(&session_id, &content))
+        .await
+        .map_err(|e| format!("Chat steer task panicked: {e}"))?
 }
 #[tauri::command]
 pub async fn native_generate_ideas(

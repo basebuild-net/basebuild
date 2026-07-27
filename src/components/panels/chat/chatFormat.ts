@@ -1,4 +1,4 @@
-import type { NativeModel, NativeProvider, NativeProviderCatalog } from "../../../lib/native-chat";
+import type { NativeModel, NativeProvider, NativeProviderCatalog, VoiceBilling, VoiceLevel } from "../../../lib/native-chat";
 
 export const SEND_TIMEOUT_MS = 45_000;
 export const NATIVE_PROFILE_ID = "basebuild-native";
@@ -139,6 +139,67 @@ export function providerAuthOptionsLabel(provider: NativeProvider): string {
     return provider.apiKeyUrl ? "OAuth or API key" : "OAuth";
   }
   return "API key";
+}
+
+// ─── Voice capability ───
+
+/** Voice levels the picker renders a badge for. `none` is excluded: a model
+ *  without a voice route gets no badge at all. */
+export type VoiceBadgeLevel = Exclude<VoiceLevel, "none">;
+
+/** Short badge text per voice level. */
+export const VOICE_LEVEL_LABELS: Record<VoiceBadgeLevel, string> = {
+  stt: "Speech to text",
+  tts: "Speech out",
+  audio_turn: "Audio turn",
+  realtime: "Realtime voice",
+};
+
+/** What each level actually buys you, for the badge tooltip. */
+export const VOICE_LEVEL_TITLES: Record<VoiceBadgeLevel, string> = {
+  stt: "Audio in, text out. Dictation, not conversation.",
+  tts: "Text in, audio out. Readback only.",
+  audio_turn:
+    "Audio in a normal request and response. Turn based: no server side endpointing and no barge-in.",
+  realtime:
+    "Full duplex speech to speech session with server side turn detection and barge-in.",
+};
+
+/** Short badge text per billing route. */
+export const VOICE_BILLING_LABELS: Record<VoiceBilling, string> = {
+  api_key: "API billing",
+  subscription: "Subscription",
+  local: "On device",
+};
+
+/** How the route is paid for, for the badge tooltip. */
+export const VOICE_BILLING_TITLES: Record<VoiceBilling, string> = {
+  api_key:
+    "This voice route needs an API key and is metered per token or per minute. A consumer subscription does not cover it.",
+  subscription: "This voice route is covered by the subscription you signed in with.",
+  local: "This voice route runs on your machine: no credential, no metering.",
+};
+
+/** True when the provider's only sign-in path is a consumer subscription
+ *  OAuth flow (ChatGPT, Claude, Grok). Such a session carries no audio or
+ *  realtime scope, so an API-billed voice route is not covered by it. */
+export function isSubscriptionOAuthRoute(provider: NativeProvider | null | undefined): boolean {
+  if (!provider) return false;
+  if (provider.connectedVia === "oauth" || provider.connectedVia === "omp") return true;
+  return provider.authMethod === "oauth" && !provider.apiKeyUrl;
+}
+
+/** The one sentence worth saying when an API-billed realtime model sits under
+ *  a provider the user signed into with a subscription. Null when there is no
+ *  mismatch to report. */
+export function voiceBillingMismatch(
+  model: NativeModel,
+  provider: NativeProvider | null | undefined,
+): string | null {
+  if (!provider) return null;
+  if (model.voice?.level !== "realtime" || model.voice.billing !== "api_key") return null;
+  if (!isSubscriptionOAuthRoute(provider)) return null;
+  return `Realtime voice on ${model.id} requires API billing and is not covered by the ${provider.label} subscription sign-in.`;
 }
 
 export type LegacyChatMessage = { role: "user" | "assistant" | "system"; content: string };

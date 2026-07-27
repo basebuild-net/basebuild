@@ -188,6 +188,8 @@ type E2eState = {
   nativeChatSessions: NativeChatSession[];
   nativeToolEvents: NativeToolEvent[];
   nativeChatMessages: NativeChatMessage[];
+  /** Session ids with an in-flight native_chat_send, so native_chat_steer can answer honestly. */
+  nativeChatRunning: string[];
   nativeRequestMetrics: NativeRequestMetric[];
   categories: Category[];
   ideas: Idea[];
@@ -393,6 +395,7 @@ function state(): E2eState {
       nextNativeMetricId: 1,
       nativeChatSessions: [],
       nativeChatMessages: [],
+      nativeChatRunning: [],
       nativeRequestMetrics: [],
       nativeToolEvents: [],
       categories: [],
@@ -1342,7 +1345,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       const baseProviders = [
         { id: "basebuild-local", label: "None", credentialOwner: "basebuild", localOnly: true, detail: "No provider connected — select a provider to chat.", authMethod: "local", apiKeyUrl: null, modelCount: 1, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
         { id: "openai-codex", label: "OpenAI Codex", credentialOwner: "user", localOnly: false, detail: "Sign in with a ChatGPT subscription through Basebuild's native OpenAI OAuth flow.", authMethod: "oauth", apiKeyUrl: null, modelCount: 1, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-        { id: "openai", label: "OpenAI API", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://platform.openai.com/api-keys", modelCount: 1, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+        { id: "openai", label: "OpenAI API", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://platform.openai.com/api-keys", modelCount: 2, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
         { id: "umans", label: "Umans", credentialOwner: "user", localOnly: false, detail: "Connected", authMethod: "api_key", apiKeyUrl: "https://app.umans.ai/billing?context=personal&tab=api-keys", modelCount: 1, lastSyncedAt: 1_800_000_000, source: "provider_discovered", error: null },
         { id: "anthropic", label: "Anthropic", credentialOwner: "user", localOnly: false, detail: "Sign in with a Claude subscription through Oh My Pi, or connect with an API key.", authMethod: "oauth", apiKeyUrl: "https://console.anthropic.com/settings/keys", modelCount: 1, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
         { id: "devin", label: "Devin.ai", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://app.devin.ai/settings/api-keys", modelCount: 48, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
@@ -1391,11 +1394,15 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return {
         providers,
         models: [
-          { id: "basebuild-local-coordinator", providerId: "basebuild-local", label: "None", supportsEffort: true, supportsStreaming: false, supportsTools: false, localOnly: true, contextWindow: null, maxTokens: null, supportsReasoning: true, supportedEfforts: ["low", "medium", "high", "xhigh"], supportsImages: false, source: "bundled" },
-          { id: "gpt-5.5", providerId: "openai-codex", label: "GPT-5.5 Codex", supportsEffort: true, supportsStreaming: true, supportsTools: false, localOnly: false, contextWindow: 400000, maxTokens: null, supportsReasoning: true, supportedEfforts: ["low", "medium", "high", "xhigh"], supportsImages: true, source: "bundled" },
-          { id: "gpt-5.1", providerId: "openai", label: "GPT-5.1", supportsEffort: true, supportsStreaming: true, supportsTools: true, localOnly: false, contextWindow: 400000, maxTokens: null, supportsReasoning: true, supportedEfforts: ["low", "medium", "high", "xhigh"], supportsImages: true, source: "bundled" },
-          { id: "umans-glm-5.2", providerId: "umans", label: "Umans GLM 5.2", supportsEffort: true, supportsStreaming: true, supportsTools: true, localOnly: false, contextWindow: 128000, maxTokens: null, supportsReasoning: true, supportedEfforts: ["low", "medium", "high", "xhigh"], supportsImages: false, source: "provider_discovered" },
-          { id: "umans-lite-1.0", providerId: "umans", label: "Umans Lite 1.0", supportsEffort: true, supportsStreaming: true, supportsTools: false, localOnly: false, contextWindow: 32000, maxTokens: null, supportsReasoning: false, supportedEfforts: ["low", "medium"], supportsImages: false, source: "provider_discovered" },
+          { id: "basebuild-local-coordinator", providerId: "basebuild-local", label: "None", supportsEffort: true, supportsStreaming: false, supportsTools: false, localOnly: true, contextWindow: null, maxTokens: null, supportsReasoning: true, supportedEfforts: ["low", "medium", "high", "xhigh"], supportsImages: false, source: "bundled", supportsAudioInput: false, supportsAudioOutput: false, voice: null },
+          // The ChatGPT subscription route carries no audio or realtime scope,
+          // so its models are text-only. Filtering this provider to voice is
+          // the empty state that tells the user to pick another provider.
+          { id: "gpt-5.5", providerId: "openai-codex", label: "GPT-5.5 Codex", supportsEffort: true, supportsStreaming: true, supportsTools: false, localOnly: false, contextWindow: 400000, maxTokens: null, supportsReasoning: true, supportedEfforts: ["low", "medium", "high", "xhigh"], supportsImages: true, source: "bundled", supportsAudioInput: false, supportsAudioOutput: false, voice: null },
+          { id: "gpt-5.1", providerId: "openai", label: "GPT-5.1", supportsEffort: true, supportsStreaming: true, supportsTools: true, localOnly: false, contextWindow: 400000, maxTokens: null, supportsReasoning: true, supportedEfforts: ["low", "medium", "high", "xhigh"], supportsImages: true, source: "bundled", supportsAudioInput: false, supportsAudioOutput: false, voice: null },
+          { id: "gpt-realtime-2.1", providerId: "openai", label: "GPT Realtime 2.1", supportsEffort: false, supportsStreaming: true, supportsTools: true, localOnly: false, contextWindow: 32000, maxTokens: 4096, supportsReasoning: false, supportedEfforts: [], supportsImages: true, source: "bundled", supportsAudioInput: true, supportsAudioOutput: true, voice: { level: "realtime", billing: "api_key", transports: ["webrtc", "websocket", "sip"], turnDetection: ["server_vad", "semantic_vad", "none"], bargeIn: true, voices: ["alloy", "cedar", "marin"], sampleRateIn: 24000, sampleRateOut: 24000 } },
+          { id: "umans-glm-5.2", providerId: "umans", label: "Umans GLM 5.2", supportsEffort: true, supportsStreaming: true, supportsTools: true, localOnly: false, contextWindow: 128000, maxTokens: null, supportsReasoning: true, supportedEfforts: ["low", "medium", "high", "xhigh"], supportsImages: false, source: "provider_discovered", supportsAudioInput: false, supportsAudioOutput: false, voice: null },
+          { id: "umans-lite-1.0", providerId: "umans", label: "Umans Lite 1.0", supportsEffort: true, supportsStreaming: true, supportsTools: false, localOnly: false, contextWindow: 32000, maxTokens: null, supportsReasoning: false, supportedEfforts: ["low", "medium"], supportsImages: false, source: "provider_discovered", supportsAudioInput: false, supportsAudioOutput: false, voice: null },
         ],
         effortLevels: [
           { id: "low", label: "Low", description: "Fast" },
@@ -1446,10 +1453,35 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     }
     case "native_chat_messages":
       return s.nativeChatMessages.filter((message) => message.sessionId === args.sessionId) as T;
+    case "native_chat_steer": {
+      // Mirrors the backend contract: a steer is accepted only while a turn is
+      // actually in flight, otherwise the caller falls back to a normal send.
+      const sessionId = args.sessionId as string;
+      const content = String(args.content ?? "").trim();
+      if (!content) throw new Error("Steering message is required.");
+      if (!s.nativeChatRunning.includes(sessionId)) {
+        return { delivered: false, message: null } as T;
+      }
+      const steerMessage: NativeChatMessage = {
+        id: `nmsg-${s.nextNativeMessageId++}`,
+        sessionId,
+        role: "user",
+        content,
+        sortOrder: s.nativeChatMessages.filter((m) => m.sessionId === sessionId).length,
+        providerId: "basebuild-local",
+        modelId: "basebuild-local-coordinator",
+        effortLevel: "medium",
+        createdAt: Math.floor(Date.now() / 1000),
+      };
+      s.nativeChatMessages.push(steerMessage);
+      __emit("native-chat://system-row", { sessionId, kind: "steered", value: 1 });
+      return { delivered: true, message: steerMessage } as T;
+    }
     case "native_chat_send": {
       const req = args.request as { sessionId: string; content: string; providerId?: string; modelId?: string; effortLevel?: string };
       const ts = Math.floor(Date.now() / 1000);
       const startedAt = Date.now();
+      s.nativeChatRunning.push(req.sessionId);
       const userMessage: NativeChatMessage = {
         id: `nmsg-${s.nextNativeMessageId++}`,
         sessionId: req.sessionId,
@@ -1461,6 +1493,9 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         effortLevel: req.effortLevel ?? "medium",
         createdAt: ts,
       };
+      // Persist the user turn up front, matching the backend, so a steer that
+      // arrives mid-stream lands after it instead of ahead of it.
+      s.nativeChatMessages.push(userMessage);
       // Streaming trigger: emit phase + delta chunk events with real delays
       // before resolving, so e2e can assert the thinking indicator and
       // incremental markdown rendering (contract: native-chat://chunk with
@@ -1636,7 +1671,8 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         effortLevel: req.effortLevel ?? "medium",
         createdAt: ts,
       };
-      s.nativeChatMessages.push(userMessage, assistantMessage);
+      s.nativeChatRunning = s.nativeChatRunning.filter((id) => id !== req.sessionId);
+      s.nativeChatMessages.push(assistantMessage);
       const completedAt = Date.now();
       const metric: NativeRequestMetric = {
         id: `nreq-${s.nextNativeMetricId++}`,

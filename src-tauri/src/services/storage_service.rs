@@ -13,7 +13,7 @@ pub struct StorageService;
 // Increment whenever `initialize` gains a schema-changing migration. Existing
 // databases run the idempotent initializer once per version; current databases
 // skip its ~50 table/column probes entirely on normal launches.
-const CURRENT_SCHEMA_VERSION: i64 = 9;
+const CURRENT_SCHEMA_VERSION: i64 = 10;
 
 impl StorageService {
     pub fn state_db_path() -> Result<PathBuf, String> {
@@ -1043,6 +1043,31 @@ impl StorageService {
         if !has_running {
             let _ = connection.execute(
                 "ALTER TABLE native_provider_model_cache ADD COLUMN running INTEGER NOT NULL DEFAULT 0",
+                [],
+            );
+        }
+
+        // Migration (voice-capability-catalog): add supports_audio_input,
+        // supports_audio_output, and voice_json to
+        // native_provider_model_cache. The two booleans are the cheap filter
+        // flags mirrored from the catalog's input/output modality arrays;
+        // voice_json is the serialized CatalogVoice detail (transports, turn
+        // detection, barge-in, billing) and is NULL for the overwhelming
+        // majority of models, which have no voice capability at all.
+        let has_supports_audio_input = connection
+            .prepare("SELECT supports_audio_input FROM native_provider_model_cache LIMIT 0")
+            .is_ok();
+        if !has_supports_audio_input {
+            let _ = connection.execute(
+                "ALTER TABLE native_provider_model_cache ADD COLUMN supports_audio_input INTEGER NOT NULL DEFAULT 0",
+                [],
+            );
+            let _ = connection.execute(
+                "ALTER TABLE native_provider_model_cache ADD COLUMN supports_audio_output INTEGER NOT NULL DEFAULT 0",
+                [],
+            );
+            let _ = connection.execute(
+                "ALTER TABLE native_provider_model_cache ADD COLUMN voice_json TEXT",
                 [],
             );
         }

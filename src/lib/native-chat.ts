@@ -104,6 +104,29 @@ export type ProviderAccountUsage = {
 /** Account selection strategy for splitting usage across accounts. */
 export type ProviderAccountStrategy = "round_robin" | "sticky_session" | "fill_first";
 
+/** Voice capability tier for a catalog model, ascending. `none` means the
+ *  model has no audio path at all. Mirrors `VoiceLevel` in the Rust catalog. */
+export type VoiceLevel = "none" | "stt" | "tts" | "audio_turn" | "realtime";
+
+/** How a model's voice route is paid for. `api_key` is metered per token or
+ *  per minute against an API key; `subscription` is covered by the signed-in
+ *  consumer plan; `local` runs on device with no credential. */
+export type VoiceBilling = "api_key" | "subscription" | "local";
+
+/** Full voice detail from the model catalog. Mirrors `CatalogVoice` in Rust. */
+export type ModelVoice = {
+  level: VoiceLevel;
+  billing?: VoiceBilling | null;
+  /** Session transports: "webrtc" | "websocket" | "sip". */
+  transports?: string[];
+  /** Endpointing modes: "server_vad" | "semantic_vad" | "none". */
+  turnDetection?: string[];
+  bargeIn?: boolean;
+  voices?: string[];
+  sampleRateIn?: number | null;
+  sampleRateOut?: number | null;
+};
+
 export type NativeModel = {
   id: string;
   providerId: string;
@@ -136,6 +159,13 @@ export type NativeModel = {
   /** Local models only: the source server currently has this model loaded in
    *  memory (running), as of the last detection scan. False for remote models. */
   running?: boolean;
+  /** Model accepts audio input. Cheap filter flag; mirrors LiteLLM's
+   *  `supports_audio_input`. */
+  supportsAudioInput: boolean;
+  /** Model emits audio. Mirrors LiteLLM's `supports_audio_output`. */
+  supportsAudioOutput: boolean;
+  /** Full voice detail. Absent or null means no voice capability. */
+  voice?: ModelVoice | null;
 };
 
 export type NativeEffortLevel = {
@@ -207,6 +237,16 @@ export type NativeChatSendResult = {
   toolEvents: NativeToolEvent[];
   setupRequired: NativeSetupRequired | null;
   offline: boolean;
+};
+
+/**
+ * Outcome of delivering a message into an in-flight agent loop.
+ * `delivered: false` means no run was active, so the caller should fall back
+ * to a normal send rather than dropping the draft.
+ */
+export type NativeChatSteerResult = {
+  delivered: boolean;
+  message: NativeChatMessage | null;
 };
 
 export type NativeGeneratedIdea = {
@@ -389,6 +429,19 @@ export async function nativeChatSend(input: {
   effortLevel?: string | null;
 }): Promise<NativeChatSendResult> {
   return invoke<NativeChatSendResult>("native_chat_send", { request: input });
+}
+
+/**
+ * Deliver a message into the agent loop that is already running for this
+ * session. The backend persists it as a user turn and injects it before the
+ * loop's next provider request, so the agent can be redirected without
+ * cancelling and restarting the turn.
+ */
+export async function nativeChatSteer(input: {
+  sessionId: string;
+  content: string;
+}): Promise<NativeChatSteerResult> {
+  return invoke<NativeChatSteerResult>("native_chat_steer", input);
 }
 
 export async function nativeRequestMetrics(limit?: number): Promise<NativeRequestMetric[]> {
