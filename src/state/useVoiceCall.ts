@@ -416,6 +416,7 @@ export function useVoiceCall({ profile, onTranscript, addLog }: UseVoiceCallOpti
 
   const toggleMute = useCallback(() => {
     const next = !mutedRef.current;
+    mutedRef.current = next;
     setMuted(next);
     addLog("debug", "Voice mute toggled", `muted=${next}`);
     if (next && stateRef.current === "capturing") stopRecorder(true);
