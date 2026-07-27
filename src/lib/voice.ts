@@ -67,3 +67,12 @@ export async function voiceTranscribe(
 ): Promise<VoiceTranscribeResult> {
   return invoke<VoiceTranscribeResult>("voice_transcribe", { request });
 }
+
+/**
+ * Reset the WebView2 microphone permission for the app's origin so the next
+ * getUserMedia call re-prompts instead of silently failing with a cached
+ * "block" decision. No-op on non-Windows platforms.
+ */
+export async function voiceResetMicPermission(): Promise<void> {
+  return invoke<void>("voice_reset_mic_permission");
+}

@@ -43,6 +43,8 @@ export type VoiceCallBarProps = {
   onOpenSettings: () => void;
   /** Open the OS mic privacy settings so the user can re-grant access. */
   onOpenMicSettings: () => void;
+  /** Reset the WebView2 mic permission and retry getUserMedia. */
+  onResetMicPermission: () => void;
 };
 
 export function VoiceCallBar({
@@ -55,9 +57,10 @@ export function VoiceCallBar({
   profile,
   modelName,
   onToggleMute,
-  onEnd,
-  onOpenSettings,
   onOpenMicSettings,
+  onResetMicPermission,
+  onOpenSettings,
+  onEnd,
 }: VoiceCallBarProps) {
   // Speech RMS lives in a narrow band near zero, so scale before clamping or
   // the meter never leaves the first bar.
@@ -98,10 +101,18 @@ export function VoiceCallBar({
             <button
               className="btn btn-sm voice-call-perm-fix"
               type="button"
-              title="Open the microphone privacy settings so you can re-enable access for this app"
+              title="Reset the mic permission so the app re-prompts for access"
+              onClick={onResetMicPermission}
+            >
+              Reset mic permission
+            </button>
+            <button
+              className="btn btn-sm voice-call-perm-alt"
+              type="button"
+              title="Open the Windows microphone privacy settings page"
               onClick={onOpenMicSettings}
             >
-              Open mic settings
+              Windows settings
             </button>
           </span>
         ) : (

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { voiceTranscribe, type VoiceProfile } from "../lib/voice";
+import { voiceResetMicPermission, voiceTranscribe, type VoiceProfile } from "../lib/voice";
 
 /**
  * Voice call runtime for the chat composer.
@@ -421,6 +421,23 @@ export function useVoiceCall({ profile, onTranscript, addLog }: UseVoiceCallOpti
     if (next && stateRef.current === "capturing") stopRecorder(true);
   }, [addLog, stopRecorder]);
 
+  /** Reset the WebView2 mic permission so the next getUserMedia re-prompts. */
+  const resetMicPermission = useCallback(async (): Promise<boolean> => {
+    try {
+      await voiceResetMicPermission();
+      addLog("info", "Mic permission reset", "WebView2 permission cleared, re-prompting");
+      setPermissionDenied(false);
+      setError(null);
+      // Retry mic access immediately.
+      return await openMic();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      addLog("error", "Mic permission reset failed", message);
+      setError(`Could not reset mic permission: ${message}`);
+      return false;
+    }
+  }, [addLog, openMic]);
+
   const clearError = useCallback(() => {
     setError(null);
     setPermissionDenied(false);
@@ -428,6 +445,7 @@ export function useVoiceCall({ profile, onTranscript, addLog }: UseVoiceCallOpti
   return {
     state,
     level,
+    resetMicPermission,
     error,
     clearError,
     permissionDenied,
