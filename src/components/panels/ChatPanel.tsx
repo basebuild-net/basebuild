@@ -1955,6 +1955,42 @@ export function ChatPanel({
     }
   }, [voice, setProviderId, setModelId, addLog]);
 
+  // Hold-space-bar push-to-talk. When the user holds Space anywhere outside
+  // the composer textarea (so typing spaces still works), the mic opens and
+  // closes on release, exactly like holding the mic button. The ref guards
+  // against key-repeat firing beginPushToTalk repeatedly while held.
+  const spacePttActiveRef = useRef(false);
+  useEffect(() => {
+    if (!voice.support.mic || !voiceReady) return;
+    const isEditableTarget = (target: EventTarget | null): boolean => {
+      if (!(target instanceof HTMLElement)) return false;
+      const tag = target.tagName.toLowerCase();
+      return tag === "textarea" || tag === "input" || target.isContentEditable;
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code !== "Space" || e.repeat) return;
+      if (voice.callActive || voice.permissionDenied) return;
+      if (isEditableTarget(e.target)) return;
+      // Don't steal Space from buttons/links the user might be activating.
+      if (e.target instanceof HTMLElement && e.target.tagName.toLowerCase() === "button") return;
+      e.preventDefault();
+      spacePttActiveRef.current = true;
+      void voice.beginPushToTalk();
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code !== "Space") return;
+      if (!spacePttActiveRef.current) return;
+      spacePttActiveRef.current = false;
+      voice.endPushToTalk();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+    };
+  }, [voice, voiceReady]);
+
   // Merged chronological timeline (messages + tool events + interactions).
   // Memoized so it is rebuilt only when the underlying lists change — not on
   // every render or stream delta tick (streamText renders separately).
@@ -3756,7 +3792,7 @@ export function ChatPanel({
                     type="button"
                     title={
                       voiceReady
-                        ? "Push to talk: hold and speak, release to send"
+                        ? "Push to talk: hold and speak, release to send (or hold Space bar)"
                         : "Start a chat session before dictating"
                     }
                     disabled={!voiceReady || voice.callActive}

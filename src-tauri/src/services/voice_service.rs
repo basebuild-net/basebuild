@@ -162,20 +162,25 @@ impl VoiceService {
         let audio = decode_audio(&request.audio_base64)?;
 
         let text = match request.engine {
-            SttEngine::OpenaiWhisper => transcribe_openai_whisper(request, audio, mime, filename)?,
+            SttEngine::OpenaiWhisper => {
+                transcribe_openai_whisper(request, audio, mime, filename)?
+            }
             SttEngine::WindowsNative => {
                 return Err(
-                    "Windows speech recognition is not wired up yet; pick OpenAI Whisper in \
-                     voice settings."
+                    "Windows speech recognition is not wired up yet; pick OpenAI Whisper or \
+                     a downloaded Parakeet model in voice settings."
                         .to_string(),
                 )
             }
             SttEngine::LocalWhisper => {
                 return Err(
-                    "Local whisper.cpp transcription is not wired up yet; it needs a downloaded \
-                     model file. Pick OpenAI Whisper in voice settings."
+                    "Local whisper.cpp transcription is not wired up yet; pick OpenAI Whisper \
+                     or a downloaded Parakeet model in voice settings."
                         .to_string(),
                 )
+            }
+            SttEngine::ParakeetTdtV3 | SttEngine::ParakeetUnifiedEn => {
+                transcribe_parakeet(request, audio, mime, filename)?
             }
         };
 
@@ -371,6 +376,113 @@ fn transcribe_openai_whisper(
                 .map(str::to_string)
         })
         .ok_or_else(|| "Transcription response did not contain any text.".to_string())
+}
+
+/// Transcribe audio using a downloaded Parakeet model via transcribe.cpp.
+///
+/// The model file must already be downloaded through the tool download
+/// service. This function resolves the engine variant to a catalog tool id,
+/// looks up the downloaded model path, and shells out to the `transcribe-cli`
+/// binary. If the binary or model is missing, it returns an actionable error
+/// that tells the user exactly what to do.
+fn transcribe_parakeet(
+    request: &VoiceTranscribeRequest,
+    audio: Vec<u8>,
+    _mime: &'static str,
+    _filename: &'static str,
+) -> Result<String, String> {
+    use crate::models::tool_catalog::ToolKind;
+    use crate::services::tool_download_service::ToolDownloadService;
+
+    let (tool_id, engine_label) = match request.engine {
+        SttEngine::ParakeetTdtV3 => ("parakeet-tdt-0.6b-v3", "Parakeet TDT V3"),
+        SttEngine::ParakeetUnifiedEn => ("parakeet-unified-en-0.6b", "Parakeet Unified EN"),
+        _ => return Err("Non-parakeet engine routed to parakeet transcriber.".to_string()),
+    };
+
+    // Find the downloaded model. Try the default quant first, then any
+    // downloaded quant for this tool.
+    let downloaded = ToolDownloadService::list_downloaded()
+        .map_err(|error| format!("Failed to query downloaded models: {error}"))?;
+
+    let model_path = downloaded
+        .iter()
+        .filter(|d| d.tool_id == tool_id)
+        .max_by_key(|d| d.size_bytes)
+        .map(|d| d.local_path.clone())
+        .ok_or_else(|| {
+            format!(
+                "{engine_label} is selected but no model file is downloaded. Open Voice \
+                 Settings, download a Parakeet model, then try again."
+            )
+        })?;
+
+    // Write the audio to a temp WAV file. transcribe-cli expects a 16 kHz mono
+    // WAV; the webview's MediaRecorder produces Opus/WebM, so we need to
+    // convert. For now, write the raw bytes and let transcribe-cli handle
+    // conversion if it can, or return an error if the format is unsupported.
+    let temp_dir = std::env::temp_dir();
+    let input_path = temp_dir.join(format!(
+        "basebuild-stt-{}.webm",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+
+    std::fs::write(&input_path, &audio)
+        .map_err(|error| format!("Failed to write temp audio file: {error}"))?;
+
+    // Clean up the temp file when we're done.
+    let _cleanup = TempFileGuard(&input_path);
+
+    // Look for transcribe-cli in PATH. If not found, return an actionable
+    // error. In the future, Basebuild may bundle transcribe.cpp.
+    let cli = which_transcribe_cli().ok_or_else(|| {
+        "transcribe-cli was not found in PATH. Install transcribe.cpp from \
+         https://github.com/handy-computer/transcribe.cpp and ensure the \
+         binary is on your PATH."
+            .to_string()
+    })?;
+
+    let output = std::process::Command::new(&cli)
+        .arg("-m")
+        .arg(&model_path)
+        .arg(&input_path)
+        .output()
+        .map_err(|error| format!("Failed to run transcribe-cli: {error}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "transcribe-cli failed with status {}: {}",
+            output.status,
+            stderr.trim()
+        ));
+    }
+
+    let text = String::from_utf8_lossy(&output.stdout);
+    Ok(text.trim().to_string())
+}
+
+/// Find the transcribe-cli binary in PATH.
+fn which_transcribe_cli() -> Option<std::path::PathBuf> {
+    let candidates = ["transcribe-cli", "transcribe"];
+    for candidate in &candidates {
+        if let Ok(path) = which::which(candidate) {
+            return Some(path);
+        }
+    }
+    None
+}
+
+/// RAII guard that deletes a temp file when dropped.
+struct TempFileGuard<'a>(&'a std::path::Path);
+
+impl<'a> Drop for TempFileGuard<'a> {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(self.0);
+    }
 }
 
 /// Resolve the STT API key and base URL through the same account lookup the

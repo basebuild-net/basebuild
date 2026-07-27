@@ -1,0 +1,114 @@
+{
+	"speechToText": {
+		"parakeet-unified-en-0.6b": {
+			"id": "parakeet-unified-en-0.6b",
+			"name": "Parakeet Unified EN 0.6B",
+			"family": "parakeet",
+			"architecture": "parakeet",
+			"parameters": "0.6B",
+			"description": "Fast, accurate live English transcription with punctuation and capitalization. Offline, runs on CPU.",
+			"languages": ["en"],
+			"capabilities": {
+				"speechToText": true,
+				"toolCalling": false,
+				"selfHostDownloadLink": true,
+				"streaming": true,
+				"translate": false,
+				"langDetect": false,
+				"timestamps": "token"
+			},
+			"license": "cc-by-4.0",
+			"baseModel": "nvidia/parakeet-unified-en-0.6b",
+			"recommended": true,
+			"recommendedRank": 1,
+			"files": [
+				{
+					"quant": "Q4_K_M",
+					"sizeBytes": 477274496,
+					"url": "https://huggingface.co/handy-computer/parakeet-unified-en-0.6b-gguf/resolve/main/parakeet-unified-en-0.6b-Q4_K_M.gguf"
+				},
+				{
+					"quant": "Q5_K_M",
+					"sizeBytes": 540795264,
+					"url": "https://huggingface.co/handy-computer/parakeet-unified-en-0.6b-gguf/resolve/main/parakeet-unified-en-0.6b-Q5_K_M.gguf"
+				},
+				{
+					"quant": "Q6_K",
+					"sizeBytes": 602191232,
+					"url": "https://huggingface.co/handy-computer/parakeet-unified-en-0.6b-gguf/resolve/main/parakeet-unified-en-0.6b-Q6_K.gguf"
+				},
+				{
+					"quant": "Q8_0",
+					"sizeBytes": 731357568,
+					"url": "https://huggingface.co/handy-computer/parakeet-unified-en-0.6b-gguf/resolve/main/parakeet-unified-en-0.6b-Q8_0.gguf"
+				},
+				{
+					"quant": "F16",
+					"sizeBytes": 1239114240,
+					"url": "https://huggingface.co/handy-computer/parakeet-unified-en-0.6b-gguf/resolve/main/parakeet-unified-en-0.6b-F16.gguf"
+				},
+				{
+					"quant": "F32",
+					"sizeBytes": 2473323520,
+					"url": "https://huggingface.co/handy-computer/parakeet-unified-en-0.6b-gguf/resolve/main/parakeet-unified-en-0.6b-F32.gguf"
+				}
+			],
+			"defaultQuant": "Q8_0"
+		},
+		"parakeet-tdt-0.6b-v3": {
+			"id": "parakeet-tdt-0.6b-v3",
+			"name": "Parakeet TDT V3 0.6B",
+			"family": "parakeet",
+			"architecture": "parakeet",
+			"parameters": "0.6B",
+			"description": "Fast and accurate multilingual transcription across 25 European languages. Offline, runs on CPU.",
+			"languages": ["bg", "hr", "cs", "da", "nl", "en", "et", "fi", "fr", "de", "el", "hu", "it", "lv", "lt", "mt", "pl", "pt", "ro", "ru", "sk", "sl", "es", "sv", "uk"],
+			"capabilities": {
+				"speechToText": true,
+				"toolCalling": false,
+				"selfHostDownloadLink": true,
+				"streaming": false,
+				"translate": false,
+				"langDetect": true,
+				"timestamps": "token"
+			},
+			"license": "cc-by-4.0",
+			"baseModel": "nvidia/parakeet-tdt-0.6b-v3",
+			"recommended": true,
+			"recommendedRank": 2,
+			"files": [
+				{
+					"quant": "Q4_K_M",
+					"sizeBytes": 485425504,
+					"url": "https://huggingface.co/handy-computer/parakeet-tdt-0.6b-v3-gguf/resolve/main/parakeet-tdt-0.6b-v3-Q4_K_M.gguf"
+				},
+				{
+					"quant": "Q5_K_M",
+					"sizeBytes": 548946272,
+					"url": "https://huggingface.co/handy-computer/parakeet-tdt-0.6b-v3-gguf/resolve/main/parakeet-tdt-0.6b-v3-Q5_K_M.gguf"
+				},
+				{
+					"quant": "Q6_K",
+					"sizeBytes": 610342240,
+					"url": "https://huggingface.co/handy-computer/parakeet-tdt-0.6b-v3-gguf/resolve/main/parakeet-tdt-0.6b-v3-Q6_K.gguf"
+				},
+				{
+					"quant": "Q8_0",
+					"sizeBytes": 739508576,
+					"url": "https://huggingface.co/handy-computer/parakeet-tdt-0.6b-v3-gguf/resolve/main/parakeet-tdt-0.6b-v3-Q8_0.gguf"
+				},
+				{
+					"quant": "F16",
+					"sizeBytes": 1255869856,
+					"url": "https://huggingface.co/handy-computer/parakeet-tdt-0.6b-v3-gguf/resolve/main/parakeet-tdt-0.6b-v3-F16.gguf"
+				},
+				{
+					"quant": "F32",
+					"sizeBytes": 2508435616,
+					"url": "https://huggingface.co/handy-computer/parakeet-tdt-0.6b-v3-gguf/resolve/main/parakeet-tdt-0.6b-v3-F32.gguf"
+				}
+			],
+			"defaultQuant": "Q8_0"
+		}
+	}
+}
