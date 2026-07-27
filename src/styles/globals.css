@@ -3146,10 +3146,27 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .provider-model-row.is-active { border-color: var(--bb-cta); background: var(--bb-surface-high); }
 .provider-model-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 11px; font-weight: 600; }
 .provider-model-id { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--bb-muted); font-size: 9px; font-weight: 400; font-family: var(--bb-mono); }
-.provider-model-badges { display: flex; align-items: center; justify-content: flex-end; gap: 3px; flex-wrap: wrap; max-width: 46%; }
+.provider-model-badges { display: flex; align-items: center; justify-content: flex-end; gap: 3px; flex-wrap: wrap; max-width: 52%; }
 .provider-capability { padding: 1px 4px; border: 1px solid var(--bb-border); color: var(--bb-muted); font-size: 8px; font-family: var(--bb-mono); text-transform: uppercase; }
 .provider-capability.is-positive { border-color: var(--bb-success, #38a169); color: var(--bb-success, #38a169); }
+/* Model pane filters: text search and voice narrowing share one row. */
+.provider-model-filters { display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin-bottom: 8px; }
+.provider-model-filters .provider-model-search { flex: 1; min-width: 0; margin-bottom: 0; }
+.provider-model-filters .option-list { flex-shrink: 0; }
+/* Voice capability. Realtime is filled rather than outlined because it is a
+   different product (a duplex session), not another modality on a request. */
+.provider-capability.is-voice { border-color: color-mix(in srgb, var(--bb-info) 50%, var(--bb-border)); color: var(--bb-info); }
+.provider-capability.is-voice-realtime { border-color: var(--bb-cta); background: var(--bb-cta); color: var(--bb-on-cta); font-weight: 700; }
+/* Billing route for a voice model: who pays, and how it is metered. */
+.provider-capability.is-billing-api { border-color: var(--bb-warning-border); color: var(--bb-warning); }
+.provider-capability.is-billing-subscription { border-color: var(--bb-success-border); color: var(--bb-success); }
+.provider-capability.is-billing-local { border-color: var(--bb-border); color: var(--bb-muted); }
+/* Inline note under a model row: API-billed realtime under a subscription. */
+.provider-model-note { display: flex; align-items: flex-start; gap: 5px; margin: 0; padding: 5px 8px 6px; border-left: 2px solid var(--bb-warning); background: color-mix(in srgb, var(--bb-warning) 8%, transparent); color: var(--bb-warning); font-size: 10px; line-height: 1.4; }
+.provider-model-note > svg { flex-shrink: 0; margin-top: 1px; }
 .provider-model-empty { padding: 12px 4px; }
+.provider-model-empty-state { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 12px 4px; }
+.provider-model-empty-state p { max-width: 46ch; margin: 0; line-height: 1.5; }
 @media (max-width: 820px) {
   .provider-catalog-body { grid-template-columns: 1fr; overflow-y: auto; }
   .provider-catalog-providers { border-right: 0; border-bottom: 1px solid var(--bb-border); overflow: visible; }

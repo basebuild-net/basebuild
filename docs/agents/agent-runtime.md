@@ -80,6 +80,79 @@ tool loop rather than starting a false planning run. Transports that cannot
 expose tools produce an explicit capability state before launch; they do not
 advertise planning support or start a fake tools-capable run.
 
+## Voice capability metadata
+
+`models.json` records voice capability per model so the UI can tell a realtime
+voice route apart from a model that merely accepts an audio attachment. Both
+fields are optional and default safely, so the ~200 providers that predate them
+keep parsing unchanged.
+
+```jsonc
+"input":  ["text", "audio"],          // existing field, vocabulary extended
+"output": ["text", "audio"],          // defaults to ["text"]
+"voice": {                            // absent means no voice capability recorded
+  "level": "realtime",                // none | stt | tts | audio_turn | realtime
+  "billing": "api_key",               // api_key | subscription | local
+  "transports": ["webrtc", "websocket", "sip"],
+  "turnDetection": ["server_vad", "semantic_vad", "none"],
+  "bargeIn": true,
+  "voices": ["alloy", "cedar", "marin"],
+  "sampleRateIn": 24000,
+  "sampleRateOut": 24000
+}
+```
+
+`level` is an ordered ladder, not a boolean, because "supports audio" is the
+question everyone asks and the wrong one. A model that takes an audio
+attachment in an ordinary request (`audio_turn`) is a different product from
+one that holds a duplex session open with server-side endpointing
+(`realtime`), and collapsing them makes the catalog useless for choosing a
+voice route. `transports` and `turnDetection` reuse OpenAI's and Azure's own
+vocabularies verbatim rather than inventing terms; leave `turnDetection` empty
+for providers that use a different vocabulary instead of inventing a mapping.
+
+`CatalogModel::voice_level()`, `accepts_audio()` and `emits_audio()` are the
+accessors; `NativeModel` carries `supportsAudioInput`, `supportsAudioOutput`
+and the full `voice` object through to the UI, persisted in
+`native_provider_model_cache` as two integer columns plus `voice_json`. A
+malformed `voice_json` degrades that row to no-voice rather than failing the
+whole catalog read.
+
+### Only record what a provider documents
+
+Populate `voice` from provider documentation, never from a model id. Inferring
+that `gpt-realtime` is realtime because of its name is exactly what makes a
+catalog untrustworthy, and the existing `supports_images(id)` heuristic is a
+precedent that must not be extended to audio. Discovery paths
+(`local_discovered`, `provider_discovered`, `omp_cli`, `hosted_fallback`) set
+the two booleans only from genuine modality arrays and always leave `voice`
+as `None`. Models with no verified data stay absent, which the schema defines
+as "no voice capability recorded", not "no voice capability".
+
+### Realtime voice is not available on a subscription
+
+As of 2026-07 no vendor sells third-party native speech-to-speech on a consumer
+subscription. OpenAI Realtime, Gemini Live, xAI Grok Voice and Azure Realtime
+all authenticate with an API key and meter per token or per minute; Anthropic
+ships no audio endpoint at all. The Codex ChatGPT OAuth credential Basebuild
+already holds requests the scope `openid profile email offline_access
+api.connectors.read api.connectors.invoke`, which carries no audio or realtime
+grant, so it cannot open a realtime session. Codex's RFC 8693 exchange for
+`openai-api-key` mints an API key, which is the pay-per-token credential; it
+does not make a subscription cover Realtime.
+
+Three tests hold this line. `chatgpt_subscription_route_advertises_no_voice`
+asserts every `openai-codex` model stays voice-free, and
+`no_model_claims_subscription_backed_realtime_voice` guards the whole catalog
+against a sync introducing a `realtime` + `subscription` pair. If either fails,
+the claim is a genuine industry first or bad data, and both deserve a human
+look before shipping. The `VoiceBilling::Subscription` variant exists so the
+catalog can record such a route the day one ships, without a schema change.
+
+The picker states this where a user chooses a model: a realtime model billed by
+API key, browsed under a subscription OAuth provider, carries an inline note
+that the subscription does not cover it.
+
 ## Chat loading and streaming performance
 
 Existing-session messages, tool events, interactions, and the persisted model
@@ -468,6 +541,30 @@ Each run has a `CancellationToken`. The `native_chat_cancel` command cancels the
 active run for a session — aborting the provider stream and killing in-flight
 tool processes. On startup, an interrupted-run sweep marks any orphaned runs.
 
+### Mid-run steering
+
+A running turn accepts new user messages. `native_chat_steer(sessionId, content)`
+persists the message as a normal user row and hands it to the live loop, which
+injects it before its next provider request, so the user redirects the agent
+instead of stopping and restarting it. Steers are drained at two points in
+`run_loop_inner`: after each tool-result batch, and once more immediately before
+the loop would report completion. An accepted steer resets the iteration and
+empty-retry budgets, because a fresh human instruction is a new question rather
+than a continuation, and each reset requires a real human action so the loop
+cannot spin unbounded.
+
+The handoff is race-free by lock order: `push_steer` takes `ACTIVE_RUNS` then
+`PENDING_STEERS` and holds both across the enqueue, and the loop's final
+`finish_or_steer` takes the same pair in the same order and retires the run
+handle only when nothing is pending. A steer therefore either joins the running
+turn or is refused, never queued against a run that will not read it. On refusal
+the command returns `delivered: false` with no persisted row, and the composer
+falls back to a normal send with the draft intact.
+
+While a run is live the composer stays enabled, re-labels itself as a steering
+surface, and shows the send control beside stop. Slash commands are excluded
+from steering: they remain local UI actions so `/stop` still reaches the run.
+
 ### Context budget guard
 
 Before each provider request, the loop estimates tokens (4 chars ≈ 1 token) and
@@ -535,7 +632,7 @@ turn once; duplicate or stale answers are ignored.
 
 ## Tool Runtime
 
-The `ToolRuntimeService` provides seven built-in tools:
+`ToolRuntimeService` owns the built-in tool registry. The core tools:
 
 | Tool | Kind | Description |
 |------|------|-------------|
@@ -546,6 +643,7 @@ The `ToolRuntimeService` provides seven built-in tools:
 | `search_files` | ReadOnly | Rust regex content search, workspace-scoped |
 | `run_command` | Mutating | Supervised child process with timeout and output capping |
 | `get_execution_advice` | ReadOnly | Return a bounded local planner/coder route recommendation for one persisted plan or idea |
+| `project_status` | ReadOnly | Report Basebuild's own local project state: plans by status, plan runs, captured ideas, and the git branch and working-tree summary |
 
 All file tools enforce workspace scoping: paths are canonicalized and
 symlink-resolved before a prefix check against the project root. Denials are
@@ -557,6 +655,16 @@ questionnaire answers, raw usage, diffs, and logs. Local UI advice remains
 available without external-context permission; returning advice to an external
 provider crosses that provider boundary and preserves the
 `allowExternalContext` gate.
+
+`project_status` answers "what is planned, running, or outstanding?" from the
+local database and repository instead of making the model guess or shell out.
+Sections are selectable (`plans`, `runs`, `ideas`, `git`); omitting `sections`
+returns all four. Each section degrades to an explicit unavailable line rather
+than failing the call, so the model never reads a missing section as "nothing
+exists". Absolute paths are never emitted: the project is named by its final
+path component, git errors are swallowed because their text can carry paths,
+and user-authored titles are collapsed to one bounded line so an embedded
+newline cannot forge a section heading.
 
 ## Approval Gateway
 

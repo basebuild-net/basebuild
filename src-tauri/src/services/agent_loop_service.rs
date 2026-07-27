@@ -41,6 +41,17 @@ const OUTPUT_MARGIN_RATIO: f64 = 0.2;
 static ACTIVE_RUNS: LazyLock<Mutex<std::collections::HashMap<String, Arc<RunHandle>>>> =
     LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
 
+/// Steering messages queued by the user while a run is in flight, keyed by
+/// session id. The loop drains these between iterations so a user can
+/// redirect the agent without cancelling and restarting the turn.
+///
+/// Lock order invariant: when both registries are held, `ACTIVE_RUNS` is
+/// always acquired first and `PENDING_STEERS` second, never the reverse.
+/// `push_steer` and `finish_or_steer` both take the pair in that order, which
+/// is what makes the queue-versus-finish handoff atomic without deadlocking.
+static PENDING_STEERS: LazyLock<Mutex<std::collections::HashMap<String, Vec<String>>>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+
 /// A pending approval request waiting for UI resolution. The agent loop
 /// blocks on `rx` until the UI calls `resolve_approval` with a decision.
 #[allow(dead_code)]
@@ -360,10 +371,16 @@ pub fn run_agent_turn(
         &handle.token,
     );
 
-    // Unregister and mark idle.
+    // Unregister and mark idle. `finish_or_steer` may already have retired the
+    // handle, so the removal tolerates a missing key. Any steer that raced in
+    // after the loop's final drain is dropped here: `steer()` already
+    // persisted it as a user row, so the next turn's history carries it and
+    // nothing is lost from the conversation.
     {
         let mut active = ACTIVE_RUNS.lock();
         active.remove(session_id);
+        let mut steers = PENDING_STEERS.lock();
+        steers.remove(session_id);
     }
     let terminal = if result.cancelled {
         crate::services::plan_lifecycle_service::ChatTerminalState::Cancelled
@@ -382,12 +399,92 @@ pub fn run_agent_turn(
 /// Cancel a running agent loop for a session. Returns true if a run was found.
 pub fn cancel_run(session_id: &str) -> bool {
     let active = ACTIVE_RUNS.lock();
-    if let Some(handle) = active.get(session_id) {
+    let found = if let Some(handle) = active.get(session_id) {
         handle.token.cancel();
         true
     } else {
         false
+    };
+    // A cancelled turn must not hand stale redirections to the next run.
+    PENDING_STEERS.lock().remove(session_id);
+    found
+}
+
+/// Whether an agent loop is currently running for this session. The steering
+/// path uses this to choose between injecting into the live run and falling
+/// back to a normal send.
+pub fn is_running(session_id: &str) -> bool {
+    ACTIVE_RUNS.lock().contains_key(session_id)
+}
+
+/// Queue a steering message for the run that owns `session_id`. Returns true
+/// when an active run accepted it, false when nothing is running.
+///
+/// `ACTIVE_RUNS` is checked first and held across the enqueue, so a run that
+/// is finishing concurrently cannot retire its handle in the gap between the
+/// liveness check and the push. `finish_or_steer` takes the same two locks in
+/// the same order, so exactly one of the two wins and the message is either
+/// delivered or refused, never silently dropped.
+pub fn push_steer(session_id: &str, content: &str) -> bool {
+    let active = ACTIVE_RUNS.lock();
+    if !active.contains_key(session_id) {
+        return false;
     }
+    let mut steers = PENDING_STEERS.lock();
+    steers
+        .entry(session_id.to_string())
+        .or_default()
+        .push(content.to_string());
+    true
+}
+
+/// Take every steering message queued for this session, leaving the queue
+/// empty. Called between loop iterations, where the run is still live either
+/// way so no handoff decision is needed.
+fn drain_steers(session_id: &str) -> Vec<String> {
+    let mut steers = PENDING_STEERS.lock();
+    steers.remove(session_id).unwrap_or_default()
+}
+
+/// Final drain before a run reports completion. Takes `ACTIVE_RUNS` then
+/// `PENDING_STEERS` (the mandatory lock order) so "keep looping" versus
+/// "finish" is decided atomically against `push_steer`. When nothing is
+/// pending the run handle is retired here, so a steer arriving afterwards is
+/// refused by `push_steer` and the caller re-sends it as a normal turn.
+fn finish_or_steer(session_id: &str) -> Vec<String> {
+    let mut active = ACTIVE_RUNS.lock();
+    let mut steers = PENDING_STEERS.lock();
+    let pending = steers.remove(session_id).unwrap_or_default();
+    if pending.is_empty() {
+        active.remove(session_id);
+    }
+    pending
+}
+
+/// Inject drained steering messages into the running conversation and emit a
+/// transcript marker for them. A fresh human instruction earns a fresh
+/// iteration budget: `MAX_ITERATIONS` still bounds each stretch, and every
+/// reset requires a real human action, so this cannot loop unbounded. The
+/// empty-response retry budget resets with it because the redirected request
+/// is a new question, not a continuation of the stalled one.
+fn apply_steers(
+    steers: Vec<String>,
+    messages: &mut Vec<ChatMsg>,
+    iteration: &mut usize,
+    empty_retries: &mut usize,
+    app: &AppHandle,
+    session_id: &str,
+) {
+    if steers.is_empty() {
+        return;
+    }
+    let applied = steers.len();
+    for steer in steers {
+        messages.push(ChatMsg::text("user", steer));
+    }
+    *iteration = 0;
+    *empty_retries = 0;
+    emit_system_row(app, session_id, "steered", applied);
 }
 
 /// On startup, sweep any sessions left in 'running' state and mark them
@@ -680,6 +777,23 @@ fn run_loop_inner(
                     continue;
                 }
             }
+            // Last chance for a steer to land. `finish_or_steer` retires the
+            // run handle when nothing is pending, so a message racing in after
+            // this point is refused by `push_steer` rather than queued against
+            // a run that will never read it. The assistant message was already
+            // pushed above, so an accepted steer lands after it in order.
+            let steers = finish_or_steer(session_id);
+            if !steers.is_empty() {
+                apply_steers(
+                    steers,
+                    &mut messages,
+                    &mut iteration,
+                    &mut empty_retries,
+                    app,
+                    session_id,
+                );
+                continue;
+            }
             return RunResult {
                 content: response.content,
                 reasoning: response.reasoning,
@@ -722,6 +836,18 @@ fn run_loop_inner(
                 name: Some(call.name),
             });
         }
+
+        // Fold in anything the user typed while the tools were running, so the
+        // next provider request already carries the redirection.
+        let steers = drain_steers(session_id);
+        apply_steers(
+            steers,
+            &mut messages,
+            &mut iteration,
+            &mut empty_retries,
+            app,
+            session_id,
+        );
     }
 }
 
@@ -1934,5 +2060,95 @@ mod tests {
                 .is_empty(),
             "category validation failure must not leave a partial batch"
         );
+    }
+
+    /// Register a bare run handle so the steering registry sees a live run
+    /// without spinning up a provider loop.
+    fn register_test_run(session_id: &str) {
+        ACTIVE_RUNS.lock().insert(
+            session_id.to_string(),
+            Arc::new(RunHandle {
+                token: CancellationToken::new(),
+            }),
+        );
+    }
+
+    /// Drop the test run handle and any queued steers so the process-wide
+    /// registries stay clean for the rest of the suite.
+    fn clear_test_run(session_id: &str) {
+        ACTIVE_RUNS.lock().remove(session_id);
+        PENDING_STEERS.lock().remove(session_id);
+    }
+
+    #[test]
+    fn push_steer_refuses_when_no_run_is_active() {
+        let session_id = "steer-no-active-run";
+        assert!(!is_running(session_id));
+        assert!(
+            !push_steer(session_id, "change course"),
+            "with nothing running the caller must fall back to a normal send"
+        );
+        assert!(
+            drain_steers(session_id).is_empty(),
+            "a refused steer must not be queued"
+        );
+    }
+
+    #[test]
+    fn push_steer_queues_in_order_and_drain_empties_the_queue() {
+        let session_id = "steer-active-run";
+        register_test_run(session_id);
+
+        assert!(is_running(session_id));
+        assert!(push_steer(session_id, "first"));
+        assert!(push_steer(session_id, "second"));
+
+        assert_eq!(drain_steers(session_id), vec!["first", "second"]);
+        assert!(
+            drain_steers(session_id).is_empty(),
+            "draining takes the queue, it does not copy it"
+        );
+
+        clear_test_run(session_id);
+    }
+
+    /// The finish handoff: with nothing pending the run handle is retired
+    /// under the same lock order `push_steer` checks it, so a steer arriving
+    /// after the final drain is refused instead of queued against a dead run.
+    #[test]
+    fn finish_or_steer_retires_the_run_when_nothing_is_pending() {
+        let session_id = "steer-finish-clean";
+        register_test_run(session_id);
+
+        assert!(finish_or_steer(session_id).is_empty());
+
+        assert!(!is_running(session_id), "the run handle must be retired");
+        assert!(
+            !push_steer(session_id, "too late"),
+            "a steer racing in after the final drain must be refused, not swallowed"
+        );
+    }
+
+    #[test]
+    fn finish_or_steer_keeps_the_run_alive_when_a_steer_is_pending() {
+        let session_id = "steer-finish-redirect";
+        register_test_run(session_id);
+        assert!(push_steer(session_id, "actually, do this instead"));
+
+        assert_eq!(
+            finish_or_steer(session_id),
+            vec!["actually, do this instead"]
+        );
+
+        assert!(
+            is_running(session_id),
+            "the loop keeps running to serve the steer"
+        );
+        assert!(
+            push_steer(session_id, "and this too"),
+            "the still-live run keeps accepting steers"
+        );
+
+        clear_test_run(session_id);
     }
 }

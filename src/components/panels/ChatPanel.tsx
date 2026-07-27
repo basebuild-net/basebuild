@@ -78,6 +78,7 @@ import {
   nativeChatGet,
   nativeChatMessages,
   nativeChatSend,
+  nativeChatSteer,
   nativeChatSetProjectModelDefault,
   nativeChatUpdateSessionModel,
   nativeChatStart,
@@ -1569,10 +1570,55 @@ export function ChatPanel({
   // issue (handleClearChat is defined after handleSend).
   const clearChatRef = useRef<() => Promise<void>>(async () => {});
 
+  // Mid-run steering. A running agent loop accepts new user turns: the backend
+  // persists the message and injects it before the loop's next provider
+  // request, so the user redirects the agent instead of stopping and
+  // restarting it. Returns false when no run accepted the message (the turn
+  // ended in the gap), leaving the draft untouched for the caller.
+  const steerRunning = useCallback(async (text: string): Promise<boolean> => {
+    if (!nativeMode || !nativeSessionId) return false;
+    addLog("debug", "Chat steer", `session=${nativeSessionId} text=${text.slice(0, 80)}`);
+    try {
+      const result = await nativeChatSteer({ sessionId: nativeSessionId, content: text });
+      const delivered = result.delivered ? result.message : null;
+      if (!delivered) {
+        addLog("debug", "Chat steer not delivered", `session=${nativeSessionId}: no active run accepted it`);
+        return false;
+      }
+      setNativeMessages((prev) => (prev.some((m) => m.id === delivered.id) ? prev : [...prev, delivered]));
+      setInput("");
+      if (chatInputRef.current) chatInputRef.current.style.setProperty("--chat-input-height", "auto");
+      nativeChatInputHistoryAdd(text).catch(() => {
+        // Non-fatal: history persistence is best-effort.
+      });
+      setUserHistory((prev) => [text, ...prev.filter((h) => h !== text)].slice(0, 100));
+      followLatestRef.current = true;
+      addLog("debug", "Chat steer delivered", `session=${nativeSessionId} message=${delivered.id}`);
+      return true;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog("error", "Failed to steer running chat", msg);
+      setError(`Could not steer the running agent: ${msg}`);
+      return false;
+    }
+  }, [nativeMode, nativeSessionId, addLog]);
+
   const handleSend = useCallback(async () => {
     const text = input.trim();
     addLog("debug", "Chat send", `text=${text.slice(0, 80)} nativeMode=${nativeMode} session=${nativeSessionId ?? "none"}`);
     if (!text) return;
+    // A turn is already in flight: interject into it rather than blocking the
+    // composer. Slash commands are excluded, they stay local UI actions and
+    // /stop must still reach the running turn.
+    if (nativeMode && nativeSessionId && (loading || streaming) && !text.startsWith("/")) {
+      if (await steerRunning(text)) return;
+      // No loop accepted it: the turn either just finished, or this route is a
+      // plain stream with no agent loop to join. sendMessage drops sends while
+      // `loading` is still settling, so name the outcome and keep the draft
+      // instead of swallowing the turn.
+      setCommandNotice("The running turn did not take that message: it either just finished or cannot be steered. Press Enter again to send it as a new message.");
+      return;
+    }
     if (nativeMode && text.startsWith("/")) {
       const [rawCommand, ...parts] = text.slice(1).split(/\s+/);
       const command = rawCommand.toLowerCase();
@@ -1803,7 +1849,7 @@ export function ChatPanel({
       return;
     }
     await sendMessage(text);
-  }, [input, nativeMode, sendMessage, catalog, addLog, nativeMessages, toolEvents, loading, streaming, onNewChat, effortLevel, modelId, onOpenSchematic, projectPath, selectedModel]);
+  }, [input, nativeMode, nativeSessionId, steerRunning, sendMessage, catalog, addLog, nativeMessages, toolEvents, loading, streaming, onNewChat, effortLevel, modelId, onOpenSchematic, projectPath, selectedModel]);
 
   // Merged chronological timeline (messages + tool events + interactions).
   // Memoized so it is rebuilt only when the underlying lists change — not on
@@ -2627,7 +2673,13 @@ export function ChatPanel({
   const renderMessages = nativeMode ? nativeMessages : legacyMessages;
   const bgGateActive = !!backgroundAgent && !bgInputUnlocked;
   const inputDisabled = bgGateActive || (nativeMode ? !nativeSessionId : agentId === null);
-  const sendDisabled = bgGateActive || loading || !input.trim() || (nativeMode ? !nativeSessionId : agentId === null);
+  // A native turn in flight still accepts input: the message is injected into
+  // the running loop instead of queued behind it, so the send control stays
+  // live. Only tools-capable routes run the agent loop; a plain streaming
+  // route (OMP RPC, local coordinator) has no loop to join, so it still locks.
+  const steerable =
+    nativeMode && !!nativeSessionId && (loading || streaming) && (selectedModel?.supportsTools ?? false);
+  const sendDisabled = bgGateActive || !input.trim() || (nativeMode ? !nativeSessionId : agentId === null) || (loading && !steerable);
 
   const modelName = selectedModel?.label ?? modelId;
   // Local providers surface real per-request generation stats after each turn.
@@ -3352,9 +3404,11 @@ export function ChatPanel({
               className="input chat-input"
               aria-label="Chat message input"
               placeholder={
-                nativeMode
-                  ? "Type a message… (Enter to send, Shift+Enter for newline)"
-                  : "Agent not connected. Click retry above to start."
+                !nativeMode
+                  ? "Agent not connected. Click retry above to start."
+                  : steerable
+                    ? "Steer the agent while it works… (Enter to send)"
+                    : "Type a message… (Enter to send, Shift+Enter for newline)"
               }
               value={input}
               onChange={(e) => {
@@ -3493,7 +3547,7 @@ export function ChatPanel({
               }}
               rows={2}
               disabled={inputDisabled}
-              title={nativeMode ? "Chat input — type a message and press Enter to send" : "Chat input — start the agent to enable sending"}
+              title={!nativeMode ? "Chat input: start the agent to enable sending" : steerable ? "Chat input: the agent is working, press Enter to steer it mid-turn" : "Chat input: type a message and press Enter to send"}
             />
           </div>
           <div className="chat-composer-controls">
@@ -3553,17 +3607,16 @@ export function ChatPanel({
                 >
                   <Square size={13} />
                 </button>
-              ) : (
-                <button
-                  className="btn btn-primary chat-send-btn"
-                  type="button"
-                  title="Send message"
-                  disabled={sendDisabled}
-                  onClick={() => void handleSend()}
-                >
-                  <Send size={14} />
-                </button>
-              )}
+              ) : null}
+              <button
+                className="btn btn-primary chat-send-btn"
+                type="button"
+                title={steerable ? "Steer the running agent: your message is injected into the turn in progress" : "Send message"}
+                disabled={sendDisabled}
+                onClick={() => void handleSend()}
+              >
+                <Send size={14} />
+              </button>
             </div>
           </div>
         </div>

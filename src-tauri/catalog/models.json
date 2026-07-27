@@ -24345,8 +24345,25 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image"
+				"image",
+				"audio"
 			],
+			"output": [
+				"text",
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [],
+				"bargeIn": true,
+				"voices": [],
+				"sampleRateIn": 16000,
+				"sampleRateOut": 24000
+			},
 			"cost": {
 				"input": 0.5,
 				"output": 2,
@@ -24373,8 +24390,25 @@
 			"baseUrl": "https://generativelanguage.googleapis.com/v1beta",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"audio"
 			],
+			"output": [
+				"text",
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [],
+				"bargeIn": true,
+				"voices": [],
+				"sampleRateIn": 16000,
+				"sampleRateOut": 24000
+			},
 			"cost": {
 				"input": 0.5,
 				"output": 2,
@@ -24695,6 +24729,22 @@
 				"video",
 				"audio"
 			],
+			"output": [
+				"text",
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [],
+				"bargeIn": true,
+				"voices": [],
+				"sampleRateIn": 16000,
+				"sampleRateOut": 24000
+			},
 			"cost": {
 				"input": 0,
 				"output": 0,
@@ -24714,6 +24764,22 @@
 			"input": [
 				"audio"
 			],
+			"output": [
+				"text",
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [],
+				"bargeIn": true,
+				"voices": [],
+				"sampleRateIn": 16000,
+				"sampleRateOut": 24000
+			},
 			"cost": {
 				"input": 0,
 				"output": 0,
@@ -68155,8 +68221,35 @@
 			"reasoning": true,
 			"input": [
 				"text",
+				"audio",
 				"image"
 			],
+			"output": [
+				"text",
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"webrtc",
+					"websocket",
+					"sip"
+				],
+				"turnDetection": [
+					"server_vad",
+					"semantic_vad",
+					"none"
+				],
+				"bargeIn": true,
+				"voices": [
+					"alloy",
+					"cedar",
+					"marin"
+				],
+				"sampleRateIn": 24000,
+				"sampleRateOut": 24000
+			},
 			"cost": {
 				"input": 4,
 				"output": 24,

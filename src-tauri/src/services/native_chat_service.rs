@@ -11,11 +11,11 @@ use crate::{
         native_chat::{
             ChatModelDefault, NativeChatBootstrap, NativeChatHistoryEntry, NativeChatMessage,
             NativeChatSendRequest, NativeChatSendResult, NativeChatSession, NativeChatStartRequest,
-            NativeGenerateIdeasRequest, NativeGenerateIdeasResult, NativeGeneratedIdea,
-            NativeProviderCatalog, NativeProviderCredential, NativeProviderCredentialInput,
-            NativeRequestMetric, NativeRequestMetricsSummary, NativeSetupRequired,
-            NativeToolApprovalRequest, NativeToolApprovalResult, NativeToolEvent,
-            ResolvedChatModelDefault,
+            NativeChatSteerResult, NativeGenerateIdeasRequest, NativeGenerateIdeasResult,
+            NativeGeneratedIdea, NativeProviderCatalog, NativeProviderCredential,
+            NativeProviderCredentialInput, NativeRequestMetric, NativeRequestMetricsSummary,
+            NativeSetupRequired, NativeToolApprovalRequest, NativeToolApprovalResult,
+            NativeToolEvent, ResolvedChatModelDefault,
         },
         permission::PermissionDecision,
         plan::Plan,
@@ -1553,6 +1553,56 @@ impl NativeChatService {
         })
     }
 
+    /// Deliver a user message into an in-flight agent loop. The message is
+    /// persisted as a normal user row so the transcript and future turns see
+    /// it in order, then handed to the running loop, which injects it before
+    /// its next provider request. Returns `delivered: false` when no run is
+    /// active, so the caller can fall back to a normal send without losing
+    /// the draft.
+    pub fn steer(session_id: &str, content: &str) -> DbResult<NativeChatSteerResult> {
+        let content = content.trim();
+        if content.is_empty() {
+            return Err("Steering message is required.".to_string());
+        }
+        let session = Self::get_session(session_id)?
+            .ok_or_else(|| format!("Native chat session '{session_id}' not found"))?;
+
+        if !crate::services::agent_loop_service::is_running(session_id) {
+            return Ok(NativeChatSteerResult {
+                delivered: false,
+                message: None,
+            });
+        }
+
+        // Persist before handing over so the row exists by the time the loop
+        // can act on the steer, keeping the transcript ordered.
+        let message = Self::insert_message(
+            session_id,
+            "user",
+            content,
+            None,
+            Some(&session.provider_id),
+            Some(&session.model_id),
+            Some(&session.effort_level),
+        )?;
+        if !crate::services::agent_loop_service::push_steer(session_id, content) {
+            // The run ended in the gap. Roll the row back so the caller's
+            // fallback send does not duplicate the text.
+            let _ = Self::delete_steer_message(&message.id);
+            return Ok(NativeChatSteerResult {
+                delivered: false,
+                message: None,
+            });
+        }
+        // The message is already in the running loop: a failed bookkeeping
+        // update must not report the steer as undelivered.
+        let _ = Self::touch_session(session_id);
+        Ok(NativeChatSteerResult {
+            delivered: true,
+            message: Some(message),
+        })
+    }
+
     /// Generate structured ideas from the conversation + project schematic using
     /// a configured provider. The offline local coordinator does not fabricate
     /// ideas: if the active provider is local or unconfigured, a setup prompt is
@@ -2307,6 +2357,19 @@ impl NativeChatService {
             params![message_id],
         )
         .map_err(|e| format!("Failed to remove empty native chat checkpoint: {e}"))?;
+        Ok(())
+    }
+
+    /// Roll back a steering row that was persisted before the running loop
+    /// declined it. Scoped to user rows so it can never delete assistant
+    /// output, and used only by `steer`.
+    fn delete_steer_message(message_id: &str) -> DbResult<()> {
+        let conn = StorageService::connect()?;
+        conn.execute(
+            "DELETE FROM native_chat_messages WHERE id = ?1 AND role = 'user'",
+            params![message_id],
+        )
+        .map_err(|e| format!("Failed to roll back native chat steering message: {e}"))?;
         Ok(())
     }
 
@@ -4023,5 +4086,45 @@ mod tests {
         // Most recent is msg-104, oldest kept is msg-5.
         assert_eq!(history[0], "msg-104");
         assert_eq!(history[99], "msg-5");
+    }
+
+    /// With no loop in flight the steer must decline cleanly and leave the
+    /// transcript untouched, so the caller can re-send the draft as a normal
+    /// turn without duplicating it.
+    #[test]
+    fn steer_without_an_active_run_declines_and_persists_nothing() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = lock_db(&dir);
+        let (session, user) = start_persist_session("/test/steer-no-run");
+
+        let result =
+            NativeChatService::steer(&session.id, "  actually, check the tests  ").unwrap();
+
+        assert!(
+            !result.delivered,
+            "no run is active, so nothing could be steered"
+        );
+        assert!(result.message.is_none());
+        let messages = NativeChatService::list_messages(&session.id).unwrap();
+        assert_eq!(
+            messages.len(),
+            1,
+            "a declined steer must not add a row to the transcript"
+        );
+        assert_eq!(messages[0].id, user.id);
+    }
+
+    #[test]
+    fn steer_rejects_blank_content() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = lock_db(&dir);
+        let (session, _user) = start_persist_session("/test/steer-blank");
+
+        assert!(NativeChatService::steer(&session.id, "   \n  ").is_err());
+        assert_eq!(
+            NativeChatService::list_messages(&session.id).unwrap().len(),
+            1,
+            "a rejected steer must not add a row to the transcript"
+        );
     }
 }

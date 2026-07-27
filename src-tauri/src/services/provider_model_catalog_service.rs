@@ -630,6 +630,9 @@ impl ProviderModelCatalogService {
                     supports_reasoning: false,
                     supported_efforts: Vec::new(),
                     supports_images: false,
+                    supports_audio_input: false,
+                    supports_audio_output: false,
+                    voice: None,
                     source: "local_discovered".to_string(),
                     model_api_id: None,
                     api_kind: String::new(),
@@ -717,6 +720,9 @@ impl ProviderModelCatalogService {
                     supports_reasoning: false,
                     supported_efforts: Vec::new(),
                     supports_images: false,
+                    supports_audio_input: false,
+                    supports_audio_output: false,
+                    voice: None,
                     source: "local_discovered".to_string(),
                     model_api_id: None,
                     api_kind: String::new(),
@@ -825,6 +831,9 @@ impl ProviderModelCatalogService {
                         Vec::new()
                     },
                     supports_images: supports_images(id),
+                    supports_audio_input: false,
+                    supports_audio_output: false,
+                    voice: None,
                     source: "provider_discovered".to_string(),
                     model_api_id: None,
                     api_kind: String::new(),
@@ -899,16 +908,27 @@ impl ProviderModelCatalogService {
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_string();
-            let input_modalities: Vec<String> = entry
-                .get("input")
-                .and_then(Value::as_array)
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|v| v.as_str().map(String::from))
-                        .collect()
-                })
-                .unwrap_or_default();
+            let modalities = |key: &str| -> Vec<String> {
+                entry
+                    .get(key)
+                    .and_then(Value::as_array)
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            };
+            let input_modalities = modalities("input");
+            let output_modalities = modalities("output");
             let supports_images = input_modalities.iter().any(|m| m == "image");
+            // The modality arrays are the only audio signal this payload
+            // carries. No `voice` block is synthesised from them: knowing a
+            // model takes audio in says nothing about whether it holds a
+            // duplex session open, and an id that reads like a realtime model
+            // is not evidence that it is one.
+            let supports_audio_input = input_modalities.iter().any(|m| m == "audio");
+            let supports_audio_output = output_modalities.iter().any(|m| m == "audio");
             let cost_input = entry
                 .get("cost")
                 .and_then(|c| c.get("input"))
@@ -936,6 +956,9 @@ impl ProviderModelCatalogService {
                     supports_reasoning: reasoning,
                     supported_efforts,
                     supports_images,
+                    supports_audio_input,
+                    supports_audio_output,
+                    voice: None,
                     source: "omp_cli".to_string(),
                     model_api_id: None,
                     api_kind,
@@ -1082,6 +1105,19 @@ impl ProviderModelCatalogService {
                             .get("supportsImages")
                             .and_then(Value::as_bool)
                             .unwrap_or_else(|| supports_images(id)),
+                        // Read only what the directory states. Unlike
+                        // `supportsImages` above there is deliberately no id
+                        // fallback: an unstated audio capability is false,
+                        // not guessed.
+                        supports_audio_input: entry
+                            .get("supportsAudioInput")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
+                        supports_audio_output: entry
+                            .get("supportsAudioOutput")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
+                        voice: None,
                         source: "hosted_fallback".to_string(),
                         model_api_id: None,
                         api_kind: String::new(),
@@ -1103,7 +1139,8 @@ impl ProviderModelCatalogService {
             .prepare(
                 "SELECT provider_id, model_id, label, context_window, max_tokens, supports_reasoning,
                         supported_efforts, supports_images, source, synced_at, error, model_api_id,
-                        api_kind, base_url, cost_input, cost_output, bundled_version, detected_by, running
+                        api_kind, base_url, cost_input, cost_output, bundled_version, detected_by, running,
+                        supports_audio_input, supports_audio_output, voice_json
                  FROM native_provider_model_cache
                  ORDER BY provider_id, label",
             )
@@ -1119,6 +1156,12 @@ impl ProviderModelCatalogService {
                 let api_kind = row.get::<_, Option<String>>(12)?.unwrap_or_default();
                 let detected_by = serde_json::from_str::<Vec<String>>(&row.get::<_, String>(17)?)
                     .unwrap_or_default();
+                // A malformed blob degrades this row to "no voice" rather
+                // than failing the whole catalog read and blanking the
+                // model picker.
+                let voice = row.get::<_, Option<String>>(21)?.and_then(|raw| {
+                    serde_json::from_str::<model_catalog::CatalogVoice>(&raw).ok()
+                });
                 Ok(CachedModel {
                     model: NativeModel {
                         id: model_id,
@@ -1139,6 +1182,9 @@ impl ProviderModelCatalogService {
                         supports_reasoning: row.get::<_, i64>(5)? != 0,
                         supported_efforts,
                         supports_images: row.get::<_, i64>(7)? != 0,
+                        supports_audio_input: row.get::<_, i64>(19)? != 0,
+                        supports_audio_output: row.get::<_, i64>(20)? != 0,
+                        voice,
                         source: row.get(8)?,
                         model_api_id: row.get::<_, Option<String>>(11)?,
                         api_kind,
@@ -1189,12 +1235,20 @@ impl ProviderModelCatalogService {
             };
             let detected_by_json =
                 serde_json::to_string(&detected_by).unwrap_or_else(|_| "[]".to_string());
+            // NULL when the model has no voice block. A serialization failure
+            // is treated the same way rather than aborting the cache write.
+            let voice_json = model
+                .voice
+                .as_ref()
+                .and_then(|voice| serde_json::to_string(voice).ok());
             conn.execute(
                 "INSERT INTO native_provider_model_cache
                  (provider_id, model_id, label, context_window, max_tokens, supports_reasoning,
                   supported_efforts, supports_images, source, synced_at, error, model_api_id,
-                  api_kind, base_url, cost_input, cost_output, bundled_version, detected_by, running)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+                  api_kind, base_url, cost_input, cost_output, bundled_version, detected_by, running,
+                  supports_audio_input, supports_audio_output, voice_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19,
+                         ?20, ?21, ?22)",
                 params![
                     provider_id,
                     model.id,
@@ -1215,6 +1269,9 @@ impl ProviderModelCatalogService {
                     bundled_version,
                     detected_by_json,
                     model.running as i32,
+                    model.supports_audio_input as i32,
+                    model.supports_audio_output as i32,
+                    voice_json,
                 ],
             )
             .map_err(|e| format!("Failed to save model cache row: {e}"))?;
@@ -1602,6 +1659,9 @@ fn bundled_models(provider_id: &str) -> Vec<NativeModel> {
                 supports_reasoning: true,
                 supported_efforts: effort_ids(),
                 supports_images: false,
+                supports_audio_input: false,
+                supports_audio_output: false,
+                voice: None,
                 source: "bundled".to_string(),
                 model_api_id: None,
                 api_kind: String::new(),
@@ -1626,11 +1686,14 @@ fn bundled_models(provider_id: &str) -> Vec<NativeModel> {
 
 /// Build a `NativeModel` from a catalog entry, mapping catalog fields to
 /// Basebuild's model schema. The `reasoning` flag drives effort support; the
-/// `input` array drives image support; `api` becomes `api_kind`; `baseUrl`
+/// `input` and `output` arrays drive image and audio support; the `voice`
+/// block carries through verbatim; `api` becomes `api_kind`; `baseUrl`
 /// becomes `base_url`; cost fields are carried through.
 fn bundled_from_catalog(provider_id: &str, cm: &model_catalog::CatalogModel) -> NativeModel {
     let supports_reasoning = cm.reasoning;
     let supports_images = cm.input.iter().any(|m| m == "image");
+    let supports_audio_input = cm.accepts_audio();
+    let supports_audio_output = cm.emits_audio();
     let supported_efforts = if supports_reasoning {
         effort_ids()
     } else {
@@ -1663,6 +1726,9 @@ fn bundled_from_catalog(provider_id: &str, cm: &model_catalog::CatalogModel) -> 
             supports_reasoning,
             supported_efforts,
             supports_images,
+            supports_audio_input,
+            supports_audio_output,
+            voice: cm.voice.clone(),
             source: "bundled".to_string(),
             model_api_id: None,
             api_kind: cm.api_kind.clone(),
@@ -1912,6 +1978,9 @@ mod tests {
             supports_reasoning: false,
             supported_efforts: Vec::new(),
             supports_images: false,
+            supports_audio_input: false,
+            supports_audio_output: false,
+            voice: None,
             source: String::new(),
             model_api_id: None,
             api_kind: api_kind.to_string(),
@@ -2104,6 +2173,9 @@ mod tests {
             supports_reasoning: false,
             supported_efforts: vec![],
             supports_images: false,
+            supports_audio_input: false,
+            supports_audio_output: false,
+            voice: None,
             source: "bundled".to_string(),
             model_api_id: None,
             api_kind: "devin-agent".to_string(),
@@ -2142,6 +2214,9 @@ mod tests {
             supports_reasoning: false,
             supported_efforts: vec![],
             supports_images: false,
+            supports_audio_input: false,
+            supports_audio_output: false,
+            voice: None,
             source: "bundled".to_string(),
             model_api_id: None,
             api_kind: "devin-agent".to_string(),
@@ -2209,5 +2284,153 @@ mod tests {
             second_elapsed < Duration::from_secs(1),
             "in-process catalog reuse took {second_elapsed:?}"
         );
+    }
+
+    /// Minimal cacheable `NativeModel` for the voice round-trip tests: no
+    /// capabilities, no voice, just enough identity to survive a write and a
+    /// read. Individual tests override only the fields under test.
+    fn voice_test_model(id: &str) -> NativeModel {
+        NativeModel {
+            id: id.to_string(),
+            provider_id: "voice-test".to_string(),
+            label: id.to_string(),
+            supports_effort: false,
+            supports_streaming: true,
+            supports_tools: false,
+            local_only: false,
+            context_window: None,
+            max_tokens: None,
+            supports_reasoning: false,
+            supported_efforts: Vec::new(),
+            supports_images: false,
+            supports_audio_input: false,
+            supports_audio_output: false,
+            voice: None,
+            source: "bundled".to_string(),
+            model_api_id: None,
+            api_kind: "openai-responses".to_string(),
+            base_url: String::new(),
+            cost_input: None,
+            cost_output: None,
+            detected_by: Vec::new(),
+            running: false,
+        }
+    }
+
+    #[test]
+    fn cache_round_trip_preserves_full_voice_detail() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&directory);
+
+        let model = NativeModel {
+            supports_audio_input: true,
+            supports_audio_output: true,
+            voice: Some(model_catalog::CatalogVoice {
+                level: model_catalog::VoiceLevel::Realtime,
+                billing: Some(model_catalog::VoiceBilling::ApiKey),
+                transports: vec!["webrtc".to_string(), "websocket".to_string()],
+                turn_detection: vec!["server_vad".to_string()],
+                barge_in: true,
+                voices: vec!["marin".to_string(), "cedar".to_string()],
+                sample_rate_in: Some(24_000),
+                sample_rate_out: Some(24_000),
+            }),
+            ..voice_test_model("gpt-realtime-2.1")
+        };
+        ProviderModelCatalogService::replace_provider_cache(
+            "voice-test",
+            vec![model],
+            "bundled",
+            None,
+        )
+        .unwrap();
+
+        let cached = ProviderModelCatalogService::cached_models().unwrap();
+        let read = cached
+            .iter()
+            .find(|item| item.model.id == "gpt-realtime-2.1")
+            .expect("realtime row round-trips through the cache");
+        assert!(read.model.supports_audio_input);
+        assert!(read.model.supports_audio_output);
+
+        // The enum variants are the point: a route that survives as a bare
+        // boolean cannot tell a duplex session from an audio attachment, and
+        // cannot tell a metered API key from a subscription.
+        let voice = read.model.voice.as_ref().expect("voice detail survives");
+        assert_eq!(voice.level, model_catalog::VoiceLevel::Realtime);
+        assert_eq!(voice.billing, Some(model_catalog::VoiceBilling::ApiKey));
+        assert_eq!(voice.transports, vec!["webrtc", "websocket"]);
+        assert_eq!(voice.turn_detection, vec!["server_vad"]);
+        assert!(voice.barge_in);
+        assert_eq!(voice.voices, vec!["marin", "cedar"]);
+        assert_eq!(voice.sample_rate_in, Some(24_000));
+        assert_eq!(voice.sample_rate_out, Some(24_000));
+    }
+
+    #[test]
+    fn corrupt_voice_json_degrades_to_no_voice_without_failing_the_read() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&directory);
+
+        ProviderModelCatalogService::replace_provider_cache(
+            "voice-test",
+            vec![
+                NativeModel {
+                    supports_audio_input: true,
+                    ..voice_test_model("corrupt-voice")
+                },
+                voice_test_model("healthy-neighbour"),
+            ],
+            "bundled",
+            None,
+        )
+        .unwrap();
+        let conn = StorageService::connect().unwrap();
+        conn.execute(
+            "UPDATE native_provider_model_cache SET voice_json = ?1
+             WHERE provider_id = 'voice-test' AND model_id = 'corrupt-voice'",
+            params!["{\"level\": not-json"],
+        )
+        .unwrap();
+
+        let cached = ProviderModelCatalogService::cached_models().unwrap();
+        let corrupt = cached
+            .iter()
+            .find(|item| item.model.id == "corrupt-voice")
+            .expect("corrupt row still reads back");
+        assert!(
+            corrupt.model.voice.is_none(),
+            "a malformed voice blob degrades to no-voice"
+        );
+        // The rest of the row, and every other row, is untouched by the bad
+        // blob: one bad cache entry must not blank the model picker.
+        assert!(corrupt.model.supports_audio_input);
+        assert_eq!(corrupt.model.label, "corrupt-voice");
+        assert!(cached
+            .iter()
+            .any(|item| item.model.id == "healthy-neighbour"));
+    }
+
+    #[test]
+    fn model_without_voice_round_trips_as_silent() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&directory);
+
+        ProviderModelCatalogService::replace_provider_cache(
+            "voice-test",
+            vec![voice_test_model("text-only")],
+            "bundled",
+            None,
+        )
+        .unwrap();
+
+        let cached = ProviderModelCatalogService::cached_models().unwrap();
+        let read = cached
+            .iter()
+            .find(|item| item.model.id == "text-only")
+            .expect("text-only row round-trips through the cache");
+        assert!(!read.model.supports_audio_input);
+        assert!(!read.model.supports_audio_output);
+        assert!(read.model.voice.is_none());
     }
 }
