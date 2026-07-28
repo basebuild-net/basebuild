@@ -13,7 +13,7 @@ pub struct StorageService;
 // Increment whenever `initialize` gains a schema-changing migration. Existing
 // databases run the idempotent initializer once per version; current databases
 // skip its ~50 table/column probes entirely on normal launches.
-const CURRENT_SCHEMA_VERSION: i64 = 12;
+const CURRENT_SCHEMA_VERSION: i64 = 13;
 
 impl StorageService {
     pub fn state_db_path() -> Result<PathBuf, String> {
@@ -554,6 +554,23 @@ impl StorageService {
                     state_json TEXT NOT NULL DEFAULT '{}',
                     pending_state_json TEXT,
                     pending_batch_json TEXT,
+                    updated_at INTEGER NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS usage_v2_pending_batches (
+                    idempotency_key TEXT PRIMARY KEY NOT NULL,
+                    source TEXT NOT NULL,
+                    window_start INTEGER NOT NULL,
+                    window_end INTEGER NOT NULL,
+                    rows_json TEXT NOT NULL,
+                    created_at INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_usage_v2_pending_created
+                    ON usage_v2_pending_batches(created_at, idempotency_key);
+
+                CREATE TABLE IF NOT EXISTS usage_v2_collector_state (
+                    key TEXT PRIMARY KEY NOT NULL,
+                    value TEXT NOT NULL,
                     updated_at INTEGER NOT NULL
                 );
 

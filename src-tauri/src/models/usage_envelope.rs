@@ -10,9 +10,10 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-/// Current envelope schema version. Increment only with an extend-only
-/// server rollout that preserves compatibility with older clients.
+/// Version 1 remains the default for the existing aggregate pipeline.
 pub const ENVELOPE_VERSION: u32 = 1;
+/// Version 2 carries request spans, quota snapshots, and collector coverage.
+pub const ENVELOPE_VERSION_V2: u32 = 2;
 
 /// Server-enforced transport limits, mirrored locally so a batch is never
 /// shipped only to be rejected. These MUST stay in sync with
@@ -81,6 +82,102 @@ pub struct UsageEnvelope {
     pub generated_at: i64,
     /// One or more source-scoped batches.
     pub batches: Vec<UsageBatch>,
+}
+
+/// A single provider request event. All timestamps are epoch milliseconds.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RequestSpanRow {
+    pub event_id: String,
+    pub provider: String,
+    /// Required by the closed schema as a nullable field: the server rejects
+    /// the row when the key is absent, so this is never skipped.
+    pub account_hash: Option<String>,
+    pub model: String,
+    pub session_id: String,
+    /// Required nullable, as `account_hash`.
+    pub agent_id: Option<String>,
+    /// Required nullable, as `account_hash`.
+    pub provider_request_id: Option<String>,
+    pub started_at: i64,
+    pub completed_at: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_tokens: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_tokens: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_read_tokens: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_write_tokens: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cost_total: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ttft_ms: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+    pub outcome: String,
+}
+
+/// A point-in-time observation of one provider quota window.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QuotaSnapshotRow {
+    pub snapshot_id: String,
+    pub provider: String,
+    /// Required nullable, as on `RequestSpanRow`.
+    pub account_hash: Option<String>,
+    pub limit_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window_label: Option<String>,
+    pub observed_at: i64,
+    pub used_fraction: f64,
+    pub remaining_fraction: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resets_at: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window_duration_ms: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plan_type: Option<String>,
+}
+
+/// Whether the collector observed an interval completely or was unavailable.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CollectorCoverageRow {
+    pub coverage_id: String,
+    pub started_at: i64,
+    pub ended_at: i64,
+    pub status: String,
+    pub reason: Option<String>,
+}
+
+/// Closed version 2 row union. Serde emits the wire `kind` discriminator.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum V2Row {
+    RequestSpan(RequestSpanRow),
+    QuotaSnapshot(QuotaSnapshotRow),
+    CollectorCoverage(CollectorCoverageRow),
+}
+
+/// A typed version 2 source batch.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct V2UsageBatch {
+    pub source: SourceKind,
+    pub idempotency_key: String,
+    pub window_start: i64,
+    pub window_end: i64,
+    pub rows: Vec<V2Row>,
+}
+
+/// The version 2 envelope sent through the existing `sync_usage_envelope` tool.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct V2UsageEnvelope {
+    pub version: u32,
+    pub generated_at: i64,
+    pub batches: Vec<V2UsageBatch>,
 }
 
 /// Fields that must NEVER appear in a usage row. If any are present, the
@@ -244,16 +341,9 @@ pub fn clamp_window(start: i64, end: i64, now: i64) -> Option<(i64, i64)> {
 }
 
 fn bounded_identifier(value: Option<&Value>) -> bool {
-    let Some(value) = value.and_then(Value::as_str) else {
-        return false;
-    };
-    let mut chars = value.chars();
-    let Some(first) = chars.next() else {
-        return false;
-    };
-    value.len() <= 128
-        && first.is_ascii_alphanumeric()
-        && chars.all(|ch| ch.is_ascii_alphanumeric() || "._:/+-".contains(ch))
+    value
+        .and_then(Value::as_str)
+        .is_some_and(bounded_identifier_str)
 }
 
 fn bounded_counter(obj: &Map<String, Value>, key: &str, maximum: i64) -> bool {
@@ -386,31 +476,299 @@ pub fn validate_row(row: &Value) -> Result<(), String> {
     Ok(())
 }
 
-/// Validate an entire batch. Checks every row and the batch metadata.
-///
-/// `now` is epoch seconds; the window bounds mirror the server's so a batch
-/// is never shipped only to come back as `invalid_window`.
-pub fn validate_batch(batch: &UsageBatch, now: i64) -> Result<(), String> {
-    let key_is_safe = (8..=128).contains(&batch.idempotency_key.len())
-        && batch
-            .idempotency_key
+fn bounded_identifier_str(value: &str) -> bool {
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    value.len() <= 128
+        && first.is_ascii_alphanumeric()
+        && chars.all(|ch| ch.is_ascii_alphanumeric() || "._:/+-".contains(ch))
+}
+
+fn valid_account_hash(value: Option<&str>) -> bool {
+    match value {
+        None => true,
+        Some(hash) => {
+            (16..=64).contains(&hash.len())
+                && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+        }
+    }
+}
+
+fn valid_optional_counter(value: Option<i64>, maximum: i64) -> bool {
+    match value {
+        None => true,
+        Some(counter) => (0..=maximum).contains(&counter),
+    }
+}
+
+fn valid_optional_label_str(value: Option<&str>) -> bool {
+    match value {
+        None => true,
+        Some(label) => {
+            !label.is_empty()
+                && label.chars().count() <= 128
+                && !label.contains(['\r', '\n'])
+                && !label.chars().any(char::is_control)
+        }
+    }
+}
+
+/// Validate one typed version 2 row against the deployed closed schema.
+pub fn validate_v2_row(row: &V2Row) -> Result<(), String> {
+    const MAX_COUNTER: i64 = i32::MAX as i64;
+    match row {
+        V2Row::RequestSpan(row) => {
+            if !bounded_identifier_str(&row.event_id)
+                || !bounded_identifier_str(&row.provider)
+                || !valid_account_hash(row.account_hash.as_deref())
+                || !bounded_identifier_str(&row.model)
+                || !bounded_identifier_str(&row.session_id)
+                || row
+                    .agent_id
+                    .as_deref()
+                    .is_some_and(|value| !bounded_identifier_str(value))
+                || row
+                    .provider_request_id
+                    .as_deref()
+                    .is_some_and(|value| !bounded_identifier_str(value))
+                || row.started_at < 0
+                || row.completed_at < row.started_at
+                || row.completed_at - row.started_at > 86_400_000
+                || !valid_optional_counter(row.input_tokens, MAX_COUNTER)
+                || !valid_optional_counter(row.output_tokens, MAX_COUNTER)
+                || !valid_optional_counter(row.cache_read_tokens, MAX_COUNTER)
+                || !valid_optional_counter(row.cache_write_tokens, MAX_COUNTER)
+                || row.cost_total.is_some_and(|cost| {
+                    !cost.is_finite() || !(0.0..=1_000_000.0).contains(&cost)
+                })
+                || !valid_optional_counter(row.ttft_ms, 86_400_000)
+                || row
+                    .effort
+                    .as_deref()
+                    .is_some_and(|effort| !["none", "low", "medium", "high", "xhigh"].contains(&effort))
+                || !["success", "error", "cancelled"].contains(&row.outcome.as_str())
+            {
+                return Err("invalid request_span row".to_string());
+            }
+        }
+        V2Row::QuotaSnapshot(row) => {
+            if !bounded_identifier_str(&row.snapshot_id)
+                || !bounded_identifier_str(&row.provider)
+                || !valid_account_hash(row.account_hash.as_deref())
+                || !bounded_identifier_str(&row.limit_id)
+                || !valid_optional_label_str(row.window_label.as_deref())
+                || row.observed_at < 0
+                || !row.used_fraction.is_finite()
+                || !(0.0..=1.0).contains(&row.used_fraction)
+                || !row.remaining_fraction.is_finite()
+                || !(0.0..=1.0).contains(&row.remaining_fraction)
+                || row.resets_at.is_some_and(|timestamp| timestamp < 0)
+                || row
+                    .window_duration_ms
+                    .is_some_and(|duration| !(1..=2_678_400_000).contains(&duration))
+                || !valid_optional_label_str(row.plan_type.as_deref())
+            {
+                return Err("invalid quota_snapshot row".to_string());
+            }
+        }
+        V2Row::CollectorCoverage(row) => {
+            let coupling_is_valid = matches!(
+                (row.status.as_str(), row.reason.as_deref()),
+                ("complete", None)
+                    | (
+                        "gap",
+                        Some(
+                            "collector_stopped"
+                                | "exporter_error"
+                                | "provider_error"
+                                | "unknown"
+                        )
+                    )
+            );
+            if !bounded_identifier_str(&row.coverage_id)
+                || row.started_at < 0
+                || row.ended_at < row.started_at
+                || !coupling_is_valid
+            {
+                return Err("invalid collector_coverage row".to_string());
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_batch_metadata(
+    idempotency_key: &str,
+    window_start: i64,
+    window_end: i64,
+    now: i64,
+) -> Result<(), String> {
+    let key_is_safe = (8..=128).contains(&idempotency_key.len())
+        && idempotency_key
             .chars()
             .all(|ch| ch.is_ascii_alphanumeric() || "._:-".contains(ch));
     if !key_is_safe {
         return Err("batch idempotency_key is invalid".to_string());
     }
-    if batch.window_start < 0 || batch.window_end < batch.window_start {
+    if window_start < 0 || window_end < window_start {
         return Err("batch window is invalid".to_string());
     }
-    if batch.window_end > now + MAX_FUTURE_SKEW_SECS {
+    if window_end > now + MAX_FUTURE_SKEW_SECS {
         return Err("batch window ends in the future".to_string());
     }
-    if batch.window_start < now - MAX_WINDOW_AGE_SECS {
+    if window_start < now - MAX_WINDOW_AGE_SECS {
         return Err("batch window starts beyond the retention horizon".to_string());
     }
-    if batch.window_end - batch.window_start > MAX_WINDOW_SECS {
+    if window_end - window_start > MAX_WINDOW_SECS {
         return Err("batch window is longer than 31 days".to_string());
     }
+    Ok(())
+}
+
+/// Epoch-second bounds that cover every row's own timestamps.
+///
+/// Row timestamps are epoch milliseconds while batch windows are epoch
+/// seconds, and the server requires each row to fall inside the window its
+/// batch declares. Deriving the window from the rows — rather than from some
+/// adjacent value such as a ledger's `created_at` — is what keeps the two in
+/// agreement.
+pub fn v2_window_bounds(rows: &[V2Row]) -> Option<(i64, i64)> {
+    let mut earliest = i64::MAX;
+    let mut latest = i64::MIN;
+    for row in rows {
+        let (start, end) = match row {
+            V2Row::RequestSpan(row) => (row.started_at, row.completed_at),
+            V2Row::QuotaSnapshot(row) => (row.observed_at, row.observed_at),
+            V2Row::CollectorCoverage(row) => (row.started_at, row.ended_at),
+        };
+        earliest = earliest.min(start);
+        latest = latest.max(end);
+    }
+    if earliest > latest {
+        return None;
+    }
+    // Integer division floors, and the server treats `window_end` as covering
+    // the whole second it names, so flooring both bounds contains the range.
+    Some((earliest.div_euclid(1000), latest.div_euclid(1000)))
+}
+
+/// Whether every row's timestamps fall inside the declared batch window.
+fn rows_fit_window(batch: &V2UsageBatch) -> bool {
+    match v2_window_bounds(&batch.rows) {
+        Some((earliest, latest)) => {
+            earliest >= batch.window_start && latest <= batch.window_end
+        }
+        None => true,
+    }
+}
+
+/// Clamp a version 2 row set to one server-acceptable window.
+///
+/// Rows that fall outside the clamped window are dropped rather than allowed
+/// to fail the batch they ride in; the returned window is then re-tightened to
+/// exactly the rows that survived. Returns `None` when nothing is shippable.
+pub fn clamp_v2_rows(rows: Vec<V2Row>, now: i64) -> Option<(Vec<V2Row>, i64, i64)> {
+    let (earliest, latest) = v2_window_bounds(&rows)?;
+    let (start, end) = clamp_window(earliest, latest, now)?;
+    let retained = rows
+        .into_iter()
+        .filter(|row| {
+            v2_window_bounds(std::slice::from_ref(row))
+                .is_some_and(|(row_start, row_end)| row_start >= start && row_end <= end)
+        })
+        .collect::<Vec<_>>();
+    let (start, end) = v2_window_bounds(&retained)?;
+    Some((retained, start, end))
+}
+
+fn validate_v2_batch(batch: &V2UsageBatch, now: i64) -> Result<(), String> {
+    validate_batch_metadata(
+        &batch.idempotency_key,
+        batch.window_start,
+        batch.window_end,
+        now,
+    )?;
+    if batch.rows.is_empty() || batch.rows.len() > MAX_ROWS_PER_BATCH {
+        return Err(format!(
+            "batch must contain between 1 and {MAX_ROWS_PER_BATCH} rows"
+        ));
+    }
+    for (index, row) in batch.rows.iter().enumerate() {
+        validate_v2_row(row).map_err(|error| format!("batch row {index}: {error}"))?;
+    }
+    if !rows_fit_window(batch) {
+        return Err(format!(
+            "rows fall outside the declared window {}..{}",
+            batch.window_start, batch.window_end
+        ));
+    }
+    Ok(())
+}
+
+/// A rejected version 2 batch, retained for retry or permanent disposal.
+#[derive(Debug, Clone)]
+pub struct RejectedV2Batch {
+    pub batch: V2UsageBatch,
+    pub reason: String,
+    pub deferred: bool,
+}
+
+/// Assemble a bounded, independently validated version 2 envelope.
+pub fn assemble_v2_envelope(
+    batches: Vec<V2UsageBatch>,
+    generated_at: i64,
+) -> (Option<V2UsageEnvelope>, Vec<RejectedV2Batch>) {
+    let mut accepted: Vec<V2UsageBatch> = Vec::with_capacity(batches.len());
+    let mut rejected = Vec::new();
+    let mut rows_used = 0usize;
+    for batch in batches {
+        let (reason, deferred) = if accepted.len() >= MAX_BATCHES_PER_ENVELOPE {
+            (Some("envelope batch limit reached".to_string()), true)
+        } else if accepted.iter().any(|kept| kept.source == batch.source) {
+            (Some(format!("duplicate {} batch", batch.source.as_str())), false)
+        } else if rows_used + batch.rows.len() > MAX_ROWS_PER_ENVELOPE {
+            (Some("envelope row limit reached".to_string()), true)
+        } else {
+            (validate_v2_batch(&batch, generated_at).err(), false)
+        };
+        match reason {
+            Some(reason) => rejected.push(RejectedV2Batch {
+                batch,
+                reason,
+                deferred,
+            }),
+            None => {
+                rows_used += batch.rows.len();
+                accepted.push(batch);
+            }
+        }
+    }
+    if accepted.is_empty() {
+        return (None, rejected);
+    }
+    (
+        Some(V2UsageEnvelope {
+            version: ENVELOPE_VERSION_V2,
+            generated_at,
+            batches: accepted,
+        }),
+        rejected,
+    )
+}
+
+/// Validate an entire batch. Checks every row and the batch metadata.
+///
+/// `now` is epoch seconds; the window bounds mirror the server's so a batch
+/// is never shipped only to come back as `invalid_window`.
+pub fn validate_batch(batch: &UsageBatch, now: i64) -> Result<(), String> {
+    validate_batch_metadata(
+        &batch.idempotency_key,
+        batch.window_start,
+        batch.window_end,
+        now,
+    )?;
     if batch.rows.is_empty() || batch.rows.len() > MAX_ROWS_PER_BATCH {
         return Err(format!(
             "batch must contain between 1 and {MAX_ROWS_PER_BATCH} rows"
@@ -872,5 +1230,203 @@ mod tests {
         let envelope: UsageEnvelope = serde_json::from_value(fixture.clone()).unwrap();
         validate_envelope(&envelope).unwrap();
         assert_eq!(serde_json::to_value(envelope).unwrap(), fixture);
+    }
+    fn request_span() -> V2Row {
+        V2Row::RequestSpan(RequestSpanRow {
+            event_id: "event:0123456789abcdef".to_string(),
+            provider: "anthropic".to_string(),
+            account_hash: Some("0123456789abcdef0123456789abcdef".to_string()),
+            model: "claude-sonnet-4".to_string(),
+            session_id: "session:1".to_string(),
+            agent_id: None,
+            provider_request_id: Some("request:1".to_string()),
+            started_at: NOW * 1000,
+            completed_at: NOW * 1000 + 2500,
+            input_tokens: Some(1200),
+            output_tokens: Some(800),
+            cache_read_tokens: Some(100),
+            cache_write_tokens: Some(0),
+            cost_total: Some(0.012),
+            ttft_ms: Some(400),
+            effort: Some("high".to_string()),
+            outcome: "success".to_string(),
+        })
+    }
+
+    fn v2_batch(rows: Vec<V2Row>) -> V2UsageBatch {
+        let (window_start, window_end) = v2_window_bounds(&rows).unwrap_or((NOW, NOW));
+        V2UsageBatch {
+            source: SourceKind::Native,
+            idempotency_key: "native:test:v2".to_string(),
+            window_start,
+            window_end,
+            rows,
+        }
+    }
+
+    #[test]
+    fn v2_window_bounds_span_every_row_kind() {
+        let rows = vec![
+            request_span(),
+            V2Row::CollectorCoverage(CollectorCoverageRow {
+                coverage_id: "coverage:1".to_string(),
+                started_at: (NOW - 600) * 1000,
+                ended_at: NOW * 1000,
+                status: "complete".to_string(),
+                reason: None,
+            }),
+        ];
+        // The span ends 2500ms into the second after NOW; flooring keeps the
+        // window at the second that contains it, which the server treats as
+        // covering the whole second.
+        assert_eq!(v2_window_bounds(&rows), Some((NOW - 600, NOW + 2)));
+        assert!(v2_window_bounds(&[]).is_none());
+    }
+
+    #[test]
+    fn v2_rows_outside_the_declared_window_are_rejected() {
+        // The server enforces this and answers `invalid_row`; catching it here
+        // keeps a mismatched window from costing a round trip and a stalled
+        // batch. A native batch once took its window from the metrics ledger's
+        // `created_at` while its rows carried `started_at`, and every batch was
+        // refused.
+        let mut batch = v2_batch(vec![request_span()]);
+        batch.window_end = batch.window_start;
+        let (envelope, rejected) = assemble_v2_envelope(vec![batch], NOW);
+        assert!(envelope.is_none());
+        assert_eq!(rejected.len(), 1);
+        assert!(!rejected[0].deferred);
+        assert!(
+            rejected[0].reason.contains("outside the declared window"),
+            "got {}",
+            rejected[0].reason
+        );
+    }
+
+    #[test]
+    fn clamp_v2_rows_drops_rows_beyond_the_retention_horizon() {
+        let ancient = V2Row::CollectorCoverage(CollectorCoverageRow {
+            coverage_id: "coverage:ancient".to_string(),
+            started_at: (NOW - MAX_WINDOW_AGE_SECS - 86_400) * 1000,
+            ended_at: (NOW - MAX_WINDOW_AGE_SECS - 86_000) * 1000,
+            status: "complete".to_string(),
+            reason: None,
+        });
+        let (rows, window_start, window_end) =
+            clamp_v2_rows(vec![ancient, request_span()], NOW).expect("the recent row survives");
+        assert_eq!(rows.len(), 1);
+        assert_eq!((window_start, window_end), (NOW, NOW + 2));
+
+        let only_ancient = V2Row::CollectorCoverage(CollectorCoverageRow {
+            coverage_id: "coverage:ancient".to_string(),
+            started_at: (NOW - MAX_WINDOW_AGE_SECS - 86_400) * 1000,
+            ended_at: (NOW - MAX_WINDOW_AGE_SECS - 86_000) * 1000,
+            status: "complete".to_string(),
+            reason: None,
+        });
+        assert!(clamp_v2_rows(vec![only_ancient], NOW).is_none());
+    }
+
+    #[test]
+    fn validates_all_v2_row_kinds() {
+        assert!(validate_v2_row(&request_span()).is_ok());
+        assert!(validate_v2_row(&V2Row::QuotaSnapshot(QuotaSnapshotRow {
+            snapshot_id: "snapshot:1".to_string(),
+            provider: "anthropic".to_string(),
+            account_hash: None,
+            limit_id: "anthropic:claude-max:5h".to_string(),
+            window_label: Some("5h".to_string()),
+            observed_at: NOW * 1000,
+            used_fraction: 0.4,
+            remaining_fraction: 0.6,
+            resets_at: Some(NOW * 1000 + 18_000_000),
+            window_duration_ms: Some(18_000_000),
+            plan_type: Some("Claude Max".to_string()),
+        }))
+        .is_ok());
+        assert!(validate_v2_row(&V2Row::CollectorCoverage(
+            CollectorCoverageRow {
+                coverage_id: "coverage:1".to_string(),
+                started_at: NOW * 1000,
+                ended_at: NOW * 1000 + 300_000,
+                status: "complete".to_string(),
+                reason: None,
+            }
+        ))
+        .is_ok());
+    }
+
+    #[test]
+    fn v2_validation_enforces_cross_field_constraints() {
+        let V2Row::RequestSpan(mut span) = request_span() else {
+            unreachable!()
+        };
+        span.completed_at = span.started_at - 1;
+        assert!(validate_v2_row(&V2Row::RequestSpan(span)).is_err());
+
+        let gap_without_reason = V2Row::CollectorCoverage(CollectorCoverageRow {
+            coverage_id: "coverage:2".to_string(),
+            started_at: 1,
+            ended_at: 2,
+            status: "gap".to_string(),
+            reason: None,
+        });
+        assert!(validate_v2_row(&gap_without_reason).is_err());
+    }
+
+    #[test]
+    fn v2_envelope_assembly_sets_version_two() {
+        let (envelope, rejected) =
+            assemble_v2_envelope(vec![v2_batch(vec![request_span()])], NOW);
+        assert!(rejected.is_empty());
+        let envelope = envelope.unwrap();
+        assert_eq!(envelope.version, ENVELOPE_VERSION_V2);
+        assert_eq!(envelope.batches.len(), 1);
+    }
+
+    #[test]
+    fn v2_batch_limit_is_enforced() {
+        let rows = vec![request_span(); MAX_ROWS_PER_BATCH + 1];
+        let (envelope, rejected) = assemble_v2_envelope(vec![v2_batch(rows)], NOW);
+        assert!(envelope.is_none());
+        assert_eq!(rejected.len(), 1);
+        assert!(!rejected[0].deferred);
+    }
+
+    #[test]
+    fn v2_closed_schema_rejects_content_fields() {
+        let value = json!({
+            "kind": "request_span",
+            "eventId": "event:1",
+            "provider": "anthropic",
+            "accountHash": null,
+            "model": "claude-sonnet-4",
+            "sessionId": "session:1",
+            "startedAt": 1,
+            "completedAt": 2,
+            "outcome": "success",
+            "prompt": "private user content"
+        });
+        assert!(serde_json::from_value::<V2Row>(value).is_err());
+    }
+
+    #[test]
+    fn v2_identifiers_reject_content_shaped_strings() {
+        let V2Row::RequestSpan(mut span) = request_span() else {
+            unreachable!()
+        };
+        span.session_id = "line one\nline two".to_string();
+        assert!(validate_v2_row(&V2Row::RequestSpan(span)).is_err());
+    }
+
+    #[test]
+    fn v2_account_hash_format_is_strict() {
+        let V2Row::RequestSpan(mut span) = request_span() else {
+            unreachable!()
+        };
+        span.account_hash = Some("0123456789abcdef".to_string());
+        assert!(validate_v2_row(&V2Row::RequestSpan(span.clone())).is_ok());
+        span.account_hash = Some("not-a-hex-account".to_string());
+        assert!(validate_v2_row(&V2Row::RequestSpan(span)).is_err());
     }
 }

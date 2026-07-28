@@ -304,6 +304,8 @@ pub fn run() {
             let _ = crate::services::connector_service::ConnectorService::restore_on_startup();
             // Start the auto-sync loop (off by default; gates re-checked each tick).
             crate::services::sync_service::start_autosync_loop(app.handle().clone());
+            // Collect v2 rows locally every five minutes when collection consent is enabled.
+            crate::services::usage_v2_collector_service::UsageV2CollectorService::start_background_loop();
             // Start the freeze watchdog (heartbeat + freeze report + abort).
             crate::services::stability_service::start_watchdog(app.handle().clone());
             // Reconcile Windows autostart registration with persisted intent

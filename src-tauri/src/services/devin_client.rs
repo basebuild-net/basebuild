@@ -221,6 +221,7 @@ impl ProviderClient for DevinClient {
             ttft_ms: ttft_ms.or(Some(duration_ms)),
             duration_ms,
             tool_calls,
+            quota_windows: Vec::new(),
         })
     }
 }

@@ -95,6 +95,17 @@ pub struct ProviderRequest {
     pub tools: Vec<ToolSchema>,
 }
 
+/// Privacy-safe quota metadata captured from provider response headers.
+#[derive(Debug, Clone, Default)]
+pub struct ProviderQuotaWindow {
+    pub limit_id: String,
+    pub window_label: Option<String>,
+    pub used_fraction: f64,
+    pub remaining_fraction: f64,
+    pub resets_at: Option<i64>,
+    pub window_duration_ms: Option<i64>,
+}
+
 /// The result of a completed provider turn.
 #[derive(Debug, Clone, Default)]
 pub struct ProviderResponse {
@@ -109,6 +120,7 @@ pub struct ProviderResponse {
     pub duration_ms: i64,
     /// Tool calls the model issued this turn. Empty for plain-chat turns.
     pub tool_calls: Vec<ToolCallRequest>,
+    pub quota_windows: Vec<ProviderQuotaWindow>,
 }
 
 /// Dispatches a resolved request, streaming content deltas through `emit`.
@@ -534,6 +546,7 @@ impl ProviderClient for OmpRpcClient {
             ttft_ms: ttft_ms.or(Some(duration_ms)),
             duration_ms,
             tool_calls: Vec::new(),
+            quota_windows: Vec::new(),
         })
     }
 }
@@ -786,6 +799,7 @@ impl ProviderClient for LocalCoordinator {
             content: text,
             reasoning: None,
             tool_calls: Vec::new(),
+            quota_windows: Vec::new(),
         })
     }
 }
@@ -1173,6 +1187,8 @@ impl ProviderClient for OpenAiCodexClient {
             .into());
         }
 
+        let quota_windows =
+            quota_windows_from_headers(response.headers(), OPENAI_CODEX_PROVIDER_ID);
         let mut state = CodexStreamState::default();
         for line in BufReader::new(response).lines() {
             let line =
@@ -1213,6 +1229,7 @@ impl ProviderClient for OpenAiCodexClient {
             ttft_ms: state.ttft_ms.or(Some(duration_ms)),
             duration_ms,
             tool_calls: state.tool_calls,
+            quota_windows,
         })
     }
 }
@@ -1330,6 +1347,7 @@ impl ProviderClient for OpenAiCompatibleClient {
             .into());
         }
 
+        let quota_windows = quota_windows_from_headers(resp.headers(), &self.provider_id);
         let mut state = OpenAiStreamState::default();
         let reader = BufReader::new(resp);
         for line in reader.lines() {
@@ -1388,6 +1406,7 @@ impl ProviderClient for OpenAiCompatibleClient {
             content: clean_content,
             reasoning: final_reasoning,
             tool_calls,
+            quota_windows,
         })
     }
 }
@@ -1630,6 +1649,7 @@ impl ProviderClient for AnthropicClient {
             }
             .into());
         }
+        let quota_windows = quota_windows_from_headers(resp.headers(), &self.provider_id);
         let mut state = AnthropicStreamState::default();
         let reader = BufReader::new(resp);
         for line in reader.lines() {
@@ -1689,8 +1709,132 @@ impl ProviderClient for AnthropicClient {
             content: clean_content,
             reasoning: final_reasoning,
             tool_calls,
+            quota_windows,
         })
     }
+}
+
+fn quota_windows_from_headers(
+    headers: &reqwest::header::HeaderMap,
+    provider_id: &str,
+) -> Vec<ProviderQuotaWindow> {
+    let definitions = [
+        (
+            "requests",
+            ["x-ratelimit-limit-requests", "anthropic-ratelimit-requests-limit"],
+            [
+                "x-ratelimit-remaining-requests",
+                "anthropic-ratelimit-requests-remaining",
+            ],
+            ["x-ratelimit-reset-requests", "anthropic-ratelimit-requests-reset"],
+        ),
+        (
+            "tokens",
+            ["x-ratelimit-limit-tokens", "anthropic-ratelimit-tokens-limit"],
+            [
+                "x-ratelimit-remaining-tokens",
+                "anthropic-ratelimit-tokens-remaining",
+            ],
+            ["x-ratelimit-reset-tokens", "anthropic-ratelimit-tokens-reset"],
+        ),
+    ];
+    let observed_at = provider_now_millis();
+    definitions
+        .into_iter()
+        .filter_map(|(label, limit_names, remaining_names, reset_names)| {
+            let limit = first_header_f64(headers, &limit_names)?;
+            let remaining = first_header_f64(headers, &remaining_names)?;
+            if !limit.is_finite() || limit <= 0.0 || !remaining.is_finite() {
+                return None;
+            }
+            let remaining_fraction = (remaining / limit).clamp(0.0, 1.0);
+            let resets_at = first_header_str(headers, &reset_names)
+                .and_then(|value| parse_provider_reset_ms(value, observed_at));
+            Some(ProviderQuotaWindow {
+                limit_id: format!("{provider_id}:api:{label}"),
+                window_label: Some(label.to_string()),
+                used_fraction: 1.0 - remaining_fraction,
+                remaining_fraction,
+                resets_at,
+                window_duration_ms: None,
+            })
+        })
+        .collect()
+}
+
+fn first_header_f64(
+    headers: &reqwest::header::HeaderMap,
+    names: &[&str],
+) -> Option<f64> {
+    first_header_str(headers, names)?.parse().ok()
+}
+
+fn first_header_str<'a>(
+    headers: &'a reqwest::header::HeaderMap,
+    names: &[&str],
+) -> Option<&'a str> {
+    names
+        .iter()
+        .find_map(|name| headers.get(*name).and_then(|value| value.to_str().ok()))
+}
+
+fn parse_provider_reset_ms(value: &str, observed_at: i64) -> Option<i64> {
+    let value = value.trim();
+    if let Ok(timestamp) = value.parse::<i64>() {
+        return Some(if timestamp >= 100_000_000_000 {
+            timestamp
+        } else if timestamp >= 1_000_000_000 {
+            timestamp.saturating_mul(1000)
+        } else {
+            observed_at.saturating_add(timestamp.saturating_mul(1000))
+        });
+    }
+    if let Some(timestamp) =
+        crate::services::harness_usage_service::parse_iso_to_epoch(value)
+    {
+        return Some(timestamp.saturating_mul(1000));
+    }
+    parse_duration_ms(value).map(|duration| observed_at.saturating_add(duration))
+}
+
+fn parse_duration_ms(value: &str) -> Option<i64> {
+    let bytes = value.as_bytes();
+    let mut index = 0usize;
+    let mut total = 0i64;
+    while index < bytes.len() {
+        let start = index;
+        while index < bytes.len() && bytes[index].is_ascii_digit() {
+            index += 1;
+        }
+        if start == index {
+            return None;
+        }
+        let amount = value[start..index].parse::<i64>().ok()?;
+        let multiplier = if value[index..].starts_with("ms") {
+            index += 2;
+            1
+        } else if value[index..].starts_with('s') {
+            index += 1;
+            1_000
+        } else if value[index..].starts_with('m') {
+            index += 1;
+            60_000
+        } else if value[index..].starts_with('h') {
+            index += 1;
+            3_600_000
+        } else {
+            return None;
+        };
+        total = total.saturating_add(amount.saturating_mul(multiplier));
+    }
+    Some(total)
+}
+
+fn provider_now_millis() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or_default()
 }
 
 /// Build a concise, secret-free error message from an HTTP failure.
@@ -2145,5 +2289,39 @@ mod tests {
         assert!(codex_supports_reasoning_summary("gpt-5.4-codex"));
         assert!(codex_supports_reasoning_summary("openai/gpt-5.5"));
         assert!(codex_supports_reasoning_summary("gpt-6.0"));
+    }
+    #[test]
+    fn provider_rate_limit_headers_become_quota_windows_with_reset_identity() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("x-ratelimit-limit-requests", "100".parse().unwrap());
+        headers.insert("x-ratelimit-remaining-requests", "25".parse().unwrap());
+        headers.insert("x-ratelimit-reset-requests", "6m0s".parse().unwrap());
+        headers.insert("x-ratelimit-limit-tokens", "1000".parse().unwrap());
+        headers.insert("x-ratelimit-remaining-tokens", "600".parse().unwrap());
+        headers.insert(
+            "x-ratelimit-reset-tokens",
+            "2026-07-28T12:00:00Z".parse().unwrap(),
+        );
+
+        let rows = quota_windows_from_headers(&headers, "openai");
+        assert_eq!(rows.len(), 2);
+        let requests = rows
+            .iter()
+            .find(|row| row.window_label.as_deref() == Some("requests"))
+            .unwrap();
+        assert!((requests.used_fraction - 0.75).abs() < f64::EPSILON);
+        assert!((requests.remaining_fraction - 0.25).abs() < f64::EPSILON);
+        assert!(requests.resets_at.is_some());
+        let tokens = rows
+            .iter()
+            .find(|row| row.window_label.as_deref() == Some("tokens"))
+            .unwrap();
+        assert_eq!(
+            tokens.resets_at,
+            crate::services::harness_usage_service::parse_iso_to_epoch(
+                "2026-07-28T12:00:00Z"
+            )
+            .map(|timestamp| timestamp * 1000)
+        );
     }
 }

@@ -4,12 +4,15 @@ use std::time::Duration;
 
 use parking_lot::Mutex;
 use rusqlite::{params, OptionalExtension};
+use sha2::{Digest, Sha256};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 
 use crate::events::{AUTH_CHANGED, USAGE_SYNC_STATUS};
 use crate::models::usage_envelope::{
-    assemble_envelope, clamp_window, SourceKind, UsageBatch, ENVELOPE_VERSION,
+    assemble_envelope, assemble_v2_envelope, clamp_v2_rows, clamp_window, normalize_identifier,
+    RequestSpanRow, SourceKind, UsageBatch, V2Row, V2UsageBatch, ENVELOPE_VERSION,
+    MAX_WINDOW_AGE_SECS,
 };
 use crate::models::usage_sync::{
     AutoSyncStatus, LiveUsage, LiveUsageRow, PlanSummaries, PlanSummary, PlanTimeline,
@@ -19,6 +22,7 @@ use crate::models::usage_sync::{
 use crate::services::analytics_service::AnalyticsService;
 use crate::services::auth_service::{AuthService, GuestSyncAuth};
 use crate::services::execution_advisor_service::ExecutionAdvisorService;
+use crate::services::native_chat_service::NativeChatService;
 use crate::services::omp_service::OmpService;
 use crate::services::settings_service::SettingsService;
 use crate::services::storage_service::StorageService;
@@ -294,6 +298,107 @@ pub fn collect_native_batch() -> Result<UsageBatch, String> {
     })
 }
 
+/// Collect native per-request metrics into a typed version 2 batch. This reads
+/// only the metrics ledger and never touches chat messages or tool events.
+pub fn collect_native_v2_batch() -> Result<V2UsageBatch, String> {
+    let settings = SettingsService::get_usage_sync_settings()?;
+    let since = settings.last_envelope_v2_sync_at.unwrap_or(0);
+    let metrics = NativeChatService::metrics_since(since, 498)?;
+    let now = now_seconds();
+    let mut rows = metrics
+        .iter()
+        .filter_map(|metric| {
+            let provider = normalize_identifier(&metric.provider_id)?;
+            let model = normalize_identifier(&metric.model_id)?;
+            let session_id = normalize_identifier(&metric.session_id)?;
+            let event_digest = Sha256::digest(metric.id.as_bytes());
+            let event_id = format!("native:{event_digest:x}");
+            let completed_at = metric.completed_at.unwrap_or_else(|| {
+                metric
+                    .started_at
+                    .saturating_add(metric.duration_ms.unwrap_or_default().max(0))
+            });
+            let outcome = match metric.outcome.as_str() {
+                "success" => "success",
+                "cancelled" | "interrupted" => "cancelled",
+                _ => "error",
+            };
+            let effort = match metric.effort_level.as_str() {
+                "none" | "low" | "medium" | "high" | "xhigh" => {
+                    Some(metric.effort_level.clone())
+                }
+                _ => None,
+            };
+            let started_at = metric.started_at.max(0);
+            let completed_at = completed_at
+                .max(started_at)
+                .min(started_at.saturating_add(86_400_000));
+            Some(V2Row::RequestSpan(RequestSpanRow {
+                event_id,
+                provider,
+                account_hash: None,
+                model,
+                session_id,
+                agent_id: None,
+                provider_request_id: None,
+                started_at,
+                completed_at,
+                input_tokens: Some(metric.input_tokens.clamp(0, i32::MAX as i64)),
+                output_tokens: Some(metric.output_tokens.clamp(0, i32::MAX as i64)),
+                cache_read_tokens: Some(metric.cache_read_tokens.clamp(0, i32::MAX as i64)),
+                cache_write_tokens: Some(metric.cache_write_tokens.clamp(0, i32::MAX as i64)),
+                cost_total: metric
+                    .cost_total
+                    .filter(|cost| cost.is_finite())
+                    .map(|cost| cost.clamp(0.0, 1_000_000.0)),
+                ttft_ms: metric.ttft_ms.map(|value| value.clamp(0, 86_400_000)),
+                effort,
+                outcome: outcome.to_string(),
+            }))
+        })
+        .collect::<Vec<_>>();
+    rows.sort_by(|left, right| {
+        let left_id = match left {
+            V2Row::RequestSpan(row) => row.event_id.as_str(),
+            _ => "",
+        };
+        let right_id = match right {
+            V2Row::RequestSpan(row) => row.event_id.as_str(),
+            _ => "",
+        };
+        left_id.cmp(right_id)
+    });
+    // The window must contain the rows it declares: span timestamps come from
+    // `started_at`/`completed_at`, not from the ledger's `created_at`, and the
+    // server rejects any row that falls outside its batch window.
+    let Some((rows, window_start, window_end)) = clamp_v2_rows(rows, now) else {
+        // Everything readable predates the server's retention horizon. Bank the
+        // horizon so the unreportable tail is never offered again, instead of
+        // re-collecting the same dead metrics on every pass.
+        let horizon = now - MAX_WINDOW_AGE_SECS + 60;
+        if horizon > since {
+            let mut settings = settings;
+            settings.last_envelope_v2_sync_at = Some(horizon);
+            SettingsService::set_usage_sync_settings(&settings)?;
+        }
+        return Ok(V2UsageBatch {
+            source: SourceKind::Native,
+            idempotency_key: "native:v2:empty".to_string(),
+            window_start: now,
+            window_end: now,
+            rows: Vec::new(),
+        });
+    };
+    let digest = Sha256::digest(serde_json::to_vec(&rows).map_err(|error| error.to_string())?);
+    Ok(V2UsageBatch {
+        source: SourceKind::Native,
+        idempotency_key: format!("native:v2:{digest:x}"),
+        window_start,
+        window_end,
+        rows,
+    })
+}
+
 /// Roll per-message native metrics up into aggregated `model_usage` rows,
 /// grouped by (provider, model, effort, tier, source, planName). One row per
 /// message previously overflowed the envelope's 500-row cap for active users
@@ -423,10 +528,43 @@ impl EnvelopeSyncReport {
     }
 }
 
+fn combine_envelope_reports(
+    v2: Result<EnvelopeSyncReport, String>,
+    v1: Result<EnvelopeSyncReport, String>,
+) -> Result<EnvelopeSyncReport, String> {
+    match (v2, v1) {
+        (Ok(v2), Ok(v1)) => Ok(EnvelopeSyncReport {
+            accepted: v2.accepted + v1.accepted,
+            skipped: v2.skipped + v1.skipped,
+            retryable: v2.retryable + v1.retryable,
+            message: format!("{}; {}", v2.message, v1.message),
+        }),
+        (Err(v2_error), Ok(mut v1)) => {
+            v1.retryable += 1;
+            v1.message = format!("v2 pending: {v2_error}; {}", v1.message);
+            Ok(v1)
+        }
+        (Ok(mut v2), Err(v1_error)) => {
+            v2.retryable += 1;
+            v2.message = format!("{}; v1 pending: {v1_error}", v2.message);
+            Ok(v2)
+        }
+        (Err(v2_error), Err(v1_error)) => {
+            Err(format!("v2 envelope: {v2_error}; v1 envelope: {v1_error}"))
+        }
+    }
+}
+
 /// Server rejection codes that a byte-identical retry can never clear. The
 /// batch is abandoned and its cursor advanced; anything else stays queued.
 /// Kept deliberately explicit — an unrecognized code is treated as transient
 /// so a server-side change never silently discards a user's usage.
+///
+/// `event_identity_conflict` is version 2 only: the server already holds those
+/// event identities under an earlier idempotency key, which happens whenever a
+/// batch is re-spooled after a partial acceptance. Retrying can only conflict
+/// again, and the usage is already recorded server-side, so the batch is
+/// dropped rather than left to wedge its source forever.
 fn rejection_is_permanent(code: Option<&str>) -> bool {
     matches!(
         code,
@@ -438,6 +576,7 @@ fn rejection_is_permanent(code: Option<&str>) -> bool {
                 | "invalid_idempotency_key"
                 | "source_not_allowed"
                 | "idempotency_conflict"
+                | "event_identity_conflict"
         )
     )
 }
@@ -632,6 +771,167 @@ pub fn sync_envelope_native() -> Result<EnvelopeSyncReport, String> {
         "envelope v{ENVELOPE_VERSION}: {} accepted, {} skipped, {} pending",
         report.accepted, report.skipped, report.retryable
     );
+    Ok(report)
+}
+
+/// Sync the durable version 2 spool through the same MCP tool as version 1.
+/// Collection is attempted first, then pending rows from prior app runs replay.
+pub fn sync_envelope_v2() -> Result<EnvelopeSyncReport, String> {
+    eprintln!("[SYNC V2] sync attempt started");
+    let mode = resolve_auth_mode()?;
+    if let Err(error) =
+        crate::services::usage_v2_collector_service::UsageV2CollectorService::collect_and_spool()
+    {
+        eprintln!("[SYNC V2] local collection failed, replaying spool: {error}");
+    }
+    let batches =
+        crate::services::usage_v2_collector_service::UsageV2CollectorService::pending_batches()?;
+    if batches.is_empty() {
+        return Ok(EnvelopeSyncReport {
+            message: "no pending v2 usage data".to_string(),
+            ..Default::default()
+        });
+    }
+    let sources = crate::services::usage_source_service::registered_sources();
+    let advance = |batch: &V2UsageBatch| {
+        if let Some(source) = sources.iter().find(|source| source.kind() == batch.source) {
+            if let Err(error) = source.advance_v2_checkpoint(batch) {
+                eprintln!(
+                    "[SYNC V2] source {} checkpoint advance failed: {error}",
+                    batch.source.as_str()
+                );
+            }
+        }
+    };
+    let discard = |batch: &V2UsageBatch| {
+        if let Err(error) =
+            crate::services::usage_v2_collector_service::UsageV2CollectorService::delete_batch(
+                &batch.idempotency_key,
+            )
+        {
+            eprintln!(
+                "[SYNC V2] source {} spool delete failed: {error}",
+                batch.source.as_str()
+            );
+        } else {
+            advance(batch);
+        }
+    };
+
+    let mut report = EnvelopeSyncReport::default();
+    let (envelope, rejected) = assemble_v2_envelope(batches, now_seconds());
+    for rejection in rejected {
+        if rejection.deferred {
+            report.retryable += 1;
+            eprintln!(
+                "[SYNC V2] source {} deferred: {}",
+                rejection.batch.source.as_str(),
+                rejection.reason
+            );
+        } else {
+            discard(&rejection.batch);
+            report.skipped += 1;
+            eprintln!(
+                "[SYNC V2] source {} dropped invalid local batch: {}",
+                rejection.batch.source.as_str(),
+                rejection.reason
+            );
+        }
+    }
+    let Some(envelope) = envelope else {
+        report.message = "no shippable v2 envelope batches".to_string();
+        return Ok(report);
+    };
+    let rpc_body = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "sync_usage_envelope",
+            "arguments": serde_json::to_value(&envelope)
+                .map_err(|error| format!("Failed to serialize v2 usage envelope: {error}"))?,
+        }
+    });
+    let result = post_mcp(&mode, &rpc_body)?;
+    let acknowledgment: Value = serde_json::from_str(&result.text)
+        .map_err(|error| format!("Invalid v2 usage-envelope acknowledgment: {error}"))?;
+    if acknowledgment.get("ok").and_then(Value::as_bool) != Some(true) {
+        let code = acknowledgment
+            .get("code")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
+        let message = acknowledgment
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or("the server did not accept the v2 envelope");
+        if rejection_is_permanent(Some(code)) {
+            for batch in &envelope.batches {
+                discard(batch);
+                report.skipped += 1;
+            }
+            report.message = format!("v2 envelope permanently rejected ({code}): {message}");
+            return Ok(report);
+        }
+        return Err(format!("v2 usage envelope rejected ({code}): {message}"));
+    }
+    let receipts = acknowledgment
+        .get("receipts")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    for batch in &envelope.batches {
+        let receipt = receipts.iter().find(|receipt| {
+            receipt.get("source").and_then(Value::as_str) == Some(batch.source.as_str())
+                && receipt.get("idempotencyKey").and_then(Value::as_str)
+                    == Some(batch.idempotency_key.as_str())
+        });
+        let status = receipt
+            .and_then(|receipt| receipt.get("status"))
+            .and_then(Value::as_str);
+        if matches!(status, Some("accepted" | "already_accepted")) {
+            discard(batch);
+            record_source_success(batch.source, now_seconds(), None);
+            report.accepted += 1;
+            continue;
+        }
+        let code = receipt
+            .and_then(|receipt| receipt.get("code"))
+            .and_then(Value::as_str);
+        let message = receipt
+            .and_then(|receipt| receipt.get("message"))
+            .and_then(Value::as_str)
+            .unwrap_or("no message");
+        if status.is_none() {
+            eprintln!(
+                "[SYNC V2] source {}: no server receipt — retry is pending",
+                batch.source.as_str()
+            );
+            record_source_error(batch.source, "No server receipt; retry is pending");
+            report.retryable += 1;
+        } else if rejection_is_permanent(code) {
+            eprintln!(
+                "[SYNC V2] source {}: permanently rejected ({}): {message} — skipping window",
+                batch.source.as_str(),
+                code.unwrap_or("unknown")
+            );
+            discard(batch);
+            record_source_error(batch.source, "Server rejected this usage; window skipped");
+            report.skipped += 1;
+        } else {
+            eprintln!(
+                "[SYNC V2] source {}: deferred ({}): {message}",
+                batch.source.as_str(),
+                code.unwrap_or("unknown")
+            );
+            record_source_error(batch.source, "Server deferred this usage; retry is pending");
+            report.retryable += 1;
+        }
+    }
+    report.message = format!(
+        "envelope v2: {} accepted, {} skipped, {} pending",
+        report.accepted, report.skipped, report.retryable
+    );
+    eprintln!("[SYNC V2] {}", report.message);
     Ok(report)
 }
 
@@ -1585,15 +1885,25 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
             eprintln!("[SYNC] should_push=false — aborting");
             return;
         }
-        eprintln!("[SYNC] thread started — calling sync_envelope_native (native first)…");
-        let envelope_result = sync_envelope_native();
+        eprintln!("[SYNC] thread started, calling v2 envelope then v1 envelope");
+        let v2_envelope_result = sync_envelope_v2();
         eprintln!(
-            "[SYNC] sync_envelope_native: {}",
-            match &envelope_result {
+            "[SYNC] sync_envelope_v2: {}",
+            match &v2_envelope_result {
                 Ok(report) => format!("ok: {}", report.message),
-                Err(e) => format!("ERR: {e}"),
+                Err(error) => format!("ERR: {error}"),
             }
         );
+        let v1_envelope_result = sync_envelope_native();
+        eprintln!(
+            "[SYNC] sync_envelope_native: {}",
+            match &v1_envelope_result {
+                Ok(report) => format!("ok: {}", report.message),
+                Err(error) => format!("ERR: {error}"),
+            }
+        );
+        let envelope_result =
+            combine_envelope_reports(v2_envelope_result, v1_envelope_result);
         // Raw per-message rows travel alongside the aggregates: the envelope
         // gives the website rollups, these give it the underlying detail.
         eprintln!("[SYNC] calling sync_messages_native (raw rows)…");
@@ -1893,6 +2203,11 @@ pub fn stop_autosync_loop() {
 /// Best-effort: errors are logged, never propagated — we must not block exit.
 pub fn sync_on_exit() {
     eprintln!("[SYNC] sync_on_exit — final push before exit");
+    if let Err(error) =
+        crate::services::usage_v2_collector_service::UsageV2CollectorService::stop_and_spool()
+    {
+        eprintln!("[SYNC V2] collector stop event failed: {error}");
+    }
     if !gates_pass() {
         eprintln!("[SYNC] sync_on_exit: gates fail — skipping");
         return;
@@ -1902,12 +2217,14 @@ pub fn sync_on_exit() {
     // Blocking sync with a timeout — we can't hang the exit forever.
     let (tx, rx) = std::sync::mpsc::channel();
     thread::spawn(move || {
+        let envelope_v2 = sync_envelope_v2();
         let envelope = sync_envelope_native();
         let rows = sync_messages_native();
         let raw = sync_raw_usage_native();
         let feedback = sync_execution_advisor_feedback_native();
         eprintln!(
-            "[SYNC] sync_on_exit: envelope={:?}, rows={:?}, raw={:?}, advisor_feedback={:?}",
+            "[SYNC] sync_on_exit: envelope_v2={:?}, envelope={:?}, rows={:?}, raw={:?}, advisor_feedback={:?}",
+            envelope_v2.is_ok(),
             envelope.is_ok(),
             rows.is_ok(),
             raw.is_ok(),
@@ -2356,6 +2673,178 @@ mod tests {
         assert!(again.is_idle(), "expected nothing to sync, got {again:?}");
     }
 
+    /// Live version 2 contract check against basebuild.net. Companion to the
+    /// version 1 test above; run both after touching the envelope wire format:
+    ///
+    /// ```text
+    /// cargo test --lib live_v2_envelope_round_trip -- --ignored --nocapture
+    /// ```
+    ///
+    /// Seeds one of each version 2 row kind — a request span from the native
+    /// metrics ledger, a quota snapshot from provider rate-limit headers, and
+    /// the coverage interval the collector emits on every pass — then drains
+    /// the spool. The server must accept every batch offered.
+    ///
+    /// Unlike the version 1 test this also redirects `HOME`/`USERPROFILE`, so
+    /// the local harness readers find nothing: the batches offered are exactly
+    /// the seeded ones, and the developer's real Claude Code and Codex history
+    /// is not uploaded by a test run.
+    #[test]
+    #[ignore = "network: talks to basebuild.net and registers a guest installation"]
+    fn live_v2_envelope_round_trip_is_accepted_by_the_server() {
+        use crate::services::usage_v2_collector_service::UsageV2CollectorService;
+
+        let (_dir, _guard) = crate::test_util::test::isolated_home();
+        let _home = ScopedHome::redirect(_dir.path());
+        let now = now_seconds();
+
+        AnalyticsService::set_consent(&crate::models::permission::AnalyticsConsent {
+            collection_enabled: true,
+            upload_enabled: true,
+            consent_version: Some("live-v2-test".to_string()),
+            consented_at: Some(now),
+        })
+        .unwrap();
+
+        let conn = StorageService::connect().unwrap();
+        conn.execute(
+            "INSERT INTO native_chat_sessions (id, project_path, title, profile_id, provider_id,
+                 model_id, effort_level, status, run_state, created_at, updated_at)
+             VALUES ('s1', '/test', 'Chat', 'basebuild-native', 'local-models',
+                 'lmstudio:google/gemma-4-e4b', 'high', 'ready', 'idle', ?1, ?1)",
+            rusqlite::params![now],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO native_request_metrics (id, session_id, provider_id, model_id,
+                 effort_level, started_at, duration_ms, ttft_ms, input_tokens, output_tokens,
+                 cache_read_tokens, cache_write_tokens, cost_total, outcome,
+                 subscription_source, created_at)
+             VALUES ('m1', 's1', 'local-models', 'lmstudio:google/gemma-4-e4b', 'high',
+                 ?1, 1200, 240, 100, 50, 10, 5, 0.0, 'success', 'unknown', ?2)",
+            rusqlite::params![now * 1000, now - 120],
+        )
+        .unwrap();
+        drop(conn);
+
+        UsageV2CollectorService::record_native_quota_windows(
+            "anthropic",
+            Some("live-v2-test-account"),
+            &[crate::services::provider_client::ProviderQuotaWindow {
+                limit_id: "anthropic:claude-max:5h".to_string(),
+                window_label: Some("5h".to_string()),
+                used_fraction: 0.25,
+                remaining_fraction: 0.75,
+                resets_at: Some((now + 3_600) * 1000),
+                window_duration_ms: Some(18_000_000),
+            }],
+        )
+        .unwrap();
+
+        // Collect before measuring: `sync_envelope_v2` collects as its first
+        // step, so a spool read taken beforehand describes the wrong state.
+        UsageV2CollectorService::collect_and_spool().unwrap();
+        let (spans, quotas) = spooled_native_v2_rows();
+        assert_eq!(spans, 1, "the seeded metric must spool as a request span");
+        assert_eq!(quotas, 1, "the captured quota window must spool");
+
+        // `pending_batches` ships one batch per source, and every pass spools a
+        // fresh coverage interval, so the native span and quota batches need a
+        // pass each. Drain until the seeded rows are gone rather than assuming
+        // one pass clears them.
+        //
+        // A span batch that waits behind another native batch is re-collected
+        // under a new key (the merged coverage interval changes its digest), so
+        // a later pass can offer rows the server already holds. That comes back
+        // as `event_identity_conflict` and is discarded, not retried — a skip
+        // after the rows were accepted is correct, a pending row is not.
+        let mut accepted = 0;
+        for pass in 1..=8 {
+            let report = sync_envelope_v2().expect("v2 envelope push must reach the server");
+            eprintln!("[live v2] pass {pass}: {}", report.message);
+            assert_eq!(report.retryable, 0, "nothing may be left pending");
+            accepted += report.accepted;
+            if spooled_native_v2_rows() == (0, 0) {
+                break;
+            }
+        }
+
+        assert!(
+            accepted >= 2,
+            "the span batch and the quota batch must both be accepted"
+        );
+        assert_eq!(
+            spooled_native_v2_rows(),
+            (0, 0),
+            "the seeded span and quota rows must clear the spool once accepted"
+        );
+        let cursor = SettingsService::get_usage_sync_settings()
+            .unwrap()
+            .last_envelope_v2_sync_at
+            .expect("an accepted span batch must advance the v2 cursor");
+        assert!(
+            cursor >= now - 120,
+            "the v2 cursor must cover the seeded metric, got {cursor} for {now}"
+        );
+    }
+
+    /// Redirects `HOME`/`USERPROFILE` for the life of the guard so the local
+    /// harness readers resolve into a temp dir instead of the real profile.
+    /// Restores the previous values on drop, panic included.
+    struct ScopedHome {
+        previous: Vec<(&'static str, Option<std::ffi::OsString>)>,
+    }
+
+    impl ScopedHome {
+        fn redirect(path: &std::path::Path) -> Self {
+            let previous = ["HOME", "USERPROFILE"]
+                .into_iter()
+                .map(|key| {
+                    let previous = std::env::var_os(key);
+                    std::env::set_var(key, path);
+                    (key, previous)
+                })
+                .collect();
+            Self { previous }
+        }
+    }
+
+    impl Drop for ScopedHome {
+        fn drop(&mut self) {
+            for (key, value) in &self.previous {
+                match value {
+                    Some(value) => std::env::set_var(key, value),
+                    None => std::env::remove_var(key),
+                }
+            }
+        }
+    }
+
+    /// Pending (request_span, quota_snapshot) row counts for the native source.
+    fn spooled_native_v2_rows() -> (usize, usize) {
+        use crate::models::usage_envelope::V2Row;
+        let conn = StorageService::connect().unwrap();
+        let mut statement = conn
+            .prepare("SELECT rows_json FROM usage_v2_pending_batches WHERE source = 'native'")
+            .unwrap();
+        let batches = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .map(|rows_json| {
+                serde_json::from_str::<Vec<V2Row>>(&rows_json.unwrap())
+                    .expect("a spooled batch must deserialize")
+            })
+            .collect::<Vec<_>>();
+        batches
+            .iter()
+            .flatten()
+            .fold((0, 0), |(spans, quotas), row| match row {
+                V2Row::RequestSpan(_) => (spans + 1, quotas),
+                V2Row::QuotaSnapshot(_) => (spans, quotas + 1),
+                V2Row::CollectorCoverage(_) => (spans, quotas),
+            })
+    }
+
     #[test]
     fn off_reason_enabled_upload_passes_without_consent_timestamp() {
         // An older install with the toggle on but no `consented_at` must sync.
@@ -2448,5 +2937,39 @@ mod tests {
         let pro_row = rows.iter().find(|r| r["subscriptionTier"] == "pro").unwrap();
         assert_eq!(pro_row["requests"], 1);
         assert_eq!(pro_row["durationCount"], 0);
+    }
+    #[test]
+    fn native_v2_source_collects_request_spans_without_content() {
+        let (_dir, _guard) = crate::test_util::test::isolated_home();
+        let now = now_seconds();
+        let conn = StorageService::connect().unwrap();
+        conn.execute(
+            "INSERT INTO native_chat_sessions (id, project_path, title, profile_id, provider_id,
+                 model_id, effort_level, status, run_state, created_at, updated_at)
+             VALUES ('v2-session', '/test', 'Chat', 'basebuild-native', 'openai',
+                 'gpt-5.1', 'high', 'ready', 'idle', ?1, ?1)",
+            rusqlite::params![now],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO native_request_metrics (id, session_id, provider_id, model_id,
+                 effort_level, started_at, completed_at, duration_ms, ttft_ms,
+                 input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+                 cost_total, outcome, created_at)
+             VALUES ('v2-metric', 'v2-session', 'openai', 'gpt-5.1', 'high',
+                 ?1, ?2, 1200, 100, 100, 50, 10, 2, 0.01, 'success', ?3)",
+            rusqlite::params![now * 1000, now * 1000 + 1200, now],
+        )
+        .unwrap();
+        drop(conn);
+
+        let batch = collect_native_v2_batch().unwrap();
+        assert_eq!(batch.source, SourceKind::Native);
+        assert_eq!(batch.rows.len(), 1);
+        crate::models::usage_envelope::validate_v2_row(&batch.rows[0]).unwrap();
+        let serialized = serde_json::to_value(&batch.rows[0]).unwrap();
+        for forbidden in ["prompt", "response", "content", "text", "path", "token"] {
+            assert!(serialized.get(forbidden).is_none());
+        }
     }
 }

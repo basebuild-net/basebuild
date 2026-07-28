@@ -386,6 +386,38 @@ responses, source code, paths, or secrets. OMP counters are delta-diffed
 against a persisted baseline and included in the envelope; the raw OMP path
 is skipped for guest tokens to avoid duplicate uploads.
 
+### Version 2 request and quota envelope
+
+The existing version 1 aggregate envelope remains active and unchanged. A
+separate version 2 collector runs every five minutes when local analytics
+collection is enabled. It writes typed request spans, quota snapshots, and
+coverage intervals to `usage_v2_pending_batches` before transport. Pending
+batches replay after restart and are removed only after acceptance or a
+permanent rejection. Upload still requires the independent analytics upload
+consent and uses the existing `sync_usage_envelope` MCP tool.
+
+Native request metrics map directly to request spans. Claude Code and Codex
+request spans come from their existing local JSONL readers. The readers access
+only ids, model, token counters, timestamps, and structural outcome flags.
+They never emit message, prompt, response, reasoning, tool, path, or credential
+content. OpenCode remains on version 1 until its local store exposes a stable
+request identity.
+
+Native OpenAI-compatible and Anthropic transports capture quota observations
+from documented response rate-limit headers. Account ids are hashed locally
+with a provider-scoped SHA-256 digest truncated to 32 hexadecimal characters.
+OMP quota windows provide subscription window observations when OMP is
+installed. OMP cumulative stats remain version 1 only because they do not
+contain real request events; synthesizing those counters as individual
+requests would misstate the data.
+
+Quota sampling is debounced to one observation per provider per 60 seconds.
+Reset timestamps are retained when the provider supplies them, and decreasing
+counters are not smoothed or discarded. Collector heartbeats emit complete
+intervals; restart after a stopped interval emits a `collector_stopped` gap.
+Dropping the oldest rows at the bounded spool cap emits an `exporter_error`
+gap.
+
 ### OMP delta collection
 
 OMP cumulative counters are diffed against a persisted baseline in
@@ -1226,7 +1258,7 @@ All network-bound usage-sync commands (`usage_sync_projected_usage`,
 and run on `spawn_blocking`, so opening the Account settings tab never blocks the
 main thread.
 
-#### Rolled-up and raw are two independent streams
+#### Independent usage streams
 
 basebuild.net needs both shapes, and they land in different tables, so each
 has its own cursor in `UsageSyncSettings`:
@@ -1234,6 +1266,7 @@ has its own cursor in `UsageSyncSettings`:
 | Stream | Tool | Cursor | Principal | Server table |
 | --- | --- | --- | --- | --- |
 | Rolled-up aggregates | `sync_usage_envelope` | `last_envelope_sync_at` | account or guest | `UsageEnvelopeReceipt`/`Row` |
+| Typed request, quota, and coverage rows | `sync_usage_envelope` v2 | `last_envelope_v2_sync_at` plus durable spool | account or guest | Version 2 envelope rows |
 | Raw per-message rows | `sync_messages` | `last_message_sync_at` | account only | `AppMessageUsage`, `UserUsageSnapshot` |
 | Raw OMP blobs | `sync_raw_usage` | OMP source cursor | account only | `RawUsageBlob` |
 

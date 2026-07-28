@@ -11,7 +11,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
-use crate::models::usage_envelope::{clamp_window, normalize_identifier, SourceKind, UsageBatch};
+use crate::models::usage_envelope::{
+    clamp_window, normalize_identifier, SourceKind, UsageBatch, V2Row, V2UsageBatch,
+};
 use crate::services::storage_service::StorageService;
 
 /// Result of collecting a usage batch from a source.
@@ -30,6 +32,15 @@ pub struct SourceCollection {
     pub error: Option<String>,
 }
 
+/// Result of collecting a typed version 2 batch from one source.
+#[derive(Debug)]
+pub struct SourceCollectionV2 {
+    pub source: SourceKind,
+    pub batch: Option<V2UsageBatch>,
+    pub diagnostic: String,
+    pub error: Option<String>,
+}
+
 /// return batches but never mutate process state.
 pub trait UsageSource: Send + Sync {
     /// Which source kind this is.
@@ -44,6 +55,12 @@ pub trait UsageSource: Send + Sync {
     /// tool content, credentials, or project paths.
     fn collect(&self) -> Result<Option<UsageBatch>, String>;
 
+    /// Collect request-level version 2 rows when this source supports them.
+    /// Unsupported sources remain on the unchanged version 1 path.
+    fn collect_v2(&self) -> Result<Option<V2UsageBatch>, String> {
+        Ok(None)
+    }
+
     /// Advance the checkpoint after the server acknowledged the batch.
     /// Only called after a successful push.
     fn advance_checkpoint(&self, batch: &UsageBatch) -> Result<(), String>;
@@ -53,6 +70,11 @@ pub trait UsageSource: Send + Sync {
     /// Defaults to the accept path, which is correct for cursor-only sources.
     fn discard_batch(&self, batch: &UsageBatch) -> Result<(), String> {
         self.advance_checkpoint(batch)
+    }
+
+    /// Advance the independent version 2 checkpoint after a terminal receipt.
+    fn advance_v2_checkpoint(&self, _batch: &V2UsageBatch) -> Result<(), String> {
+        Ok(())
     }
 
     /// Locally recorded usage not yet accepted by the server, when it can be
@@ -414,6 +436,28 @@ impl UsageSource for NativeSource {
         }
     }
 
+    fn collect_v2(&self) -> Result<Option<V2UsageBatch>, String> {
+        match crate::services::sync_service::collect_native_v2_batch() {
+            Ok(batch) if batch.rows.is_empty() => Ok(None),
+            Ok(batch) => Ok(Some(batch)),
+            Err(error) => Err(error),
+        }
+    }
+
+    fn advance_v2_checkpoint(&self, batch: &V2UsageBatch) -> Result<(), String> {
+        if !batch
+            .rows
+            .iter()
+            .any(|row| matches!(row, V2Row::RequestSpan(_)))
+        {
+            return Ok(());
+        }
+        use crate::services::settings_service::SettingsService;
+        let mut settings = SettingsService::get_usage_sync_settings()?;
+        settings.last_envelope_v2_sync_at = Some(batch.window_end);
+        SettingsService::set_usage_sync_settings(&settings)
+    }
+
     fn advance_checkpoint(&self, batch: &UsageBatch) -> Result<(), String> {
         use crate::services::settings_service::SettingsService;
         let mut settings = SettingsService::get_usage_sync_settings()?;
@@ -480,6 +524,40 @@ pub fn collect_all_sources() -> Vec<SourceCollection> {
                 batch: None,
                 diagnostic: format!("{} error: {e}", kind.as_str()),
                 error: Some(e),
+            }),
+        }
+    }
+    results
+}
+
+/// Collect typed version 2 rows from capable sources. OMP remains on version 1
+/// because its public stats payload contains cumulative aggregates, not events.
+pub fn collect_all_sources_v2() -> Vec<SourceCollectionV2> {
+    let sources = registered_sources();
+    let mut results = Vec::new();
+    for source in &sources {
+        let kind = source.kind();
+        if !source.available() {
+            results.push(SourceCollectionV2 {
+                source: kind,
+                batch: None,
+                diagnostic: format!("{} unavailable: {}", kind.as_str(), source.diagnostic()),
+                error: None,
+            });
+            continue;
+        }
+        match source.collect_v2() {
+            Ok(batch) => results.push(SourceCollectionV2 {
+                source: kind,
+                batch,
+                diagnostic: source.diagnostic(),
+                error: None,
+            }),
+            Err(error) => results.push(SourceCollectionV2 {
+                source: kind,
+                batch: None,
+                diagnostic: format!("{} v2 error: {error}", kind.as_str()),
+                error: Some(error),
             }),
         }
     }

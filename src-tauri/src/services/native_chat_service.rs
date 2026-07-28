@@ -1518,6 +1518,15 @@ impl NativeChatService {
             account_id: used_account_id.clone(),
         };
         Self::insert_metric(&metric)?;
+        if let Err(error) =
+            crate::services::usage_v2_collector_service::UsageV2CollectorService::record_native_quota_windows(
+                &provider_id,
+                used_account_id.as_deref(),
+                &response.quota_windows,
+            )
+        {
+            eprintln!("[SYNC V2] quota header capture failed for {provider_id}: {error}");
+        }
 
         let summary = if is_local {
             "No provider connected — select a provider to chat."
