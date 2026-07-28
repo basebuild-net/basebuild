@@ -1468,22 +1468,23 @@ impl Drop for SyncInFlightGuard {
 
 /// Decide the coordinated outcome from each path's own verdict.
 ///
-/// The native aggregate envelope is the PRIMARY source. OMP raw usage and the
-/// raw per-message rows are enrichment: their failure is recorded per-source
-/// but never downgrades the coordinator, so a flaky OMP install or an
-/// account-only tool skipped by a guest does not raise a coordinator error
-/// when the aggregates went through.
+/// The native aggregate envelope is the primary source. OMP is optional
+/// enrichment, but raw per-message rows are required for the website's
+/// contributor distributions. A raw-row failure therefore leaves a retry
+/// pending instead of being reported as a clean sync.
 fn coordinated_usage_outcome(
     omp: &Result<String, String>,
     envelope: &Result<EnvelopeSyncReport, String>,
+    messages: &Result<String, String>,
 ) -> SyncOverallOutcome {
     let omp_work = omp
         .as_ref()
         .is_ok_and(|message| !message.starts_with("skipped:"));
+    let messages_failed = messages.is_err();
     match envelope {
         // Nothing reached the server at all.
         Err(_) => SyncOverallOutcome::Failed,
-        Ok(report) if report.retryable > 0 => {
+        Ok(report) if report.retryable > 0 || messages_failed => {
             if report.accepted > 0 || report.skipped > 0 || omp_work {
                 SyncOverallOutcome::Partial
             } else {
@@ -1639,11 +1640,16 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
             _ => {}
         }
 
-        let outcome = coordinated_usage_outcome(&result, &envelope_result);
-        let usage_error = match (&result, &envelope_result) {
-            (Err(omp), Err(envelope)) => Some(format!("OMP: {omp}; aggregates: {envelope}")),
-            (Err(omp), _) => Some(format!("OMP: {omp}")),
-            (_, Err(envelope)) => Some(format!("Aggregates: {envelope}")),
+        let outcome =
+            coordinated_usage_outcome(&result, &envelope_result, &messages_result);
+        let usage_error = match (&result, &envelope_result, &messages_result) {
+            (_, Err(envelope), Err(messages)) => {
+                Some(format!("Aggregates: {envelope}; raw rows: {messages}"))
+            }
+            (Err(omp), Err(envelope), _) => Some(format!("OMP: {omp}; aggregates: {envelope}")),
+            (_, Err(envelope), _) => Some(format!("Aggregates: {envelope}")),
+            (_, _, Err(messages)) => Some(format!("Raw rows: {messages}")),
+            (Err(omp), _, _) => Some(format!("OMP: {omp}")),
             _ => None,
         };
         let completed_any = matches!(
@@ -1994,7 +2000,11 @@ mod tests {
     #[test]
     fn coordinated_outcome_does_not_let_skipped_omp_hide_envelope_failure() {
         assert_eq!(
-            coordinated_usage_outcome(&ok("skipped: OMP not installed"), &envelope_error()),
+            coordinated_usage_outcome(
+                &ok("skipped: OMP not installed"),
+                &envelope_error(),
+                &ok("no new rows"),
+            ),
             SyncOverallOutcome::Failed
         );
     }
@@ -2003,13 +2013,17 @@ mod tests {
     fn coordinated_outcome_treats_omp_as_best_effort_native_primary() {
         // Native envelope failed → overall Failed regardless of OMP.
         assert_eq!(
-            coordinated_usage_outcome(&ok("OMP synced"), &envelope_error()),
+            coordinated_usage_outcome(
+                &ok("OMP synced"),
+                &envelope_error(),
+                &ok("no new rows"),
+            ),
             SyncOverallOutcome::Failed
         );
         // Native envelope accepted, OMP raw failed → still Success (OMP is
         // best-effort enrichment and never downgrades the coordinator).
         assert_eq!(
-            coordinated_usage_outcome(&error(), &report(1, 0, 0)),
+            coordinated_usage_outcome(&error(), &report(1, 0, 0), &ok("no new rows")),
             SyncOverallOutcome::Success
         );
     }
@@ -2017,7 +2031,11 @@ mod tests {
     #[test]
     fn coordinated_outcome_reports_nothing_to_sync_only_without_failures() {
         assert_eq!(
-            coordinated_usage_outcome(&ok("skipped: OMP not installed"), &envelope_idle()),
+            coordinated_usage_outcome(
+                &ok("skipped: OMP not installed"),
+                &envelope_idle(),
+                &ok("no new rows"),
+            ),
             SyncOverallOutcome::NothingToSync
         );
     }
@@ -2027,12 +2045,40 @@ mod tests {
         // The point of fault isolation: a source that failed must not erase
         // the sources that succeeded, and must not be reported as clean.
         assert_eq!(
-            coordinated_usage_outcome(&ok("skipped: OMP not installed"), &report(1, 0, 1)),
+            coordinated_usage_outcome(
+                &ok("skipped: OMP not installed"),
+                &report(1, 0, 1),
+                &ok("no new rows"),
+            ),
             SyncOverallOutcome::Partial
         );
         // Nothing landed and something is still owed → a real failure.
         assert_eq!(
-            coordinated_usage_outcome(&ok("skipped: OMP not installed"), &report(0, 0, 1)),
+            coordinated_usage_outcome(
+                &ok("skipped: OMP not installed"),
+                &report(0, 0, 1),
+                &ok("no new rows"),
+            ),
+            SyncOverallOutcome::Failed
+        );
+    }
+
+    #[test]
+    fn coordinated_outcome_retries_failed_raw_rows() {
+        assert_eq!(
+            coordinated_usage_outcome(
+                &ok("skipped: OMP not installed"),
+                &report(1, 0, 0),
+                &error(),
+            ),
+            SyncOverallOutcome::Partial
+        );
+        assert_eq!(
+            coordinated_usage_outcome(
+                &ok("skipped: OMP not installed"),
+                &envelope_idle(),
+                &error(),
+            ),
             SyncOverallOutcome::Failed
         );
     }
@@ -2043,7 +2089,11 @@ mod tests {
         // Reporting it as failure would keep the device in a loop it cannot
         // exit — the whole bug this replaced.
         assert_eq!(
-            coordinated_usage_outcome(&ok("skipped: OMP not installed"), &report(0, 1, 0)),
+            coordinated_usage_outcome(
+                &ok("skipped: OMP not installed"),
+                &report(0, 1, 0),
+                &ok("no new rows"),
+            ),
             SyncOverallOutcome::Success
         );
     }

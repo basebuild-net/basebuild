@@ -114,30 +114,41 @@ impl CodexReader {
 }
 
 impl CodexReader {
-    /// Extract token totals from a Codex entry. Codex rollout files vary in
-    /// shape; we look for the common `info`/`total_token_usage`/`last_token_usage`
-    /// objects with `input_tokens`/`output_tokens` and a `model` field.
+    /// Extract one token-count event from a Codex rollout. Current Codex
+    /// versions nest the event under `payload`; older versions wrote the
+    /// usage object at the top level. Prefer `last_token_usage` because
+    /// `total_token_usage` is cumulative and would double-count when a
+    /// session emits more than one event.
     fn extract(row: &Value) -> Option<(String, i64, i64, i64)> {
-        let model = row
-            .get("model")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown")
-            .to_string();
-        // Try a few known shapes.
-        let (input, output) = row
+        let payload = row.get("payload").unwrap_or(row);
+        let info = payload
             .get("info")
-            .and_then(|i| i.get("total_token_usage"))
-            .or_else(|| row.get("total_token_usage"))
+            .or_else(|| row.get("info"))
+            .unwrap_or(payload);
+        let usage = info
+            .get("last_token_usage")
+            .or_else(|| payload.get("last_token_usage"))
             .or_else(|| row.get("last_token_usage"))
-            .and_then(|u| {
-                Some((
-                    u.get("input_tokens").and_then(|v| v.as_i64()).unwrap_or(0),
-                    u.get("output_tokens").and_then(|v| v.as_i64()).unwrap_or(0),
-                ))
-            })
-            .unwrap_or((0, 0));
+            .or_else(|| info.get("total_token_usage"))
+            .or_else(|| payload.get("total_token_usage"))
+            .or_else(|| row.get("total_token_usage"))?;
+        let model = payload
+            .get("model")
+            .or_else(|| row.get("model"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("codex-cli")
+            .to_string();
+        let input = usage
+            .get("input_tokens")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+        let output = usage
+            .get("output_tokens")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
         let ts = row
             .get("timestamp")
+            .or_else(|| payload.get("timestamp"))
             .and_then(|v| v.as_str())
             .and_then(parse_iso_to_epoch)
             .unwrap_or(0);
@@ -844,6 +855,33 @@ mod tests {
         let (_p, model, _i, _o, _c, _cost, ts) = extract_claude_code(&entry);
         assert_eq!(model, "unknown");
         assert_eq!(ts, 0);
+    }
+
+    #[test]
+    fn codex_extracts_nested_token_count_without_double_counting() {
+        let entry = json!({
+            "timestamp": "2026-07-18T12:34:56.789Z",
+            "type": "event_msg",
+            "payload": {
+                "type": "token_count",
+                "info": {
+                    "total_token_usage": {
+                        "input_tokens": 9000,
+                        "output_tokens": 1200
+                    },
+                    "last_token_usage": {
+                        "input_tokens": 700,
+                        "output_tokens": 90
+                    }
+                }
+            }
+        });
+
+        let (model, input, output, ts) = CodexReader::extract(&entry).unwrap();
+        assert_eq!(model, "codex-cli");
+        assert_eq!(input, 700);
+        assert_eq!(output, 90);
+        assert!(ts > 0);
     }
 
     #[test]
