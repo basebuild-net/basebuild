@@ -28732,7 +28732,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 1048576,
-			"maxTokens": 1048576
+			"maxTokens": 262144
 		}
 	},
 	"kilo": {
@@ -89259,6 +89259,26 @@
 			"contextWindow": 262144,
 			"maxTokens": 65536
 		},
+		"hf:moonshotai/Kimi-K3": {
+			"id": "hf:moonshotai/Kimi-K3",
+			"name": "Kimi K3",
+			"api": "openai-completions",
+			"provider": "synthetic",
+			"baseUrl": "https://api.synthetic.new/openai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 524288,
+			"maxTokens": 65536
+		},
 		"hf:meta-llama/Llama-3.1-405B-Instruct": {
 			"id": "hf:meta-llama/Llama-3.1-405B-Instruct",
 			"name": "Llama-3.1-405B-Instruct",
@@ -117815,6 +117835,402 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 131072,
+			"maxTokens": 65536
+		}
+	},
+	"hyper": {
+		"deepseek-v4-flash": {
+			"id": "deepseek-v4-flash",
+			"name": "DeepSeek V4 Flash",
+			"api": "openai-completions",
+			"provider": "hyper",
+			"baseUrl": "https://hyper.charm.land/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 384000
+		},
+		"deepseek-v4-pro": {
+			"id": "deepseek-v4-pro",
+			"name": "DeepSeek V4 Pro",
+			"api": "openai-completions",
+			"provider": "hyper",
+			"baseUrl": "https://hyper.charm.land/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 384000
+		},
+		"glm-5": {
+			"id": "glm-5",
+			"name": "GLM-5",
+			"api": "openai-completions",
+			"provider": "hyper",
+			"baseUrl": "https://hyper.charm.land/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 204800,
+			"maxTokens": 131072
+		},
+		"glm-5.1": {
+			"id": "glm-5.1",
+			"name": "GLM-5.1",
+			"api": "openai-completions",
+			"provider": "hyper",
+			"baseUrl": "https://hyper.charm.land/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 200000,
+			"maxTokens": 131072
+		},
+		"glm-5.2": {
+			"id": "glm-5.2",
+			"name": "GLM-5.2",
+			"api": "openai-completions",
+			"provider": "hyper",
+			"baseUrl": "https://hyper.charm.land/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 131072
+		},
+		"gpt-oss-120b": {
+			"id": "gpt-oss-120b",
+			"name": "GPT OSS 120B",
+			"api": "openai-completions",
+			"provider": "hyper",
+			"baseUrl": "https://hyper.charm.land/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 131072,
+			"maxTokens": 32766
+		},
+		"gemma-4-26b-a4b-it": {
+			"id": "gemma-4-26b-a4b-it",
+			"name": "Gemma 4 26B A4B IT",
+			"api": "openai-completions",
+			"provider": "hyper",
+			"baseUrl": "https://hyper.charm.land/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 32768
+		},
+		"kimi-k2.5": {
+			"id": "kimi-k2.5",
+			"name": "Kimi K2.5",
+			"api": "openai-completions",
+			"provider": "hyper",
+			"baseUrl": "https://hyper.charm.land/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 65536
+		},
+		"kimi-k2.6": {
+			"id": "kimi-k2.6",
+			"name": "Kimi K2.6",
+			"api": "openai-completions",
+			"provider": "hyper",
+			"baseUrl": "https://hyper.charm.land/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 65536
+		},
+		"kimi-k2.7-code": {
+			"id": "kimi-k2.7-code",
+			"name": "Kimi K2.7 Code",
+			"api": "openai-completions",
+			"provider": "hyper",
+			"baseUrl": "https://hyper.charm.land/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 262144
+		},
+		"llama-4-maverick-17b-128e-instruct-fp8": {
+			"id": "llama-4-maverick-17b-128e-instruct-fp8",
+			"name": "Llama 4 Maverick 17B 128E Instruct FP8",
+			"api": "openai-completions",
+			"provider": "hyper",
+			"baseUrl": "https://hyper.charm.land/v1",
+			"reasoning": false,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 16384
+		},
+		"llama-3.3-70b-instruct": {
+			"id": "llama-3.3-70b-instruct",
+			"name": "Llama-3.3-70B-Instruct",
+			"api": "openai-completions",
+			"provider": "hyper",
+			"baseUrl": "https://hyper.charm.land/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 131072,
+			"maxTokens": 4096
+		},
+		"minimax-m2.7": {
+			"id": "minimax-m2.7",
+			"name": "MiniMax-M2.7",
+			"api": "openai-completions",
+			"provider": "hyper",
+			"baseUrl": "https://hyper.charm.land/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 204800,
+			"maxTokens": 131072
+		},
+		"qwen3-coder-480b-a35b-instruct-int4-mixed-ar": {
+			"id": "qwen3-coder-480b-a35b-instruct-int4-mixed-ar",
+			"name": "Qwen3-Coder 480B-A35B Instruct",
+			"api": "openai-completions",
+			"provider": "hyper",
+			"baseUrl": "https://hyper.charm.land/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 106000,
+			"maxTokens": 10600
+		},
+		"qwen3-next-80b-a3b-instruct": {
+			"id": "qwen3-next-80b-a3b-instruct",
+			"name": "Qwen3-Next 80B-A3B Instruct",
+			"api": "openai-completions",
+			"provider": "hyper",
+			"baseUrl": "https://hyper.charm.land/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 131072,
+			"maxTokens": 32768
+		},
+		"qwen3.6-flash": {
+			"id": "qwen3.6-flash",
+			"name": "Qwen3.6 Flash",
+			"api": "openai-completions",
+			"provider": "hyper",
+			"baseUrl": "https://hyper.charm.land/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 65536
+		},
+		"qwen3.6-max": {
+			"id": "qwen3.6-max",
+			"name": "Qwen3.6 Max Preview",
+			"api": "openai-completions",
+			"provider": "hyper",
+			"baseUrl": "https://hyper.charm.land/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 256000,
+			"maxTokens": 64000
+		},
+		"qwen3.6-plus": {
+			"id": "qwen3.6-plus",
+			"name": "Qwen3.6 Plus",
+			"api": "openai-completions",
+			"provider": "hyper",
+			"baseUrl": "https://hyper.charm.land/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 65536
+		},
+		"qwen3.7-max": {
+			"id": "qwen3.7-max",
+			"name": "Qwen3.7 Max",
+			"api": "openai-completions",
+			"provider": "hyper",
+			"baseUrl": "https://hyper.charm.land/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 65536
+		},
+		"qwen3.7-plus": {
+			"id": "qwen3.7-plus",
+			"name": "Qwen3.7 Plus",
+			"api": "openai-completions",
+			"provider": "hyper",
+			"baseUrl": "https://hyper.charm.land/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
 			"maxTokens": 65536
 		}
 	},
@@ -153595,7 +154011,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 1048576,
-			"maxTokens": 1048576
+			"maxTokens": 262144
 		},
 		"moonshotai/Kimi-K2.5-fast": {
 			"id": "moonshotai/Kimi-K2.5-fast",
@@ -173907,7 +174323,7 @@
 			"api": "openai-completions",
 			"provider": "abliteration-ai",
 			"baseUrl": "https://api.abliteration.ai/v1",
-			"reasoning": false,
+			"reasoning": true,
 			"input": [
 				"text",
 				"image"
@@ -173920,6 +174336,25 @@
 			},
 			"contextWindow": 150000,
 			"maxTokens": 8192
+		},
+		"abliterated-model-large": {
+			"id": "abliterated-model-large",
+			"name": "Abliterated Model Large",
+			"api": "openai-completions",
+			"provider": "abliteration-ai",
+			"baseUrl": "https://api.abliteration.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 999990
 		}
 	},
 	"aiand": {
@@ -174079,6 +174514,27 @@
 			},
 			"contextWindow": 262144,
 			"maxTokens": 262144
+		},
+		"moonshotai/kimi-k3": {
+			"id": "moonshotai/kimi-k3",
+			"name": "Kimi K3",
+			"api": "openai-completions",
+			"provider": "aiand",
+			"baseUrl": "https://api.aiand.com/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 131072
 		},
 		"qwen/qwen3.6-27b": {
 			"id": "qwen/qwen3.6-27b",
