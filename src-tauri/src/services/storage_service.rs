@@ -13,7 +13,7 @@ pub struct StorageService;
 // Increment whenever `initialize` gains a schema-changing migration. Existing
 // databases run the idempotent initializer once per version; current databases
 // skip its ~50 table/column probes entirely on normal launches.
-const CURRENT_SCHEMA_VERSION: i64 = 9;
+const CURRENT_SCHEMA_VERSION: i64 = 12;
 
 impl StorageService {
     pub fn state_db_path() -> Result<PathBuf, String> {
@@ -1047,6 +1047,31 @@ impl StorageService {
             );
         }
 
+        // Migration (voice-capability-catalog): add supports_audio_input,
+        // supports_audio_output, and voice_json to
+        // native_provider_model_cache. The two booleans are the cheap filter
+        // flags mirrored from the catalog's input/output modality arrays;
+        // voice_json is the serialized CatalogVoice detail (transports, turn
+        // detection, barge-in, billing) and is NULL for the overwhelming
+        // majority of models, which have no voice capability at all.
+        let has_supports_audio_input = connection
+            .prepare("SELECT supports_audio_input FROM native_provider_model_cache LIMIT 0")
+            .is_ok();
+        if !has_supports_audio_input {
+            let _ = connection.execute(
+                "ALTER TABLE native_provider_model_cache ADD COLUMN supports_audio_input INTEGER NOT NULL DEFAULT 0",
+                [],
+            );
+            let _ = connection.execute(
+                "ALTER TABLE native_provider_model_cache ADD COLUMN supports_audio_output INTEGER NOT NULL DEFAULT 0",
+                [],
+            );
+            let _ = connection.execute(
+                "ALTER TABLE native_provider_model_cache ADD COLUMN voice_json TEXT",
+                [],
+            );
+        }
+
         // Migration (plan-pipeline-harness): add idea_id and change_name to
         // plans for idea→plan promotion and OpenSpec change linkage. Both
         // nullable: legacy plans and unpromoted drafts carry no link.
@@ -1484,6 +1509,61 @@ impl StorageService {
                     params![serde_json::to_string(&settings).unwrap_or_default()],
                 );
             }
+        }
+
+        // Migration (voice-runtime): single-row voice profile. The row is
+        // pinned to id 1 by a CHECK constraint so the table can never grow a
+        // second, ambiguous profile. Column defaults mirror
+        // `VoiceProfile::default()`; a database with no row at all reads back
+        // the same defaults through VoiceService, so a fresh install never
+        // fails on the first read.
+        let has_voice_profile = connection
+            .prepare("SELECT id FROM voice_profile LIMIT 0")
+            .is_ok();
+        if !has_voice_profile {
+            let _ = connection.execute(
+                "CREATE TABLE IF NOT EXISTS voice_profile (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    enabled INTEGER NOT NULL DEFAULT 0,
+                    provider_id TEXT NOT NULL DEFAULT '',
+                    model_id TEXT NOT NULL DEFAULT '',
+                    effort_level TEXT NOT NULL DEFAULT 'medium',
+                    stt_engine TEXT NOT NULL DEFAULT 'openai_whisper',
+                    stt_provider_id TEXT NOT NULL DEFAULT 'openai',
+                    stt_model_id TEXT NOT NULL DEFAULT 'whisper-1',
+                    tts_enabled INTEGER NOT NULL DEFAULT 1,
+                    tts_voice TEXT,
+                    tts_rate REAL NOT NULL DEFAULT 1.0,
+                    mode TEXT NOT NULL DEFAULT 'call',
+                    vad_silence_ms INTEGER NOT NULL DEFAULT 900,
+                    barge_in INTEGER NOT NULL DEFAULT 1,
+                    updated_at INTEGER NOT NULL
+                )",
+                [],
+            );
+        }
+
+        // Migration (tool-models): downloaded offline tool models. One row per
+        // (tool id, quantization) pair. The `local_path` is absolute under the
+        // Basebuild data dir so it survives app updates. `size_bytes` is the
+        // actual downloaded size, verified against the catalog's expected size
+        // before the row is inserted.
+        let has_tool_models = connection
+            .prepare("SELECT tool_id FROM downloaded_tool_models LIMIT 0")
+            .is_ok();
+        if !has_tool_models {
+            let _ = connection.execute(
+                "CREATE TABLE IF NOT EXISTS downloaded_tool_models (
+                    tool_id TEXT NOT NULL,
+                    quant TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    local_path TEXT NOT NULL,
+                    size_bytes INTEGER NOT NULL,
+                    downloaded_at INTEGER NOT NULL,
+                    PRIMARY KEY (tool_id, quant)
+                )",
+                [],
+            );
         }
 
         Ok(())

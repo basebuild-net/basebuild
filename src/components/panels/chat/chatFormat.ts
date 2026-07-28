@@ -1,4 +1,4 @@
-import type { NativeModel, NativeProvider, NativeProviderCatalog } from "../../../lib/native-chat";
+import type { NativeModel, NativeProvider, NativeProviderCatalog, VoiceBilling, VoiceLevel } from "../../../lib/native-chat";
 
 export const SEND_TIMEOUT_MS = 45_000;
 export const NATIVE_PROFILE_ID = "basebuild-native";
@@ -141,6 +141,67 @@ export function providerAuthOptionsLabel(provider: NativeProvider): string {
   return "API key";
 }
 
+// ─── Voice capability ───
+
+/** Voice levels the picker renders a badge for. `none` is excluded: a model
+ *  without a voice route gets no badge at all. */
+export type VoiceBadgeLevel = Exclude<VoiceLevel, "none">;
+
+/** Short badge text per voice level. */
+export const VOICE_LEVEL_LABELS: Record<VoiceBadgeLevel, string> = {
+  stt: "Speech to text",
+  tts: "Speech out",
+  audio_turn: "Audio turn",
+  realtime: "Realtime voice",
+};
+
+/** What each level actually buys you, for the badge tooltip. */
+export const VOICE_LEVEL_TITLES: Record<VoiceBadgeLevel, string> = {
+  stt: "Audio in, text out. Dictation, not conversation.",
+  tts: "Text in, audio out. Readback only.",
+  audio_turn:
+    "Audio in a normal request and response. Turn based: no server side endpointing and no barge-in.",
+  realtime:
+    "Full duplex speech to speech session with server side turn detection and barge-in.",
+};
+
+/** Short badge text per billing route. */
+export const VOICE_BILLING_LABELS: Record<VoiceBilling, string> = {
+  api_key: "API billing",
+  subscription: "Subscription",
+  local: "On device",
+};
+
+/** How the route is paid for, for the badge tooltip. */
+export const VOICE_BILLING_TITLES: Record<VoiceBilling, string> = {
+  api_key:
+    "This voice route needs an API key and is metered per token or per minute. A consumer subscription does not cover it.",
+  subscription: "This voice route is covered by the subscription you signed in with.",
+  local: "This voice route runs on your machine: no credential, no metering.",
+};
+
+/** True when the provider's only sign-in path is a consumer subscription
+ *  OAuth flow (ChatGPT, Claude, Grok). Such a session carries no audio or
+ *  realtime scope, so an API-billed voice route is not covered by it. */
+export function isSubscriptionOAuthRoute(provider: NativeProvider | null | undefined): boolean {
+  if (!provider) return false;
+  if (provider.connectedVia === "oauth" || provider.connectedVia === "omp") return true;
+  return provider.authMethod === "oauth" && !provider.apiKeyUrl;
+}
+
+/** The one sentence worth saying when an API-billed realtime model sits under
+ *  a provider the user signed into with a subscription. Null when there is no
+ *  mismatch to report. */
+export function voiceBillingMismatch(
+  model: NativeModel,
+  provider: NativeProvider | null | undefined,
+): string | null {
+  if (!provider) return null;
+  if (model.voice?.level !== "realtime" || model.voice.billing !== "api_key") return null;
+  if (!isSubscriptionOAuthRoute(provider)) return null;
+  return `Realtime voice on ${model.id} requires API billing and is not covered by the ${provider.label} subscription sign-in.`;
+}
+
 export type LegacyChatMessage = { role: "user" | "assistant" | "system"; content: string };
 
 /**
@@ -203,4 +264,54 @@ export function resolveAssistantLabel(
     if (catalogModel) return catalogModel.label;
   }
   return selectedModel?.label ?? modelId ?? "Assistant";
+}
+
+/**
+ * Longest reply we will read aloud before cutting it off. Speech runs at
+ * roughly 15 characters per second, so this is about a minute of talking:
+ * past that the user wants to read, not listen.
+ */
+const MAX_SPEECH_CHARS = 900;
+
+/**
+ * Flatten an assistant reply into something worth hearing.
+ *
+ * Markdown read literally is unbearable: a speech engine will happily
+ * pronounce every backtick, pipe and asterisk, and it will spell out a
+ * forty-line diff one bracket at a time. Code is summarized rather than
+ * spoken, because nobody has ever wanted a patch read to them.
+ */
+export function speechText(markdown: string): string {
+  let text = markdown;
+  // Fenced code: announce it, never read it.
+  text = text.replace(/```[\s\S]*?```/g, " (code block) ");
+  // Inline code: short spans are usually a name worth saying, long ones are
+  // paths or snippets that are noise out loud.
+  text = text.replace(/`([^`]+)`/g, (_match, inner: string) =>
+    inner.length <= 40 ? inner : " (code) ",
+  );
+  // Links: keep the label, drop the target.
+  text = text.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
+  // Images contribute nothing audible.
+  text = text.replace(/!\[[^\]]*\]\([^)]*\)/g, " ");
+  // Headings, list bullets and blockquote markers become sentence breaks.
+  text = text.replace(/^\s{0,3}#{1,6}\s+/gm, "");
+  text = text.replace(/^\s*[-*+]\s+/gm, ". ");
+  text = text.replace(/^\s*\d+\.\s+/gm, ". ");
+  text = text.replace(/^\s*>\s?/gm, "");
+  // Table pipes and horizontal rules are pure visual structure.
+  text = text.replace(/^\s*\|.*\|\s*$/gm, " ");
+  text = text.replace(/^\s*([-*_])\1{2,}\s*$/gm, " ");
+  // Emphasis markers around a word, keeping the word.
+  text = text.replace(/(\*\*|__|\*|_|~~)(.*?)\1/g, "$2");
+  text = text.replace(/\s+/g, " ").replace(/\s+([.,!?;:])/g, "$1").trim();
+  // Collapse the runs of ". . ." the list rewrites above can leave behind.
+  text = text.replace(/(\.\s*){2,}/g, ". ").trim();
+  if (text.length <= MAX_SPEECH_CHARS) return text;
+  // Cut on a sentence boundary when one is close to the limit, so the readback
+  // does not stop mid-word.
+  const clipped = text.slice(0, MAX_SPEECH_CHARS);
+  const lastStop = Math.max(clipped.lastIndexOf(". "), clipped.lastIndexOf("! "), clipped.lastIndexOf("? "));
+  const body = lastStop > MAX_SPEECH_CHARS * 0.6 ? clipped.slice(0, lastStop + 1) : clipped;
+  return `${body.trim()} There is more on screen.`;
 }

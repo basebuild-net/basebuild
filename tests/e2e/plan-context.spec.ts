@@ -27,7 +27,7 @@ test.describe("plan context generation", () => {
     // reachable. The full generation flow is exercised once the menu is
     // rewired (task 4.3).
     await expect(page.locator(".app-container")).toBeVisible();
-    await expect(page.getByTitle("Chat input — type a message and press Enter to send")).toBeVisible();
+    await expect(page.getByTitle("Chat input: type a message and press Enter to send")).toBeVisible();
     await expect(page.getByText("Basebuild renderer crashed")).toHaveCount(0);
     expect(pageErrors).toEqual([]);
     expect(consoleErrors).toEqual([]);

@@ -219,7 +219,9 @@ stack (radius tokens, no Radix, no CSS modules).
   and text plus model count (no partial rail). This is a modal, not a
   composer dropdown.
 - `.provider-model-list` is provider-scoped and searchable, with compact
-  `.provider-capability` badges.
+  `.provider-capability` badges. `.provider-model-filters` puts the search
+  input and the voice `OptionList` (All / Voice capable / Realtime only) on
+  one row above the list.
 - **Provider Manage modal** (`ChatPanel.tsx`) is tabbed: `.modal-tabs` /
   `.modal-tab` render flat underline tabs directly under the modal header
   (Accounts, Connect, Usage). Rules for structured surfaces:
@@ -540,6 +542,27 @@ Every UI change requires a screenshot. See
 - `.provider-card-error`: per-provider error chip container.
 - `.provider-card-error-text`: error message text.
 - `.provider-card-retry-btn`: retry button in error chip.
+
+## Model voice capability badges
+
+Catalog models carry a voice tier and a billing route. No consumer
+subscription grants a third party native realtime speech to speech, so the
+picker states who pays rather than letting the user assume.
+
+- `.provider-capability.is-voice`: silver info outline for the lesser tiers
+  (Speech to text, Speech out, Audio turn).
+- `.provider-capability.is-voice-realtime`: filled CTA green. Realtime is a
+  different product (a duplex session), not another modality on a request,
+  so it is the one badge that reads as a fill instead of an outline.
+- `.provider-capability.is-billing-api`: amber. Metered per token or minute
+  against an API key.
+- `.provider-capability.is-billing-subscription`: green. Covered by the
+  signed-in plan.
+- `.provider-capability.is-billing-local`: grey. Runs on device, unmetered.
+- `.provider-model-note`: one-sentence inline note under a model row when an
+  API-billed realtime model sits under a subscription OAuth sign-in.
+- `.provider-model-empty-state`: empty state for a voice filter that matched
+  nothing, with the widen-the-filter button beside it.
 
 ## Idea grounding classes
 

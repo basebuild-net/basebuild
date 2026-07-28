@@ -1,6 +1,8 @@
-import { type Dispatch, type SetStateAction } from "react";
+import { Fragment, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { AlertCircle, AlertTriangle, Check, Link, Loader2, Plug, RefreshCw, Search, Settings2, X } from "lucide-react";
 import { ModalPortal } from "../../ModalPortal";
+import { OptionList, type OptionListOption } from "../../layout/OptionList";
+import { SkeletonRows } from "../../layout/Loading";
 import { formatRelativeTime } from "../../../lib/timing";
 import { recordModelUse, recordProviderUse } from "../../../lib/modelRecency";
 import { nativeLocalLlmScan, nativeProviderCatalogRefresh } from "../../../lib/native-chat";
@@ -9,11 +11,47 @@ import type {
   NativeProvider,
   NativeProviderCatalog,
   NativeSetupRequired,
+  VoiceBilling,
 } from "../../../lib/native-chat";
 import type { LogLevel } from "../../../state/log";
-import { CONNECTED_VIA_LABELS, LOCAL_PROVIDER_ID, modelDetection, providerAuthOptionsLabel } from "./chatFormat";
+import {
+  CONNECTED_VIA_LABELS,
+  LOCAL_PROVIDER_ID,
+  modelDetection,
+  providerAuthOptionsLabel,
+  voiceBillingMismatch,
+  VOICE_BILLING_LABELS,
+  VOICE_BILLING_TITLES,
+  VOICE_LEVEL_LABELS,
+  VOICE_LEVEL_TITLES,
+} from "./chatFormat";
 
 type CatalogStatus = "loading" | "refreshing" | "ready" | "stale" | "error";
+
+/** Voice-capability narrowing for the model pane. */
+type VoiceFilter = "all" | "voice" | "realtime";
+
+const VOICE_FILTER_OPTIONS: OptionListOption<VoiceFilter>[] = [
+  { id: "all", label: "All", title: "Show every model this provider offers" },
+  {
+    id: "voice",
+    label: "Voice capable",
+    title: "Show only models with a voice route: speech to text, speech out, audio turn, or realtime",
+  },
+  {
+    id: "realtime",
+    label: "Realtime only",
+    title: "Show only full duplex speech to speech models with server side turn detection and barge-in",
+  },
+];
+
+/** Billing routes are styled apart from capability badges: an API-metered
+ *  voice route is a cost the subscription does not cover. */
+const VOICE_BILLING_CLASS: Record<VoiceBilling, string> = {
+  api_key: "is-billing-api",
+  subscription: "is-billing-subscription",
+  local: "is-billing-local",
+};
 
 type ProviderCatalogModalProps = {
   catalog: NativeProviderCatalog | null;
@@ -78,6 +116,17 @@ export function ProviderCatalogModal({
   refreshCatalog,
   addLog,
 }: ProviderCatalogModalProps) {
+  // Voice narrowing is pane-local: it survives provider switches on purpose,
+  // so "pick another provider" from the empty state answers the question the
+  // user actually asked.
+  const [voiceFilter, setVoiceFilter] = useState<VoiceFilter>("all");
+  const visibleModels = useMemo(() => {
+    if (voiceFilter === "all") return filteredModels;
+    if (voiceFilter === "realtime") return filteredModels.filter((model) => model.voice?.level === "realtime");
+    return filteredModels.filter((model) => model.voice != null && model.voice.level !== "none");
+  }, [filteredModels, voiceFilter]);
+  const catalogInFlight = catalogStatus === "loading" || catalogStatus === "refreshing";
+
   return (
               <ModalPortal>
               <div
@@ -281,23 +330,43 @@ export function ProviderCatalogModal({
                           {selectedProvider?.configured ? "Connected" : "Not connected"}
                         </span>
                       </div>
-                      <input
-                        className="input provider-model-search"
-                        value={modelFilter}
-                        placeholder="Search this provider's models"
-                        title="Filter models for the selected provider by id or label"
-                        onChange={(event) => setModelFilter(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Escape") {
-                            setShowProviderPicker(false);
-                            setShowModelPicker(false);
-                          }
-                        }}
-                      />
+                      <div className="provider-model-filters">
+                        <input
+                          className="input provider-model-search"
+                          value={modelFilter}
+                          placeholder="Search this provider's models"
+                          title="Filter models for the selected provider by id or label"
+                          onChange={(event) => setModelFilter(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Escape") {
+                              setShowProviderPicker(false);
+                              setShowModelPicker(false);
+                            }
+                          }}
+                        />
+                        <OptionList<VoiceFilter>
+                          value={voiceFilter}
+                          options={VOICE_FILTER_OPTIONS}
+                          label="Filter models by voice capability"
+                          compact
+                          onChange={(id) => {
+                            addLog("debug", "Model voice filter changed", `provider=${providerId}; filter=${id}`);
+                            setVoiceFilter(id);
+                          }}
+                        />
+                      </div>
                       <div className="provider-model-list">
-                        {filteredModels.map((model) => { const detection = modelDetection(model); return (
+                        {visibleModels.map((model) => {
+                          const detection = modelDetection(model);
+                          const voice = model.voice ?? null;
+                          // `none` is catalogued explicitly for models that were
+                          // audited and have no audio path; it earns no badge.
+                          const voiceLevel = voice && voice.level !== "none" ? voice.level : null;
+                          const billing = voice?.billing ?? null;
+                          const mismatch = voiceBillingMismatch(model, selectedProvider);
+                          return (
+                          <Fragment key={`${model.providerId}:${model.id}`}>
                           <button
-                            key={`${model.providerId}:${model.id}`}
                             className={`provider-model-row${model.id === modelId && model.providerId === providerId ? " is-active" : ""}`}
                             type="button"
                             title={`${selectedProvider?.label ?? model.providerId} / ${model.id}. ${detection.tooltip}`}
@@ -333,14 +402,57 @@ export function ProviderCatalogModal({
                                   <Check size={11} aria-hidden="true" /> Detected
                                 </span>
                               ) : null}
+                              {voiceLevel ? (
+                                <span
+                                  className={`provider-capability is-voice${voiceLevel === "realtime" ? " is-voice-realtime" : ""}`}
+                                  title={VOICE_LEVEL_TITLES[voiceLevel]}
+                                >
+                                  {VOICE_LEVEL_LABELS[voiceLevel]}
+                                </span>
+                              ) : null}
+                              {voiceLevel && billing ? (
+                                <span
+                                  className={`provider-capability ${VOICE_BILLING_CLASS[billing]}`}
+                                  title={VOICE_BILLING_TITLES[billing]}
+                                >
+                                  {VOICE_BILLING_LABELS[billing]}
+                                </span>
+                              ) : null}
                               {model.supportsTools ? <span className="provider-capability is-positive">Tools</span> : null}
                               {model.supportsReasoning ? <span className="provider-capability">Reasoning</span> : null}
                               <span className="provider-capability">{model.supportedEfforts.length ? model.supportedEfforts.join("/") : "Standard"}</span>
                             </span>
                           </button>
-                        ); })}
-                        {filteredModels.length === 0 ? (
-                          selectedProvider?.id === "local-models" ? (
+                          {mismatch ? (
+                            <p className="provider-model-note" title={VOICE_BILLING_TITLES.api_key}>
+                              <AlertTriangle size={11} aria-hidden="true" />
+                              {mismatch}
+                            </p>
+                          ) : null}
+                          </Fragment>
+                          );
+                        })}
+                        {visibleModels.length === 0 ? (
+                          catalogInFlight ? (
+                            <SkeletonRows rows={4} label="Loading models…" />
+                          ) : voiceFilter !== "all" ? (
+                            <div className="provider-model-empty-state">
+                              <p className="text-muted text-sm">
+                                {`No ${voiceFilter === "realtime" ? "realtime voice" : "voice capable"} models under ${selectedProvider?.label ?? providerId}. Widen the filter, or pick another provider on the left.`}
+                              </p>
+                              <button
+                                className="btn btn-sm"
+                                type="button"
+                                title="Clear the voice filter and show every model this provider offers"
+                                onClick={() => {
+                                  addLog("debug", "Model voice filter changed", `provider=${providerId}; filter=all; via=empty-state`);
+                                  setVoiceFilter("all");
+                                }}
+                              >
+                                Show all models
+                              </button>
+                            </div>
+                          ) : selectedProvider?.id === "local-models" ? (
                             <p className="text-muted text-sm provider-model-empty">
                               No local models detected. Start LM Studio, Ollama, llama.cpp, or KoboldCpp, then click "Rescan local".
                             </p>

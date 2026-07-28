@@ -27,6 +27,11 @@ import { IdeaBatchPreview, IdeaReviewWorkbench, parseIdeaBatch, type ParsedIdeaB
 import { MarkdownView } from "./MarkdownView";
 import { ConfirmDialog } from "../layout/ConfirmDialog";
 import { OptionList } from "../layout/OptionList";
+import { VoiceCallBar } from "./chat/VoiceCallBar";
+import { VoiceSettingsModal } from "./chat/VoiceSettingsModal";
+import { useVoiceCall } from "../../state/useVoiceCall";
+import { voiceProfileGet, voiceProfileSet, type VoiceProfile } from "../../lib/voice";
+import { speechText } from "./chat/chatFormat";
 import {
   AlertCircle,
   AlertTriangle,
@@ -46,6 +51,9 @@ import {
   Lightbulb,
   Link,
   Loader2,
+  Mic,
+  Phone,
+  PhoneOff,
   Plug,
   RefreshCw,
   Rocket,
@@ -78,6 +86,7 @@ import {
   nativeChatGet,
   nativeChatMessages,
   nativeChatSend,
+  nativeChatSteer,
   nativeChatSetProjectModelDefault,
   nativeChatUpdateSessionModel,
   nativeChatStart,
@@ -448,7 +457,12 @@ export function ChatPanel({
 
   const filteredModels = useMemo(() => {
     const models = catalog?.models.filter((m) => m.providerId === providerId) ?? [];
-    const needle = modelFilter.trim().toLowerCase();
+    // The left-hand provider search narrows this list too, so a provider that
+    // only surfaced because one of its models matched does not then show all
+    // 55 of them. The model search box wins when the user has typed in it.
+    // A needle that names the provider itself leaves the list untouched:
+    // typing "openai" means "show me OpenAI", not "show me ids saying openai".
+    const needle = (modelFilter.trim() || providerFilter.trim()).toLowerCase();
     const ranked = models.slice().sort((a, b) => {
       const aKey = `${a.providerId}/${a.id}`;
       const bKey = `${b.providerId}/${b.id}`;
@@ -462,16 +476,18 @@ export function ChatPanel({
       );
     });
     if (!needle) return ranked;
-    return ranked.filter((model) => {
-      const provider = catalog?.providers.find((p) => p.id === model.providerId);
-      return (
-        model.id.toLowerCase().includes(needle) ||
-        model.label.toLowerCase().includes(needle) ||
-        model.providerId.toLowerCase().includes(needle) ||
-        (provider?.label.toLowerCase().includes(needle) ?? false)
-      );
-    });
-  }, [catalog, modelFilter, providerId, modelRecency]);
+    // Every model here shares one provider, so resolve it once rather than
+    // per row.
+    const provider = catalog?.providers.find((p) => p.id === providerId);
+    const providerMatches =
+      providerId.toLowerCase().includes(needle) ||
+      (provider?.label.toLowerCase().includes(needle) ?? false);
+    if (providerMatches) return ranked;
+    return ranked.filter(
+      (model) =>
+        model.id.toLowerCase().includes(needle) || model.label.toLowerCase().includes(needle),
+    );
+  }, [catalog, modelFilter, providerFilter, providerId, modelRecency]);
   const nativeMode = profileId === NATIVE_PROFILE_ID;
   const selectedProvider = catalog?.providers.find((p) => p.id === providerId) ?? null;
   const managedProvider = catalog?.providers.find((p) => p.id === managedProviderId) ?? null;
@@ -506,15 +522,30 @@ export function ChatPanel({
   const visibleCatalogProviders = useMemo(() => {
     const needle = providerFilter.trim().toLowerCase();
     if (!needle) return orderedProviders;
-    return orderedProviders.filter(
-      (provider) =>
-        `${provider.id} ${provider.label} ${provider.detail}`.toLowerCase().includes(needle) ||
-        (catalog?.models.some(
-          (model) =>
-            model.providerId === provider.id &&
-            `${model.id} ${model.label}`.toLowerCase().includes(needle),
-        ) ?? false),
+    // One pass over the flat model list instead of a full rescan per
+    // provider: the catalog carries thousands of models and this runs on
+    // every keystroke.
+    const matchedByModel = new Set<string>();
+    for (const model of catalog?.models ?? []) {
+      if (matchedByModel.has(model.providerId)) continue;
+      if (`${model.id} ${model.label}`.toLowerCase().includes(needle)) {
+        matchedByModel.add(model.providerId);
+      }
+    }
+    // Providers whose own id or label matches come first. Matching only
+    // through a model id or a blurb is a far weaker signal: the aggregators
+    // all carry `openai/*` ids, so typing "openai" otherwise buries OpenAI
+    // itself under OpenRouter, AI/ML API and friends.
+    const named = orderedProviders.filter((provider) =>
+      `${provider.id} ${provider.label}`.toLowerCase().includes(needle),
     );
+    const namedIds = new Set(named.map((provider) => provider.id));
+    const related = orderedProviders.filter(
+      (provider) =>
+        !namedIds.has(provider.id) &&
+        (provider.detail.toLowerCase().includes(needle) || matchedByModel.has(provider.id)),
+    );
+    return named.concat(related);
   }, [orderedProviders, providerFilter, catalog]);
   const connectedProviders = orderedProviders.filter((provider) => provider.configured);
   const availableProviders = orderedProviders.filter((provider) => !provider.configured);
@@ -1569,10 +1600,55 @@ export function ChatPanel({
   // issue (handleClearChat is defined after handleSend).
   const clearChatRef = useRef<() => Promise<void>>(async () => {});
 
+  // Mid-run steering. A running agent loop accepts new user turns: the backend
+  // persists the message and injects it before the loop's next provider
+  // request, so the user redirects the agent instead of stopping and
+  // restarting it. Returns false when no run accepted the message (the turn
+  // ended in the gap), leaving the draft untouched for the caller.
+  const steerRunning = useCallback(async (text: string): Promise<boolean> => {
+    if (!nativeMode || !nativeSessionId) return false;
+    addLog("debug", "Chat steer", `session=${nativeSessionId} text=${text.slice(0, 80)}`);
+    try {
+      const result = await nativeChatSteer({ sessionId: nativeSessionId, content: text });
+      const delivered = result.delivered ? result.message : null;
+      if (!delivered) {
+        addLog("debug", "Chat steer not delivered", `session=${nativeSessionId}: no active run accepted it`);
+        return false;
+      }
+      setNativeMessages((prev) => (prev.some((m) => m.id === delivered.id) ? prev : [...prev, delivered]));
+      setInput("");
+      if (chatInputRef.current) chatInputRef.current.style.setProperty("--chat-input-height", "auto");
+      nativeChatInputHistoryAdd(text).catch(() => {
+        // Non-fatal: history persistence is best-effort.
+      });
+      setUserHistory((prev) => [text, ...prev.filter((h) => h !== text)].slice(0, 100));
+      followLatestRef.current = true;
+      addLog("debug", "Chat steer delivered", `session=${nativeSessionId} message=${delivered.id}`);
+      return true;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog("error", "Failed to steer running chat", msg);
+      setError(`Could not steer the running agent: ${msg}`);
+      return false;
+    }
+  }, [nativeMode, nativeSessionId, addLog]);
+
   const handleSend = useCallback(async () => {
     const text = input.trim();
     addLog("debug", "Chat send", `text=${text.slice(0, 80)} nativeMode=${nativeMode} session=${nativeSessionId ?? "none"}`);
     if (!text) return;
+    // A turn is already in flight: interject into it rather than blocking the
+    // composer. Slash commands are excluded, they stay local UI actions and
+    // /stop must still reach the running turn.
+    if (nativeMode && nativeSessionId && (loading || streaming) && !text.startsWith("/")) {
+      if (await steerRunning(text)) return;
+      // No loop accepted it: the turn either just finished, or this route is a
+      // plain stream with no agent loop to join. sendMessage drops sends while
+      // `loading` is still settling, so name the outcome and keep the draft
+      // instead of swallowing the turn.
+      setCommandNotice("The running turn did not take that message: it either just finished or cannot be steered. Press Enter again to send it as a new message.");
+      return;
+    }
     if (nativeMode && text.startsWith("/")) {
       const [rawCommand, ...parts] = text.slice(1).split(/\s+/);
       const command = rawCommand.toLowerCase();
@@ -1803,7 +1879,117 @@ export function ChatPanel({
       return;
     }
     await sendMessage(text);
-  }, [input, nativeMode, sendMessage, catalog, addLog, nativeMessages, toolEvents, loading, streaming, onNewChat, effortLevel, modelId, onOpenSchematic, projectPath, selectedModel]);
+  }, [input, nativeMode, nativeSessionId, steerRunning, sendMessage, catalog, addLog, nativeMessages, toolEvents, loading, streaming, onNewChat, effortLevel, modelId, onOpenSchematic, projectPath, selectedModel]);
+
+  // Voice call. The provider/model used for voice is a preference of its own:
+  // the point is to dictate to a fast conversational model while typed work
+  // stays on whatever the composer is set to.
+  const [voiceProfile, setVoiceProfile] = useState<VoiceProfile | null>(null);
+  const [showVoiceSettings, setShowVoiceSettings] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void voiceProfileGet()
+      .then((profile) => {
+        if (!cancelled) setVoiceProfile(profile);
+      })
+      .catch((err) => addLog("warn", "Voice profile unavailable", String(err)));
+    return () => {
+      cancelled = true;
+    };
+  }, [addLog]);
+
+  // A transcript is just a typed message that arrived by microphone: it steers
+  // a turn already in flight, otherwise it opens a new one. Barge-in therefore
+  // needs no separate path, it reuses the composer's steering route.
+  const handleVoiceTranscript = useCallback(
+    async (text: string) => {
+      addLog("info", "Voice transcript", text.slice(0, 120));
+      if (nativeMode && nativeSessionId && (loading || streaming)) {
+        if (await steerRunning(text)) return;
+      }
+      await sendMessage(text);
+    },
+    [addLog, nativeMode, nativeSessionId, loading, streaming, steerRunning, sendMessage],
+  );
+
+  const voice = useVoiceCall({ profile: voiceProfile, onTranscript: handleVoiceTranscript, addLog });
+  const { callActive: voiceCallActive, speak: voiceSpeak } = voice;
+  const voiceReady = nativeMode && !!nativeSessionId;
+
+  // Read each finished assistant reply aloud exactly once, and only during a
+  // call. Keyed on content rather than index so a re-render cannot repeat a
+  // sentence the user already heard.
+  const spokenMessageRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!voiceCallActive || streaming || loading) return;
+    const last = [...nativeMessages].reverse().find((m) => m.role === "assistant" && m.content.trim());
+    if (!last || spokenMessageRef.current === last.content) return;
+    spokenMessageRef.current = last.content;
+    voiceSpeak(speechText(last.content));
+  }, [nativeMessages, streaming, loading, voiceCallActive, voiceSpeak]);
+
+  // Starting a call swaps the session onto the voice profile's provider/model
+  // and remembers what was there, so hanging up puts the composer back exactly
+  // where the user left it.
+  const preVoiceSelectionRef = useRef<{ providerId: string; modelId: string; effort: string } | null>(null);
+  const startVoiceCall = useCallback(async () => {
+    if (voiceProfile?.providerId && voiceProfile.modelId) {
+      preVoiceSelectionRef.current = { providerId, modelId, effort: effortLevel };
+      setProviderId(voiceProfile.providerId);
+      setModelId(voiceProfile.modelId);
+      persistSelectionRef.current(voiceProfile.providerId, voiceProfile.modelId, voiceProfile.effortLevel || effortLevel);
+      addLog("info", "Voice model applied", `${voiceProfile.providerId}/${voiceProfile.modelId}`);
+    }
+    await voice.startCall();
+  }, [voiceProfile, providerId, modelId, effortLevel, setProviderId, setModelId, addLog, voice]);
+
+  const endVoiceCall = useCallback(() => {
+    voice.endCall();
+    const previous = preVoiceSelectionRef.current;
+    if (previous) {
+      setProviderId(previous.providerId);
+      setModelId(previous.modelId);
+      persistSelectionRef.current(previous.providerId, previous.modelId, previous.effort);
+      preVoiceSelectionRef.current = null;
+      addLog("debug", "Voice model restored", `${previous.providerId}/${previous.modelId}`);
+    }
+  }, [voice, setProviderId, setModelId, addLog]);
+
+  // Hold-space-bar push-to-talk. When the user holds Space anywhere outside
+  // the composer textarea (so typing spaces still works), the mic opens and
+  // closes on release, exactly like holding the mic button. The ref guards
+  // against key-repeat firing beginPushToTalk repeatedly while held.
+  const spacePttActiveRef = useRef(false);
+  useEffect(() => {
+    if (!voice.support.mic || !voiceReady) return;
+    const isEditableTarget = (target: EventTarget | null): boolean => {
+      if (!(target instanceof HTMLElement)) return false;
+      const tag = target.tagName.toLowerCase();
+      return tag === "textarea" || tag === "input" || target.isContentEditable;
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code !== "Space" || e.repeat) return;
+      if (voice.callActive || voice.permissionDenied) return;
+      if (isEditableTarget(e.target)) return;
+      // Don't steal Space from buttons/links the user might be activating.
+      if (e.target instanceof HTMLElement && e.target.tagName.toLowerCase() === "button") return;
+      e.preventDefault();
+      spacePttActiveRef.current = true;
+      void voice.beginPushToTalk();
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code !== "Space") return;
+      if (!spacePttActiveRef.current) return;
+      spacePttActiveRef.current = false;
+      voice.endPushToTalk();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+    };
+  }, [voice, voiceReady]);
 
   // Merged chronological timeline (messages + tool events + interactions).
   // Memoized so it is rebuilt only when the underlying lists change — not on
@@ -2627,7 +2813,13 @@ export function ChatPanel({
   const renderMessages = nativeMode ? nativeMessages : legacyMessages;
   const bgGateActive = !!backgroundAgent && !bgInputUnlocked;
   const inputDisabled = bgGateActive || (nativeMode ? !nativeSessionId : agentId === null);
-  const sendDisabled = bgGateActive || loading || !input.trim() || (nativeMode ? !nativeSessionId : agentId === null);
+  // A native turn in flight still accepts input: the message is injected into
+  // the running loop instead of queued behind it, so the send control stays
+  // live. Only tools-capable routes run the agent loop; a plain streaming
+  // route (OMP RPC, local coordinator) has no loop to join, so it still locks.
+  const steerable =
+    nativeMode && !!nativeSessionId && (loading || streaming) && (selectedModel?.supportsTools ?? false);
+  const sendDisabled = bgGateActive || !input.trim() || (nativeMode ? !nativeSessionId : agentId === null) || (loading && !steerable);
 
   const modelName = selectedModel?.label ?? modelId;
   // Local providers surface real per-request generation stats after each turn.
@@ -2792,6 +2984,12 @@ export function ChatPanel({
             onShowToast?.("Chat ID copied", nativeSessionId, "info");
           }
         }}
+        onStartVoiceCall={voice.support.mic && voiceReady ? () => {
+          if (voice.callActive) endVoiceCall();
+          else void startVoiceCall();
+        } : null}
+        voiceCallActive={voice.callActive}
+        onOpenVoiceSettings={() => setShowVoiceSettings(true)}
       />
       {/* Messages area */}
       <ChatTranscript
@@ -3267,6 +3465,21 @@ export function ChatPanel({
                 addLog={addLog}
               />
             ) : null}
+            {showVoiceSettings && voiceProfile ? (
+              <VoiceSettingsModal
+                profile={voiceProfile}
+                catalog={catalog}
+                onClose={() => setShowVoiceSettings(false)}
+                onSave={(next) => {
+                  addLog("debug", "Voice settings saved", `engine=${next.sttEngine} mode=${next.mode}`);
+                  setVoiceProfile(next);
+                  setShowVoiceSettings(false);
+                  void voiceProfileSet(next)
+                    .then((saved) => setVoiceProfile(saved))
+                    .catch((err) => addLog("error", "Voice settings save failed", String(err)));
+                }}
+              />
+            ) : null}
             {commandNotice ? (
               <div className="chat-command-notice">
                 <span>{commandNotice}</span>
@@ -3332,6 +3545,23 @@ export function ChatPanel({
         ) : null}
         {activeQuestions.length === 0 && !focusedIdeaBatch ? (
         <div className="chat-composer-box">
+          {voice.callActive || voice.permissionDenied ? (
+            <VoiceCallBar
+              state={voice.state}
+              level={voice.level}
+              callActive={voice.callActive}
+              muted={voice.muted}
+              error={voice.error}
+              permissionDenied={voice.permissionDenied}
+              profile={voiceProfile}
+              modelName={modelName}
+              onToggleMute={voice.toggleMute}
+              onEnd={voice.callActive ? endVoiceCall : voice.clearError}
+              onOpenSettings={() => setShowVoiceSettings(true)}
+              onOpenMicSettings={() => void openUrl("ms-settings:privacy-microphone")}
+              onResetMicPermission={() => void voice.resetMicPermission()}
+            />
+          ) : null}
           {bgGateActive ? (
             <button
               className="chat-bg-agent-gate"
@@ -3352,9 +3582,11 @@ export function ChatPanel({
               className="input chat-input"
               aria-label="Chat message input"
               placeholder={
-                nativeMode
-                  ? "Type a message… (Enter to send, Shift+Enter for newline)"
-                  : "Agent not connected. Click retry above to start."
+                !nativeMode
+                  ? "Agent not connected. Click retry above to start."
+                  : steerable
+                    ? "Steer the agent while it works… (Enter to send)"
+                    : "Type a message… (Enter to send, Shift+Enter for newline)"
               }
               value={input}
               onChange={(e) => {
@@ -3493,7 +3725,7 @@ export function ChatPanel({
               }}
               rows={2}
               disabled={inputDisabled}
-              title={nativeMode ? "Chat input — type a message and press Enter to send" : "Chat input — start the agent to enable sending"}
+              title={!nativeMode ? "Chat input: start the agent to enable sending" : steerable ? "Chat input: the agent is working, press Enter to steer it mid-turn" : "Chat input: type a message and press Enter to send"}
             />
           </div>
           <div className="chat-composer-controls">
@@ -3553,17 +3785,51 @@ export function ChatPanel({
                 >
                   <Square size={13} />
                 </button>
-              ) : (
-                <button
-                  className="btn btn-primary chat-send-btn"
-                  type="button"
-                  title="Send message"
-                  disabled={sendDisabled}
-                  onClick={() => void handleSend()}
-                >
-                  <Send size={14} />
-                </button>
-              )}
+              ) : null}
+              {voice.support.mic ? (
+                <>
+                  <button
+                    className={`btn chat-voice-btn${voice.state === "capturing" && !voice.callActive ? " is-capturing" : ""}`}
+                    type="button"
+                    title={
+                      voiceReady
+                        ? "Push to talk: hold and speak, release to send (or hold Space bar)"
+                        : "Start a chat session before dictating"
+                    }
+                    disabled={!voiceReady || voice.callActive}
+                    onPointerDown={() => void voice.beginPushToTalk()}
+                    onPointerUp={() => voice.endPushToTalk()}
+                    onPointerLeave={() => voice.endPushToTalk()}
+                  >
+                    <Mic size={14} />
+                  </button>
+                  <button
+                    className={`btn chat-call-btn${voice.callActive ? " is-active" : ""}`}
+                    type="button"
+                    title={
+                      voice.callActive
+                        ? "Hang up the voice call"
+                        : "Start a voice call: continuous listening, hands free, talk over the agent to interrupt"
+                    }
+                    disabled={!voiceReady}
+                    onClick={() => {
+                      if (voice.callActive) endVoiceCall();
+                      else void startVoiceCall();
+                    }}
+                  >
+                    {voice.callActive ? <PhoneOff size={14} /> : <Phone size={14} />}
+                  </button>
+                </>
+              ) : null}
+              <button
+                className="btn btn-primary chat-send-btn"
+                type="button"
+                title={steerable ? "Steer the running agent: your message is injected into the turn in progress" : "Send message"}
+                disabled={sendDisabled}
+                onClick={() => void handleSend()}
+              >
+                <Send size={14} />
+              </button>
             </div>
           </div>
         </div>

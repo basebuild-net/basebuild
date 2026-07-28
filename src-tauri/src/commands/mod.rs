@@ -36,6 +36,8 @@ pub mod stability;
 pub mod startup;
 pub mod sync;
 pub mod terminal;
+pub mod tool_catalog;
 pub mod updater;
+pub mod voice;
 pub mod workspace;
 pub mod workspaces;

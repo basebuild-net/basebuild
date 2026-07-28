@@ -67,8 +67,9 @@ use commands::{
         native_chat_list, native_chat_messages,
         native_chat_model_default, native_chat_rename, native_chat_resolve_approval,
         native_chat_send, native_chat_set_global_model_default,
-        native_chat_set_project_model_default, native_chat_start, native_chat_tool_events,
-        native_chat_update_session_model, native_delete_provider_credential, native_generate_ideas,
+        native_chat_set_project_model_default, native_chat_start, native_chat_steer,
+        native_chat_tool_events, native_chat_update_session_model,
+        native_delete_provider_credential, native_generate_ideas,
         native_local_llm_scan, native_local_model_override_set,
         native_provider_account_logout, native_provider_account_set_label,
         native_provider_account_strategy, native_provider_account_strategy_set,
@@ -168,10 +169,12 @@ use commands::{
         close_terminal, create_terminal, list_terminals, resize_terminal, terminal_replay,
         write_terminal,
     },
+    tool_catalog::{tool_catalog_list, tool_download, tool_download_delete, tool_downloads_list},
     updater::{
         apply_downloaded_update, check_for_updates, clear_skipped_update, download_update,
         get_skipped_update_version, skip_update_version,
     },
+    voice::{voice_profile_get, voice_profile_set, voice_reset_mic_permission, voice_transcribe},
     workspace::{get_workspace_restore_state, save_workspace_restore_state},
     workspaces::{workspace_create, workspace_is_supported, workspace_list, workspace_remove},
 };
@@ -583,6 +586,7 @@ pub fn run() {
             native_chat_input_history_add,
             native_chat_input_history_list,
             native_chat_send,
+            native_chat_steer,
             native_request_metrics,
             native_request_metrics_summary,
             native_session_latest_metric,
@@ -697,6 +701,14 @@ pub fn run() {
             stability_list_reports,
             final_touch_create_step,
             remove_run_concurrency_override,
+            voice_profile_get,
+            voice_profile_set,
+            voice_transcribe,
+            voice_reset_mic_permission,
+            tool_catalog_list,
+            tool_downloads_list,
+            tool_download,
+            tool_download_delete,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Basebuild")
