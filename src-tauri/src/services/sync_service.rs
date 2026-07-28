@@ -442,9 +442,11 @@ fn rejection_is_permanent(code: Option<&str>) -> bool {
     )
 }
 
-/// Sync every available closed-envelope source. Private installations include
-/// OMP aggregates here; signed-in accounts use the richer raw OMP path and
-/// exclude OMP from the envelope to prevent duplicate attribution.
+/// Sync every available closed-envelope source.
+///
+/// The raw authenticated stream and the closed envelope feed different server
+/// projections. OMP must travel through both: raw rows power private account
+/// insights, while the envelope powers privacy-thresholded public cohorts.
 ///
 /// Every stage is fault-isolated per source: a source that cannot be read, a
 /// batch this client cannot represent, and a batch the server refuses each
@@ -452,8 +454,7 @@ fn rejection_is_permanent(code: Option<&str>) -> bool {
 /// envelope and starved every other source indefinitely.
 pub fn sync_envelope_native() -> Result<EnvelopeSyncReport, String> {
     let mode = resolve_auth_mode()?;
-    let include_omp = matches!(&mode, AuthMode::GuestToken(_));
-    let collections = crate::services::usage_source_service::collect_all_sources(include_omp);
+    let collections = crate::services::usage_source_service::collect_all_sources();
     let sources = crate::services::usage_source_service::registered_sources();
     let discard = |batch: &UsageBatch| {
         if let Some(source) = sources.iter().find(|source| source.kind() == batch.source) {
@@ -2180,8 +2181,7 @@ mod tests {
         .unwrap();
         drop(conn);
 
-        let collections =
-            crate::services::usage_source_service::collect_all_sources(false);
+        let collections = crate::services::usage_source_service::collect_all_sources();
         let batches: Vec<_> = collections
             .into_iter()
             .filter_map(|collection| collection.batch)
