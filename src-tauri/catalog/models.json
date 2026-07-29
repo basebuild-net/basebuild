@@ -4682,7 +4682,8 @@
 			"baseUrl": "https://api.aimlapi.com/v1",
 			"reasoning": false,
 			"input": [
-				"text"
+				"text",
+				"audio"
 			],
 			"cost": {
 				"input": 0,
@@ -4691,7 +4692,17 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": null,
-			"maxTokens": null
+			"maxTokens": null,
+			"voice": {
+				"level": "tts",
+				"billing": "api_key",
+				"transports": [],
+				"turnDetection": [],
+				"bargeIn": false,
+				"voices": [],
+				"sampleRateIn": 0,
+				"sampleRateOut": 24000
+			}
 		},
 		"minimax-music": {
 			"id": "minimax-music",
@@ -6232,7 +6243,8 @@
 			"baseUrl": "https://api.aimlapi.com/v1",
 			"reasoning": false,
 			"input": [
-				"text"
+				"text",
+				"audio"
 			],
 			"cost": {
 				"input": 0,
@@ -6241,7 +6253,22 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": null,
-			"maxTokens": null
+			"maxTokens": null,
+			"output": [
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [],
+				"bargeIn": true,
+				"voices": [],
+				"sampleRateIn": 16000,
+				"sampleRateOut": 24000
+			}
 		},
 		"qwen3.5-omni-plus": {
 			"id": "qwen3.5-omni-plus",
@@ -6251,7 +6278,8 @@
 			"baseUrl": "https://api.aimlapi.com/v1",
 			"reasoning": false,
 			"input": [
-				"text"
+				"text",
+				"audio"
 			],
 			"cost": {
 				"input": 0,
@@ -6260,7 +6288,22 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": null,
-			"maxTokens": null
+			"maxTokens": null,
+			"output": [
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [],
+				"bargeIn": true,
+				"voices": [],
+				"sampleRateIn": 16000,
+				"sampleRateOut": 24000
+			}
 		},
 		"qwen3.5-plus": {
 			"id": "qwen3.5-plus",
@@ -6805,7 +6848,8 @@
 			"baseUrl": "https://api.aimlapi.com/v1",
 			"reasoning": false,
 			"input": [
-				"text"
+				"text",
+				"audio"
 			],
 			"cost": {
 				"input": 0,
@@ -6814,7 +6858,17 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": null,
-			"maxTokens": null
+			"maxTokens": null,
+			"voice": {
+				"level": "tts",
+				"billing": "api_key",
+				"transports": [],
+				"turnDetection": [],
+				"bargeIn": false,
+				"voices": [],
+				"sampleRateIn": 0,
+				"sampleRateOut": 24000
+			}
 		},
 		"vibevoice/7b": {
 			"id": "vibevoice/7b",
@@ -6824,7 +6878,8 @@
 			"baseUrl": "https://api.aimlapi.com/v1",
 			"reasoning": false,
 			"input": [
-				"text"
+				"text",
+				"audio"
 			],
 			"cost": {
 				"input": 0,
@@ -6833,7 +6888,17 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": null,
-			"maxTokens": null
+			"maxTokens": null,
+			"voice": {
+				"level": "tts",
+				"billing": "api_key",
+				"transports": [],
+				"turnDetection": [],
+				"bargeIn": false,
+				"voices": [],
+				"sampleRateIn": 0,
+				"sampleRateOut": 24000
+			}
 		},
 		"voyage-2": {
 			"id": "voyage-2",
@@ -15906,7 +15971,8 @@
 			"baseUrl": "https://gateway.ai.cloudflare.com/v1/<account>/<gateway>/anthropic",
 			"reasoning": false,
 			"input": [
-				"text"
+				"text",
+				"audio"
 			],
 			"cost": {
 				"input": 0,
@@ -15915,7 +15981,17 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 128000,
-			"maxTokens": 16384
+			"maxTokens": 16384,
+			"voice": {
+				"level": "tts",
+				"billing": "api_key",
+				"transports": [],
+				"turnDetection": [],
+				"bargeIn": false,
+				"voices": [],
+				"sampleRateIn": 0,
+				"sampleRateOut": 24000
+			}
 		},
 		"workers-ai/@cf/pipecat-ai/smart-turn-v2": {
 			"id": "workers-ai/@cf/pipecat-ai/smart-turn-v2",
@@ -24466,7 +24542,9 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image"
+				"image",
+				"video",
+				"audio"
 			],
 			"cost": {
 				"input": 0.75,
@@ -24485,6 +24563,22 @@
 					"high"
 				],
 				"requiresEffort": true
+			},
+			"output": [
+				"text",
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [],
+				"bargeIn": true,
+				"voices": [],
+				"sampleRateIn": 16000,
+				"sampleRateOut": 24000
 			}
 		},
 		"gemini-3.1-pro-preview": {
@@ -24700,7 +24794,8 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image"
+				"image",
+				"audio"
 			],
 			"cost": {
 				"input": 0.5,
@@ -24718,6 +24813,22 @@
 					"medium",
 					"high"
 				]
+			},
+			"output": [
+				"text",
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [],
+				"bargeIn": true,
+				"voices": [],
+				"sampleRateIn": 16000,
+				"sampleRateOut": 24000
 			}
 		},
 		"gemini-live-2.5-flash-preview-native-audio": {
@@ -24728,7 +24839,8 @@
 			"baseUrl": "https://generativelanguage.googleapis.com/v1beta",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"audio"
 			],
 			"cost": {
 				"input": 0.5,
@@ -24746,6 +24858,22 @@
 					"medium",
 					"high"
 				]
+			},
+			"output": [
+				"text",
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [],
+				"bargeIn": true,
+				"voices": [],
+				"sampleRateIn": 16000,
+				"sampleRateOut": 24000
 			}
 		},
 		"gemini-robotics-er-1.6-preview": {
@@ -25017,7 +25145,23 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 16384,
-			"maxTokens": 32768
+			"maxTokens": 32768,
+			"output": [
+				"text",
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [],
+				"bargeIn": true,
+				"voices": [],
+				"sampleRateIn": 16000,
+				"sampleRateOut": 24000
+			}
 		},
 		"lyria-3-clip-preview": {
 			"id": "lyria-3-clip-preview",
@@ -35229,7 +35373,8 @@
 			"baseUrl": "https://api.kilo.ai/api/gateway",
 			"reasoning": false,
 			"input": [
-				"text"
+				"text",
+				"audio"
 			],
 			"cost": {
 				"input": 2.5,
@@ -35238,7 +35383,28 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 128000,
-			"maxTokens": 16384
+			"maxTokens": 16384,
+			"output": [
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [
+					"server_vad"
+				],
+				"bargeIn": true,
+				"voices": [
+					"alloy",
+					"cedar",
+					"marin"
+				],
+				"sampleRateIn": 24000,
+				"sampleRateOut": 24000
+			}
 		},
 		"openai/gpt-4o-mini": {
 			"id": "openai/gpt-4o-mini",
@@ -36213,7 +36379,8 @@
 			"baseUrl": "https://api.kilo.ai/api/gateway",
 			"reasoning": false,
 			"input": [
-				"text"
+				"text",
+				"audio"
 			],
 			"cost": {
 				"input": 0,
@@ -36223,7 +36390,28 @@
 			},
 			"contextWindow": null,
 			"maxTokens": null,
-			"supportsComputerUse": false
+			"supportsComputerUse": false,
+			"output": [
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [
+					"server_vad"
+				],
+				"bargeIn": true,
+				"voices": [
+					"alloy",
+					"cedar",
+					"marin"
+				],
+				"sampleRateIn": 24000,
+				"sampleRateOut": 24000
+			}
 		},
 		"openai/gpt-audio-mini": {
 			"id": "openai/gpt-audio-mini",
@@ -36233,7 +36421,8 @@
 			"baseUrl": "https://api.kilo.ai/api/gateway",
 			"reasoning": false,
 			"input": [
-				"text"
+				"text",
+				"audio"
 			],
 			"cost": {
 				"input": 0,
@@ -36243,7 +36432,28 @@
 			},
 			"contextWindow": null,
 			"maxTokens": null,
-			"supportsComputerUse": false
+			"supportsComputerUse": false,
+			"output": [
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [
+					"server_vad"
+				],
+				"bargeIn": true,
+				"voices": [
+					"alloy",
+					"cedar",
+					"marin"
+				],
+				"sampleRateIn": 24000,
+				"sampleRateOut": 24000
+			}
 		},
 		"openai/gpt-chat-latest": {
 			"id": "openai/gpt-chat-latest",
@@ -57890,7 +58100,8 @@
 			"baseUrl": "https://nano-gpt.com/api/v1",
 			"reasoning": false,
 			"input": [
-				"text"
+				"text",
+				"audio"
 			],
 			"cost": {
 				"input": 0,
@@ -57901,7 +58112,22 @@
 			"contextWindow": null,
 			"maxTokens": null,
 			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
+			"supportsComputerUseConfig": false,
+			"output": [
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [],
+				"bargeIn": true,
+				"voices": [],
+				"sampleRateIn": 16000,
+				"sampleRateOut": 24000
+			}
 		},
 		"qwen3.5-omni-plus": {
 			"id": "qwen3.5-omni-plus",
@@ -57911,7 +58137,8 @@
 			"baseUrl": "https://nano-gpt.com/api/v1",
 			"reasoning": false,
 			"input": [
-				"text"
+				"text",
+				"audio"
 			],
 			"cost": {
 				"input": 0,
@@ -57922,7 +58149,22 @@
 			"contextWindow": null,
 			"maxTokens": null,
 			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
+			"supportsComputerUseConfig": false,
+			"output": [
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [],
+				"bargeIn": true,
+				"voices": [],
+				"sampleRateIn": 16000,
+				"sampleRateOut": 24000
+			}
 		},
 		"qwen3.6-max-preview": {
 			"id": "qwen3.6-max-preview",
@@ -67735,7 +67977,8 @@
 			"baseUrl": "https://integrate.api.nvidia.com/v1",
 			"reasoning": false,
 			"input": [
-				"text"
+				"text",
+				"audio"
 			],
 			"cost": {
 				"input": 0,
@@ -67744,7 +67987,24 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 128000,
-			"maxTokens": 8192
+			"maxTokens": 8192,
+			"output": [
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [
+					"server_vad"
+				],
+				"bargeIn": true,
+				"voices": [],
+				"sampleRateIn": 16000,
+				"sampleRateOut": 24000
+			}
 		},
 		"nvidia/neva-22b": {
 			"id": "nvidia/neva-22b",
@@ -68796,7 +69056,8 @@
 			"baseUrl": "https://integrate.api.nvidia.com/v1",
 			"reasoning": false,
 			"input": [
-				"text"
+				"text",
+				"audio"
 			],
 			"cost": {
 				"input": 0,
@@ -68805,7 +69066,24 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 128000,
-			"maxTokens": 8192
+			"maxTokens": 8192,
+			"output": [
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [
+					"server_vad"
+				],
+				"bargeIn": true,
+				"voices": [],
+				"sampleRateIn": 16000,
+				"sampleRateOut": 24000
+			}
 		},
 		"nvidia/synthetic-video-detector": {
 			"id": "nvidia/synthetic-video-detector",
@@ -71257,7 +71535,8 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image"
+				"image",
+				"audio"
 			],
 			"cost": {
 				"input": 4,
@@ -71276,6 +71555,32 @@
 					"high",
 					"xhigh"
 				]
+			},
+			"output": [
+				"text",
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"webrtc",
+					"websocket",
+					"sip"
+				],
+				"turnDetection": [
+					"server_vad",
+					"semantic_vad",
+					"none"
+				],
+				"bargeIn": true,
+				"voices": [
+					"alloy",
+					"cedar",
+					"marin"
+				],
+				"sampleRateIn": 24000,
+				"sampleRateOut": 24000
 			}
 		},
 		"o1": {
@@ -81947,7 +82252,8 @@
 			"provider": "openrouter",
 			"reasoning": false,
 			"input": [
-				"text"
+				"text",
+				"audio"
 			],
 			"cost": {
 				"input": 2.5,
@@ -81958,7 +82264,28 @@
 			"contextWindow": 128000,
 			"maxTokens": 16384,
 			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
+			"supportsComputerUseConfig": false,
+			"output": [
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [
+					"server_vad"
+				],
+				"bargeIn": true,
+				"voices": [
+					"alloy",
+					"cedar",
+					"marin"
+				],
+				"sampleRateIn": 24000,
+				"sampleRateOut": 24000
+			}
 		},
 		"openai/gpt-4o-mini": {
 			"id": "openai/gpt-4o-mini",
@@ -82943,7 +83270,8 @@
 			"baseUrl": "https://openrouter.ai/api/v1",
 			"reasoning": false,
 			"input": [
-				"text"
+				"text",
+				"audio"
 			],
 			"cost": {
 				"input": 2.5,
@@ -82954,7 +83282,28 @@
 			"contextWindow": 128000,
 			"maxTokens": 16384,
 			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
+			"supportsComputerUseConfig": false,
+			"output": [
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [
+					"server_vad"
+				],
+				"bargeIn": true,
+				"voices": [
+					"alloy",
+					"cedar",
+					"marin"
+				],
+				"sampleRateIn": 24000,
+				"sampleRateOut": 24000
+			}
 		},
 		"openai/gpt-audio-mini": {
 			"id": "openai/gpt-audio-mini",
@@ -82964,7 +83313,8 @@
 			"baseUrl": "https://openrouter.ai/api/v1",
 			"reasoning": false,
 			"input": [
-				"text"
+				"text",
+				"audio"
 			],
 			"cost": {
 				"input": 0.6,
@@ -82975,7 +83325,28 @@
 			"contextWindow": 128000,
 			"maxTokens": 16384,
 			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
+			"supportsComputerUseConfig": false,
+			"output": [
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [
+					"server_vad"
+				],
+				"bargeIn": true,
+				"voices": [
+					"alloy",
+					"cedar",
+					"marin"
+				],
+				"sampleRateIn": 24000,
+				"sampleRateOut": 24000
+			}
 		},
 		"openai/gpt-chat-latest": {
 			"id": "openai/gpt-chat-latest",
@@ -102204,7 +102575,8 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image"
+				"image",
+				"audio"
 			],
 			"cost": {
 				"input": 0.14,
@@ -102229,6 +102601,21 @@
 					"medium",
 					"high"
 				]
+			},
+			"output": [
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [],
+				"bargeIn": true,
+				"voices": [],
+				"sampleRateIn": 16000,
+				"sampleRateOut": 24000
 			}
 		},
 		"mimo-v2-pro": {
