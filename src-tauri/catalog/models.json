@@ -118126,6 +118126,26 @@
 			"contextWindow": 262144,
 			"maxTokens": 262144
 		},
+		"moonshotai/Kimi-K3": {
+			"id": "moonshotai/Kimi-K3",
+			"name": "Kimi K3",
+			"api": "openai-completions",
+			"provider": "berget",
+			"baseUrl": "https://api.berget.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 262144
+		},
 		"meta-llama/Llama-3.3-70B-Instruct": {
 			"id": "meta-llama/Llama-3.3-70B-Instruct",
 			"name": "Llama 3.3 70B",
@@ -140407,6 +140427,29 @@
 			},
 			"contextWindow": 1000000,
 			"maxTokens": 131072
+		}
+	},
+	"modal": {
+		"thinkingmachines/Inkling-NVFP4": {
+			"id": "thinkingmachines/Inkling-NVFP4",
+			"name": "Inkling",
+			"api": "openai-completions",
+			"provider": "modal",
+			"baseUrl": "https://inference.us-west.modal.direct/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"audio"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 262144
 		}
 	},
 	"model-oracle-ai": {
@@ -174339,6 +174382,172 @@
 			"contextWindow": 1000000,
 			"maxTokens": 128000
 		},
+		"claude-haiku-4-5": {
+			"id": "claude-haiku-4-5",
+			"name": "Claude Haiku 4.5",
+			"api": "openai-completions",
+			"provider": "xpersona",
+			"baseUrl": "https://www.xpersona.co/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": null,
+			"maxTokens": null
+		},
+		"claude-opus-4-8": {
+			"id": "claude-opus-4-8",
+			"name": "Claude Opus 4.8",
+			"api": "openai-completions",
+			"provider": "xpersona",
+			"baseUrl": "https://www.xpersona.co/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 128000
+		},
+		"claude-sonnet-4-6": {
+			"id": "claude-sonnet-4-6",
+			"name": "Claude Sonnet 4.6",
+			"api": "openai-completions",
+			"provider": "xpersona",
+			"baseUrl": "https://www.xpersona.co/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 16384
+		},
+		"gpt-5.6-sol": {
+			"id": "gpt-5.6-sol",
+			"name": "GPT 5.6 Sol",
+			"api": "openai-completions",
+			"provider": "xpersona",
+			"baseUrl": "https://www.xpersona.co/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
+		},
+		"gpt-5.6-terra": {
+			"id": "gpt-5.6-terra",
+			"name": "GPT 5.6 Terra",
+			"api": "openai-completions",
+			"provider": "xpersona",
+			"baseUrl": "https://www.xpersona.co/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
+		},
+		"gpt-5.4": {
+			"id": "gpt-5.4",
+			"name": "GPT-5.4",
+			"api": "openai-completions",
+			"provider": "xpersona",
+			"baseUrl": "https://www.xpersona.co/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 400000,
+			"maxTokens": 128000
+		},
+		"gpt-5.4-mini": {
+			"id": "gpt-5.4-mini",
+			"name": "GPT-5.4 Mini",
+			"api": "openai-completions",
+			"provider": "xpersona",
+			"baseUrl": "https://www.xpersona.co/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 400000,
+			"maxTokens": 128000
+		},
+		"gpt-5.5": {
+			"id": "gpt-5.5",
+			"name": "GPT-5.5",
+			"api": "openai-completions",
+			"provider": "xpersona",
+			"baseUrl": "https://www.xpersona.co/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
+		},
 		"xpersona-gpt-5.5": {
 			"id": "xpersona-gpt-5.5",
 			"name": "GPT-5.5",
@@ -174358,6 +174567,50 @@
 			},
 			"contextWindow": 1000000,
 			"maxTokens": 128000
+		},
+		"gpt-5.6": {
+			"id": "gpt-5.6",
+			"name": "GPT-5.6",
+			"api": "openai-completions",
+			"provider": "xpersona",
+			"baseUrl": "https://www.xpersona.co/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
+		},
+		"gemini-3.5-flash": {
+			"id": "gemini-3.5-flash",
+			"name": "Gemini 3.5 Flash",
+			"api": "openai-completions",
+			"provider": "xpersona",
+			"baseUrl": "https://www.xpersona.co/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video",
+				"audio",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 65536
 		},
 		"xpersona-frieren-coder": {
 			"id": "xpersona-frieren-coder",
