@@ -16,6 +16,9 @@ use crate::services::storage_service::StorageService;
 const COLLECT_INTERVAL_SECS: u64 = 300;
 const QUOTA_DEBOUNCE_MS: i64 = 60_000;
 const MAX_PENDING_BATCHES: i64 = 1_000;
+/// How long retained quota readings stay useful for solving a drain rate.
+/// Long enough to span many reset windows, short enough to stay small.
+const QUOTA_SAMPLE_RETENTION_MS: i64 = 30 * 86_400_000;
 const STATE_HEARTBEAT_MS: &str = "coverage_heartbeat_ms";
 const STATE_RUNNING: &str = "coverage_running";
 const STATE_SPOOL_GAP: &str = "spool_gap";
@@ -68,6 +71,10 @@ impl UsageV2CollectorService {
             persisted += 1;
         }
         let dropped = Self::trim_spool()?;
+        let pruned = prune_quota_samples(now_ms)?;
+        if pruned > 0 {
+            eprintln!("[SYNC V2] collector: pruned {pruned} expired quota samples");
+        }
         if let Some((started_at, ended_at)) = dropped {
             set_state(STATE_SPOOL_GAP, &format!("{started_at}:{ended_at}"), now_ms)?;
             eprintln!("[SYNC V2] collector: spool cap dropped oldest batches");
@@ -429,19 +436,120 @@ impl UsageV2CollectorService {
     }
 }
 
-fn quota_rows_from_payload(payload: &Value, now_ms: i64) -> Result<Vec<V2Row>, String> {
-    let windows = payload
+/// One quota reading, flattened out of whatever shape the sampler emitted.
+///
+/// `model_id` never reaches the wire — `QuotaSnapshotRow` is a closed schema —
+/// but it is what makes local correlation possible: a per-model quota window
+/// attributes its own drain, while an account-wide window has to be solved
+/// against whatever mix of models was running.
+struct QuotaObservation {
+    provider: String,
+    limit_id: String,
+    model_id: Option<String>,
+    window_label: Option<String>,
+    plan_type: Option<String>,
+    used_fraction: f64,
+    remaining_fraction: f64,
+    resets_at: Option<i64>,
+    window_duration_ms: Option<i64>,
+}
+
+/// Flatten `omp usage --json` into quota observations.
+///
+/// The real payload nests `reports[] -> limits[]`, where each limit carries
+/// `scope` (provider/model/tier), `window` (id/label/resetsAt), and `amount`
+/// (used/remaining fractions). An earlier version of this parser read a flat
+/// top-level `windows`/`usage` array, which the sampler has never emitted — so
+/// every reading was silently discarded. Both shapes are accepted now: the
+/// nested one because it is what actually arrives, the flat one because it is
+/// the shape provider response headers are normalized into.
+fn quota_observations_from_payload(payload: &Value) -> Vec<QuotaObservation> {
+    let mut observations = Vec::new();
+    for report in payload
+        .get("reports")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+    {
+        let report_provider = report.get("provider").and_then(Value::as_str);
+        for limit in report
+            .get("limits")
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+        {
+            let scope = limit.get("scope");
+            let amount = limit.get("amount");
+            let window = limit.get("window");
+            let provider = scope
+                .and_then(|scope| scope.get("provider"))
+                .and_then(Value::as_str)
+                .or(report_provider);
+            let Some(provider) = provider.and_then(normalize_identifier) else {
+                continue;
+            };
+            let raw_limit = limit
+                .get("id")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .unwrap_or_else(|| {
+                    format!(
+                        "{provider}:{}",
+                        window
+                            .and_then(|window| window.get("id"))
+                            .and_then(Value::as_str)
+                            .unwrap_or("window")
+                    )
+                });
+            let Some(limit_id) = normalize_identifier(&raw_limit) else {
+                continue;
+            };
+            let used_fraction = fraction(amount.and_then(|amount| amount.get("usedFraction")));
+            let remaining_fraction =
+                fraction(amount.and_then(|amount| amount.get("remainingFraction")))
+                    .or_else(|| used_fraction.map(|used| 1.0 - used));
+            // A limit with neither fraction carries no drain signal at all.
+            let Some(used_fraction) = used_fraction.or_else(|| {
+                remaining_fraction.map(|remaining| (1.0 - remaining).clamp(0.0, 1.0))
+            }) else {
+                continue;
+            };
+            let window_label = window
+                .and_then(|window| window.get("label"))
+                .or_else(|| limit.get("label"))
+                .and_then(Value::as_str)
+                .and_then(safe_label);
+            observations.push(QuotaObservation {
+                provider,
+                limit_id,
+                model_id: scope
+                    .and_then(|scope| scope.get("modelId"))
+                    .and_then(Value::as_str)
+                    .and_then(normalize_identifier),
+                plan_type: scope
+                    .and_then(|scope| scope.get("tier"))
+                    .and_then(Value::as_str)
+                    .and_then(safe_label),
+                used_fraction,
+                remaining_fraction: remaining_fraction
+                    .unwrap_or(1.0 - used_fraction)
+                    .clamp(0.0, 1.0),
+                resets_at: timestamp_millis(window.and_then(|window| window.get("resetsAt"))),
+                window_duration_ms: window
+                    .and_then(|window| window.get("windowDurationMs"))
+                    .and_then(Value::as_i64)
+                    .or_else(|| window_label.as_deref().and_then(duration_from_label)),
+                window_label,
+            });
+        }
+    }
+    for window in payload
         .get("windows")
         .or_else(|| payload.get("usage"))
         .and_then(Value::as_array)
         .map(Vec::as_slice)
-        .unwrap_or_default();
-    let mut rows = Vec::new();
-    let mut sampled_providers = HashSet::new();
-    for window in windows {
-        if rows.len() >= MAX_ROWS_PER_BATCH {
-            break;
-        }
+        .unwrap_or_default()
+    {
         let Some(provider) = window
             .get("provider")
             .and_then(Value::as_str)
@@ -449,25 +557,7 @@ fn quota_rows_from_payload(payload: &Value, now_ms: i64) -> Result<Vec<V2Row>, S
         else {
             continue;
         };
-        let debounce_key = format!("quota_last_ms:{provider}");
-        let last_sample = get_state(&debounce_key)?
-            .and_then(|value| value.parse::<i64>().ok())
-            .unwrap_or(0);
-        if now_ms.saturating_sub(last_sample) < QUOTA_DEBOUNCE_MS {
-            continue;
-        }
-        let used_fraction = window
-            .get("usedFraction")
-            .and_then(Value::as_f64)
-            .filter(|value| value.is_finite())
-            .unwrap_or(0.0)
-            .clamp(0.0, 1.0);
-        let remaining_fraction = window
-            .get("remainingFraction")
-            .and_then(Value::as_f64)
-            .filter(|value| value.is_finite())
-            .unwrap_or(1.0 - used_fraction)
-            .clamp(0.0, 1.0);
+        let used_fraction = fraction(window.get("usedFraction")).unwrap_or(0.0);
         let window_label = window
             .get("windowLabel")
             .or_else(|| window.get("label"))
@@ -492,27 +582,114 @@ fn quota_rows_from_payload(payload: &Value, now_ms: i64) -> Result<Vec<V2Row>, S
         let Some(limit_id) = normalize_identifier(&raw_limit) else {
             continue;
         };
-        let resets_at = timestamp_millis(window.get("resetsAt"));
-        let window_duration_ms = window
-            .get("windowDurationMs")
-            .and_then(Value::as_i64)
-            .or_else(|| window_label.as_deref().and_then(duration_from_label));
-        let identity = format!("{provider}:{limit_id}:{now_ms}");
+        observations.push(QuotaObservation {
+            provider,
+            limit_id,
+            model_id: window
+                .get("modelId")
+                .and_then(Value::as_str)
+                .and_then(normalize_identifier),
+            plan_type,
+            used_fraction,
+            remaining_fraction: fraction(window.get("remainingFraction"))
+                .unwrap_or(1.0 - used_fraction)
+                .clamp(0.0, 1.0),
+            resets_at: timestamp_millis(window.get("resetsAt")),
+            window_duration_ms: window
+                .get("windowDurationMs")
+                .and_then(Value::as_i64)
+                .or_else(|| window_label.as_deref().and_then(duration_from_label)),
+            window_label,
+        });
+    }
+    observations
+}
+
+fn fraction(value: Option<&Value>) -> Option<f64> {
+    value
+        .and_then(Value::as_f64)
+        .filter(|value| value.is_finite())
+        .map(|value| value.clamp(0.0, 1.0))
+}
+
+/// Persist one quota reading for local drain-rate solving.
+///
+/// Readings are immutable and keyed by their observation instant, so a repeated
+/// sample of an unchanged window is a no-op rather than an update.
+fn record_quota_sample(observation: &QuotaObservation, observed_at: i64) -> Result<(), String> {
+    StorageService::connect()?
+        .execute(
+            "INSERT OR IGNORE INTO usage_quota_samples
+                (provider, limit_id, observed_at, model_id, window_label, plan_type,
+                 used_fraction, remaining_fraction, resets_at, window_duration_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                observation.provider,
+                observation.limit_id,
+                observed_at,
+                observation.model_id,
+                observation.window_label,
+                observation.plan_type,
+                observation.used_fraction,
+                observation.remaining_fraction,
+                observation.resets_at,
+                observation.window_duration_ms,
+            ],
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+/// Drop quota samples older than the retention horizon.
+fn prune_quota_samples(now_ms: i64) -> Result<usize, String> {
+    let cutoff = now_ms.saturating_sub(QUOTA_SAMPLE_RETENTION_MS);
+    StorageService::connect()?
+        .execute(
+            "DELETE FROM usage_quota_samples WHERE observed_at < ?1",
+            params![cutoff],
+        )
+        .map_err(|error| error.to_string())
+}
+
+fn quota_rows_from_payload(payload: &Value, now_ms: i64) -> Result<Vec<V2Row>, String> {
+    let observations = quota_observations_from_payload(payload);
+    if observations.is_empty() {
+        eprintln!("[SYNC V2] quota: payload carried no readable quota windows");
+        return Ok(Vec::new());
+    }
+    let mut rows = Vec::new();
+    let mut sampled_providers = HashSet::new();
+    for observation in &observations {
+        if rows.len() >= MAX_ROWS_PER_BATCH {
+            break;
+        }
+        let debounce_key = format!("quota_last_ms:{}", observation.provider);
+        let last_sample = get_state(&debounce_key)?
+            .and_then(|value| value.parse::<i64>().ok())
+            .unwrap_or(0);
+        if now_ms.saturating_sub(last_sample) < QUOTA_DEBOUNCE_MS {
+            continue;
+        }
+        // Retain the reading locally before it is spooled. The wire row is
+        // deleted once the server accepts it, so without this the drain rate
+        // could only ever be solved server-side.
+        record_quota_sample(observation, now_ms)?;
+        let identity = format!("{}:{}:{now_ms}", observation.provider, observation.limit_id);
         let digest = Sha256::digest(identity.as_bytes());
         rows.push(V2Row::QuotaSnapshot(QuotaSnapshotRow {
             snapshot_id: format!("quota:{digest:x}"),
-            provider: provider.clone(),
+            provider: observation.provider.clone(),
             account_hash: None,
-            limit_id,
-            window_label,
+            limit_id: observation.limit_id.clone(),
+            window_label: observation.window_label.clone(),
             observed_at: now_ms,
-            used_fraction,
-            remaining_fraction,
-            resets_at,
-            window_duration_ms,
-            plan_type,
+            used_fraction: observation.used_fraction,
+            remaining_fraction: observation.remaining_fraction,
+            resets_at: observation.resets_at,
+            window_duration_ms: observation.window_duration_ms,
+            plan_type: observation.plan_type.clone(),
         }));
-        sampled_providers.insert((debounce_key, provider));
+        sampled_providers.insert((debounce_key, observation.provider.clone()));
     }
     for (key, provider) in sampled_providers {
         set_state(&key, &now_ms.to_string(), now_ms)?;
@@ -782,6 +959,102 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    /// The shape `omp usage --json` actually emits. An earlier parser read a
+    /// flat top-level `windows` array that the sampler has never produced, so
+    /// every quota reading was silently dropped and the drain-rate signal the
+    /// collector exists to capture never arrived.
+    #[test]
+    fn quota_parser_reads_the_nested_reports_shape_omp_actually_emits() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&dir);
+        let payload = json!({
+            "generatedAt": 1_800_000_000_000i64,
+            "reports": [{
+                "provider": "anthropic",
+                "fetchedAt": 1_800_000_000_000i64,
+                "limits": [{
+                    "id": "claude-opus-5:reset-1800018000000",
+                    "label": "Claude claude-opus-5",
+                    "scope": {
+                        "provider": "anthropic",
+                        "modelId": "claude-opus-5",
+                        "tier": "Max",
+                        "windowId": "reset-1800018000000"
+                    },
+                    "window": {
+                        "id": "reset-1800018000000",
+                        "label": "5h",
+                        "resetsAt": 1_800_018_000_000i64
+                    },
+                    "amount": {
+                        "unit": "percent",
+                        "used": 40,
+                        "remaining": 60,
+                        "limit": 100,
+                        "usedFraction": 0.4,
+                        "remainingFraction": 0.6
+                    }
+                }]
+            }]
+        });
+        let observed_at = 1_800_000_000_000i64;
+        let rows = quota_rows_from_payload(&payload, observed_at).unwrap();
+        assert_eq!(rows.len(), 1, "nested reports[].limits[] must yield a row");
+        let V2Row::QuotaSnapshot(snapshot) = &rows[0] else {
+            panic!("expected quota snapshot")
+        };
+        assert_eq!(snapshot.provider, "anthropic");
+        assert_eq!(snapshot.limit_id, "claude-opus-5:reset-1800018000000");
+        assert_eq!(snapshot.used_fraction, 0.4);
+        assert_eq!(snapshot.remaining_fraction, 0.6);
+        // The reset identity is what proves two snapshots share one window.
+        assert_eq!(snapshot.resets_at, Some(1_800_018_000_000));
+        assert_eq!(snapshot.plan_type.as_deref(), Some("Max"));
+        validate_v2_row(&rows[0]).unwrap();
+
+        // The reading is retained locally, with the model id the wire row
+        // cannot carry, or no drain rate can ever be solved on this machine.
+        let (model, used): (Option<String>, f64) = StorageService::connect()
+            .unwrap()
+            .query_row(
+                "SELECT model_id, used_fraction FROM usage_quota_samples
+                 WHERE provider = 'anthropic'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(model.as_deref(), Some("claude-opus-5"));
+        assert_eq!(used, 0.4);
+    }
+
+    #[test]
+    fn quota_parser_skips_limits_with_no_drain_signal() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&dir);
+        let payload = json!({
+            "reports": [{
+                "provider": "openai-codex",
+                "limits": [
+                    { "id": "no-amount", "scope": { "provider": "openai-codex" } },
+                    {
+                        "id": "remaining-only",
+                        "scope": { "provider": "openai-codex" },
+                        "amount": { "remainingFraction": 0.25 }
+                    }
+                ]
+            }]
+        });
+        let rows = quota_rows_from_payload(&payload, 1_800_000_000_000).unwrap();
+        assert_eq!(rows.len(), 1, "only the limit carrying a fraction survives");
+        let V2Row::QuotaSnapshot(snapshot) = &rows[0] else {
+            panic!("expected quota snapshot")
+        };
+        assert_eq!(snapshot.limit_id, "remaining-only");
+        // `used` is derived from `remaining` when the sampler reports only one.
+        assert_eq!(snapshot.used_fraction, 0.75);
+        assert_eq!(snapshot.remaining_fraction, 0.25);
     }
 
     #[test]

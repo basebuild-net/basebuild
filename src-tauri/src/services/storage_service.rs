@@ -574,6 +574,27 @@ impl StorageService {
                     updated_at INTEGER NOT NULL
                 );
 
+                -- Retained quota readings. The spooled wire row is deleted once
+                -- the server accepts it, so this is the only local record of how
+                -- fast a plan window actually drained. `model_id` is local-only:
+                -- the wire schema is closed, but per-model windows are what make
+                -- a drain rate attributable to one model.
+                CREATE TABLE IF NOT EXISTS usage_quota_samples (
+                    provider TEXT NOT NULL,
+                    limit_id TEXT NOT NULL,
+                    observed_at INTEGER NOT NULL,
+                    model_id TEXT,
+                    window_label TEXT,
+                    plan_type TEXT,
+                    used_fraction REAL NOT NULL,
+                    remaining_fraction REAL NOT NULL,
+                    resets_at INTEGER,
+                    window_duration_ms INTEGER,
+                    PRIMARY KEY (provider, limit_id, observed_at)
+                );
+                CREATE INDEX IF NOT EXISTS idx_usage_quota_samples_window
+                    ON usage_quota_samples(provider, limit_id, resets_at, observed_at);
+
                 CREATE TABLE IF NOT EXISTS plans (
                     id TEXT PRIMARY KEY NOT NULL,
                     session_id TEXT NOT NULL,
