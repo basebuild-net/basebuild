@@ -396,12 +396,12 @@ batches replay after restart and are removed only after acceptance or a
 permanent rejection. Upload still requires the independent analytics upload
 consent and uses the existing `sync_usage_envelope` MCP tool.
 
-Native request metrics map directly to request spans. Claude Code and Codex
-request spans come from their existing local JSONL readers. The readers access
-only ids, model, token counters, timestamps, and structural outcome flags.
-They never emit message, prompt, response, reasoning, tool, path, or credential
-content. OpenCode remains on version 1 until its local store exposes a stable
-request identity.
+Native request metrics map directly to request spans. OMP's per-request
+`stats.db`, Claude Code, and Codex provide request spans through bounded local
+readers. The readers access only ids, model, token counters, timestamps, and
+structural outcome flags. They never emit message, prompt, response, reasoning,
+tool, path, or credential content. OpenCode remains on version 1 until its local
+store exposes a stable request identity.
 
 Native OpenAI-compatible and Anthropic transports capture quota observations
 from documented response rate-limit headers. Account ids are hashed locally

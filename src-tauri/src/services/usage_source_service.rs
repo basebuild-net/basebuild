@@ -600,8 +600,9 @@ pub fn collect_all_sources() -> Vec<SourceCollection> {
     results
 }
 
-/// Collect typed version 2 rows from capable sources. OMP remains on version 1
-/// because its public stats payload contains cumulative aggregates, not events.
+/// Collect typed version 2 rows from capable sources. Native metrics, OMP's
+/// per-request stats database, Claude Code, and Codex emit request spans.
+/// OpenCode stays on version 1 until it exposes a stable request identity.
 pub fn collect_all_sources_v2() -> Vec<SourceCollectionV2> {
     let sources = registered_sources();
     let mut results = Vec::new();

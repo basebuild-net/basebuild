@@ -50,12 +50,16 @@ test.describe("OMP <-> Basebuild IDE sync", () => {
     // Wait for the lazy-loaded settings modal.
     await expect(page.locator(".settings-modal")).toBeVisible({ timeout: 15_000 });
     await page.getByRole("button", { name: "Analytics", exact: true }).click();
-    // The sync panel maps privacy, attribution, source, and off-reason status.
-    await expect(page.getByRole("heading", { name: "Usage & plan drain" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Plan drain rate" })).toBeVisible();
-    await expect(page.getByText("Model hours / window").first()).toBeVisible();
-    await expect(page.getByText("12.5h")).toBeVisible();
-    await expect(page.getByRole("heading", { name: "What uploads" })).toBeVisible();
+    // Usage stays focused on provider windows and per-model daily averages.
+    await expect(page.getByRole("heading", { name: "Usage", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Plan drain rate" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Session and weekly usage" })).toBeVisible();
+    await expect(page.getByText("Session (5h)", { exact: true })).toBeVisible();
+    await expect(page.getByText("Weekly (7d)", { exact: true })).toBeVisible();
+    const usageBars = page.locator("progress.usage-window-bar");
+    await expect(usageBars).toHaveCount(2);
+    await expect(usageBars.first()).toHaveAttribute("value", "42");
+    await expect(page.getByRole("heading", { name: "Per-model usage" })).toBeVisible();
     await expect(page.getByText(/Privacy-safe request spans and quota snapshots/)).toBeVisible();
     await expect(page.getByRole("heading", { name: "What never uploads" })).toBeVisible();
     await expect(page.getByText(/Prompts, responses, reasoning, tool arguments/)).toBeVisible();
@@ -91,10 +95,9 @@ test.describe("OMP <-> Basebuild IDE sync", () => {
     await expect(sourceRows.filter({ hasText: "Claude Code" })).toContainText("Synced");
     await expect(page.getByTitle("Retry pending usage sources now")).toBeHidden();
 
-    // Projected usage renders (live utilization + per-model table).
-    await expect(page.getByRole("heading", { name: "Live Utilization" })).toBeVisible();
-    await expect(page.locator(".usage-window-row").first()).toBeVisible();
-    await expect(page.getByRole("heading", { name: /Per-Model Usage/ })).toBeVisible();
+    // Projected usage keeps the usage bars and per-model table visible.
+    await expect(page.locator("progress.usage-window-bar").first()).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Per-model usage" })).toBeVisible();
     await expect(page.locator(".usage-table")).toContainText("claude-sonnet-4");
 
     // "Sync now" still triggers without error.
@@ -114,7 +117,7 @@ test.describe("OMP <-> Basebuild IDE sync", () => {
 
     await expect(page.getByText("Private installation attribution")).toBeVisible();
     await expect(page.getByText(/It is not a hardware ID and is not merged into an account later/)).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Live Utilization" })).toBeHidden();
+    await expect(page.getByRole("heading", { name: "Session and weekly usage" })).toBeHidden();
     await expect(page.getByRole("heading", { name: "Provider Plans" })).toBeHidden();
     await page.getByTitle("Sync usage and quota observations now").click();
     await expect(page.getByText("Account sign-in required for projected usage")).toBeHidden();

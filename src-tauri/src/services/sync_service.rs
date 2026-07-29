@@ -1858,9 +1858,18 @@ pub fn set_usage_sync_mode(mode: &str) -> Result<(), String> {
 struct SyncInFlightGuard;
 
 impl SyncInFlightGuard {
-    /// `None` when a sync is already running — the caller coalesces into it.
+    /// `None` when a sync is already running. Do not use `then_some(Self)`
+    /// here: it eagerly constructs and drops `Self` on the false branch,
+    /// which would release another thread's active guard.
     fn acquire() -> Option<Self> {
-        (!SYNC_IN_FLIGHT.swap(true, Ordering::SeqCst)).then_some(Self)
+        if SYNC_IN_FLIGHT
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            Some(Self)
+        } else {
+            None
+        }
     }
 }
 
@@ -2377,6 +2386,21 @@ mod tests {
             message: "no new envelope usage data".to_string(),
             ..Default::default()
         })
+    }
+
+    #[test]
+    fn rejected_single_flight_acquire_does_not_release_the_owner() {
+        SYNC_IN_FLIGHT.store(false, Ordering::SeqCst);
+        let owner = SyncInFlightGuard::acquire().expect("first caller owns the guard");
+
+        assert!(SyncInFlightGuard::acquire().is_none());
+        assert!(
+            SYNC_IN_FLIGHT.load(Ordering::SeqCst),
+            "a rejected caller must not clear the active owner's guard"
+        );
+
+        drop(owner);
+        assert!(!SYNC_IN_FLIGHT.load(Ordering::SeqCst));
     }
 
     #[test]
