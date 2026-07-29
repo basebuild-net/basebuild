@@ -346,7 +346,12 @@ pub fn collect_native_v2_batch() -> Result<V2UsageBatch, String> {
                 model,
                 session_id,
                 agent_id: None,
-                provider_request_id: None,
+                // The envelope has always accepted this and always been sent
+                // `null`; it is now captured off the provider response.
+                provider_request_id: metric
+                    .provider_request_id
+                    .as_deref()
+                    .and_then(normalize_identifier),
                 started_at,
                 completed_at,
                 input_tokens: Some(metric.input_tokens.clamp(0, i32::MAX as i64)),
@@ -3180,6 +3185,7 @@ mod tests {
             subscription_source: Some("declared".into()),
             plan_name: None,
             account_id: None,
+            provider_request_id: None,
         }
     }
 

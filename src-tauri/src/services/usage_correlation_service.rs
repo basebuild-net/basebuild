@@ -384,7 +384,15 @@ fn summarize(
     } else {
         None
     };
-    let mixed = intervals.iter().any(|interval| interval.models.len() > 1);
+    // A window is shared if more than one model drained it across the whole
+    // sample, not merely within one interval. Checking per-interval missed the
+    // common case: a window serving one model at a time but several over a day
+    // still yields a blended rate, and was reporting itself as trustworthy.
+    let distinct_models = intervals
+        .iter()
+        .flat_map(|interval| interval.models.iter())
+        .collect::<std::collections::BTreeSet<_>>();
+    let mixed = distinct_models.len() > 1;
     // An unknown spread is never treated as a tight one: no spread, no
     // confidence.
     let tight = |ceiling: f64| relative_spread.is_some_and(|spread| spread < ceiling);
@@ -720,6 +728,36 @@ mod tests {
         assert_eq!(intervals[0].models.len(), 2);
         let estimate = summarize("anthropic", "limit", &mixed, &intervals).unwrap();
         assert_eq!(estimate.confidence, "low");
+
+        // The case real data exposed: each interval saw a single model, but a
+        // different one, so a per-interval check called the window unshared and
+        // reported "high". Twelve tight intervals is otherwise enough for high
+        // confidence, which is exactly what makes this dangerous.
+        let mut per_interval_single = Vec::new();
+        for step in 0..14i64 {
+            per_interval_single.push(sample(step * 10_000, 0.01 * step as f64, Some(9), None));
+        }
+        let staggered = dir.path().join("staggered.db");
+        let mut rows = Vec::new();
+        for step in 0..14i64 {
+            // Alternate which model is active in each interval.
+            let model = if step % 2 == 0 { "model-a" } else { "model-b" };
+            rows.push(("anthropic", model, step * 10_000 + 5_000, 10_000i64));
+        }
+        seed_stats_db(&staggered, &rows);
+        let intervals = solve_intervals("anthropic", &per_interval_single, Some(&staggered)).unwrap();
+        assert!(intervals.len() >= 12, "enough intervals to reach high");
+        assert!(
+            intervals.iter().all(|interval| interval.models.len() == 1),
+            "each interval individually saw exactly one model"
+        );
+        let estimate =
+            summarize("anthropic", "limit", &per_interval_single, &intervals).unwrap();
+        assert!(estimate.models.len() > 1, "the window is shared overall");
+        assert_ne!(
+            estimate.confidence, "high",
+            "a window shared across intervals is still a blended rate"
+        );
     }
 
     /// OMP ingests its session files lazily, so a fresh pair routinely lands
@@ -812,5 +850,67 @@ mod tests {
 
         assert!(same_window(None, None), "providers without a reset instant");
         assert!(!same_window(Some(1), None), "half-known identity is not comparable");
+    }
+
+    /// The whole pipeline against this machine, with nothing fabricated: seed
+    /// from OMP's own recorded quota history, then solve. This is the cold-start
+    /// path a fresh install takes, so it is also the honest check on whether the
+    /// estimate is worth showing on day one.
+    #[test]
+    #[ignore = "reads this machine's real OMP history"]
+    fn live_backfilled_history_solves_real_drain_rates() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&dir);
+        crate::services::analytics_service::AnalyticsService::set_consent(
+            &crate::models::permission::AnalyticsConsent {
+                collection_enabled: true,
+                upload_enabled: false,
+                consent_version: Some("test".to_string()),
+                consented_at: Some(1),
+            },
+        )
+        .unwrap();
+
+        let seeded =
+            crate::services::usage_v2_collector_service::UsageV2CollectorService::backfill_history_for_test()
+                .unwrap();
+        println!("seeded {seeded} readings from OMP's recorded history");
+        assert!(
+            seeded > 0,
+            "this machine has no recorded quota history to seed from"
+        );
+
+        let estimates = UsageCorrelationService::estimate_drain_rates().unwrap();
+        println!("solved {} window(s)", estimates.len());
+        for estimate in &estimates {
+            println!(
+                "{:22} {:28} remaining={:5.1}%  {:>5} intervals  {:>8} req  {:>13} tok  \
+                 {:.3e}/1k  spread={}  {}",
+                estimate.provider,
+                estimate.model_id.as_deref().unwrap_or(
+                    estimate.window_label.as_deref().unwrap_or(&estimate.limit_id)
+                ),
+                estimate.remaining_fraction * 100.0,
+                estimate.intervals,
+                estimate.requests,
+                estimate.total_tokens,
+                estimate.fraction_per_1k_tokens,
+                estimate
+                    .relative_spread
+                    .map(|spread| format!("{spread:.2}"))
+                    .unwrap_or_else(|| "—".to_string()),
+                estimate.confidence,
+            );
+            // Every reported number must be finite and in range, or the UI will
+            // render nonsense.
+            assert!(estimate.fraction_per_1k_tokens.is_finite());
+            assert!(estimate.fraction_per_request.is_finite());
+            assert!((0.0..=1.0).contains(&estimate.remaining_fraction));
+            assert!(estimate.intervals >= 1 && estimate.requests >= 1);
+            assert!(
+                estimate.models.len() <= 1 || estimate.confidence != "high",
+                "a window shared by several models must never claim high confidence"
+            );
+        }
     }
 }

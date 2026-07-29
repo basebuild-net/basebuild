@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
-import { AlertCircle, CheckCircle2, Clock3, LogOut, RefreshCw, RotateCcw, ShieldCheck, User } from "lucide-react";
+import { AlertCircle, AlertTriangle, CheckCircle2, Clock3, LogOut, RefreshCw, RotateCcw, ShieldCheck, User } from "lucide-react";
 import { authStartDeviceFlow, authPollDeviceFlow } from "../../../lib/auth";
 import type { AccountState } from "../../../state/account";
 import { SkeletonControl, SkeletonRows, SkeletonText } from "../Loading";
 import { useUsageSync } from "../../../state/usageSync";
 import {
   usageDetectProviderPlans,
+  usageDrainRates,
   usageListProviderPlans,
   usageDeclareProviderPlans,
 } from "../../../lib/usageSync";
 import type {
   AutoSyncStatus,
   DetectedProviderPlan,
+  DrainEstimate,
   ProviderPlanOption,
   SourceSyncStatus,
   SyncOverallOutcome,
@@ -467,6 +469,8 @@ export function UsageSyncPanel() {
       ) : null}
       {error ? <p className="text-danger text-sm">{error}</p> : null}
 
+      <PlanBurnRatePanel />
+
       {/* Account-only cards. While `projected` is in flight the card frame
           stays put so the panel does not grow by two cards on arrival. */}
       {status?.attribution === "account" && !projected && !error ? (
@@ -538,6 +542,205 @@ export function UsageSyncPanel() {
         <ProviderPlansPanel gatesPass={status.gatesPass} />
       ) : null}
     </div>
+  );
+}
+
+const CONFIDENCE_LABELS: Record<DrainEstimate["confidence"], string> = {
+  high: "measured",
+  medium: "approximate",
+  low: "estimate",
+};
+
+const CONFIDENCE_HINTS: Record<DrainEstimate["confidence"], string> = {
+  high: "Several solved intervals agree on this rate.",
+  medium: "Few intervals, or they disagree somewhat — read the rate as approximate.",
+  low: "Too little agreeing evidence to call this a measurement. It is an estimate.",
+};
+
+/// A window fraction per 1000 tokens is ~2e-6 — a number nobody can read.
+/// A million tokens is the unit a user reasons in, and percent is the unit the
+/// plan window is already shown in, so the rate becomes "x% of the window per
+/// 1M tokens": fraction/1k × 1000 tokens × 100 percent.
+function formatWindowPercentPerMillionTokens(fractionPer1kTokens: number): string {
+  const percent = fractionPer1kTokens * 1000 * 100;
+  if (!Number.isFinite(percent) || percent <= 0) return "—";
+  const decimals = percent >= 10 ? 0 : percent >= 1 ? 1 : percent >= 0.1 ? 2 : 3;
+  return `${percent.toFixed(decimals)}%`;
+}
+
+/// The inverse of the per-request window fraction: how many requests of the
+/// observed shape the whole window pays for.
+function formatRequestsToEmpty(fractionPerRequest: number): string {
+  if (!Number.isFinite(fractionPerRequest) || fractionPerRequest <= 0) return "—";
+  return Math.round(1 / fractionPerRequest).toLocaleString();
+}
+
+/// Locally-solved plan drain. Two quota readings that bracket measured traffic
+/// give an observed "what did that traffic actually cost me" rate. The honest
+/// framing lives on the row: a low-confidence rate is labelled an estimate and
+/// prefixed with ≈, a window with no second interval shows no spread rather
+/// than a fake zero, and a window shared by several models says so — its rate
+/// is a blend, not any one model's cost.
+function PlanBurnRatePanel() {
+  const [estimates, setEstimates] = useState<DrainEstimate[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      setEstimates(await usageDrainRates());
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  return (
+    <section className="usage-source-section" aria-labelledby="usage-burn-heading">
+      <h4 id="usage-burn-heading">Plan burn rate</h4>
+      <p className="text-muted text-sm">
+        Solved on this machine by pairing two readings of a provider quota window against the
+        traffic measured between them. Rates are observed, not published by the provider.
+      </p>
+      {loading && estimates.length === 0 && !error ? (
+        <SkeletonRows rows={2} label="Loading plan burn rates…" />
+      ) : null}
+      {error ? <p className="text-danger text-sm">{error}</p> : null}
+      {!loading && !error && estimates.length === 0 ? (
+        <p className="text-muted text-sm">
+          No rates yet. One appears once two readings of the same quota window bracket some
+          traffic, so a plan-limited provider needs a little more use before there is anything to
+          measure.
+        </p>
+      ) : null}
+      {estimates.length > 0 ? (
+        <div className="usage-burn-list">
+          {estimates.map((estimate) => {
+            const remainingPct = Math.round(estimate.remainingFraction * 100);
+            const emptiesBeforeReset =
+              estimate.projectedExhaustionAt != null &&
+              estimate.resetsAt != null &&
+              estimate.projectedExhaustionAt < estimate.resetsAt;
+            const shared = estimate.models.length > 1;
+            // A low-confidence rate must never read as a measured figure.
+            const approx = estimate.confidence === "low" ? "≈" : "";
+            const intervalWord = estimate.intervals === 1 ? "interval" : "intervals";
+            return (
+              <div
+                key={`${estimate.provider}:${estimate.limitId}:${estimate.modelId ?? "shared"}`}
+                className={`usage-burn-row ${emptiesBeforeReset ? "is-exhausting" : ""}`}
+                title={`${estimate.provider}${estimate.windowLabel ? ` ${estimate.windowLabel}` : ""} (${estimate.limitId}): ${remainingPct}% of the window left. Solved from ${estimate.intervals} ${intervalWord} covering ${estimate.requests.toLocaleString()} requests and ${estimate.totalTokens.toLocaleString()} tokens, last observed ${new Date(estimate.observedAt).toLocaleString()}.`}
+              >
+                <div className="usage-burn-head">
+                  <strong className="text-sm">{estimate.provider}</strong>
+                  {estimate.windowLabel ? (
+                    <span className="usage-burn-window">{estimate.windowLabel}</span>
+                  ) : null}
+                  {estimate.planType ? (
+                    <span className="text-muted text-sm">{estimate.planType}</span>
+                  ) : null}
+                  <span
+                    className={`usage-burn-confidence is-${estimate.confidence}`}
+                    title={CONFIDENCE_HINTS[estimate.confidence]}
+                  >
+                    {CONFIDENCE_LABELS[estimate.confidence]}
+                  </span>
+                </div>
+
+                <div className="usage-burn-scope">
+                  {estimate.modelId ??
+                    (estimate.models.length > 0
+                      ? estimate.models.join(" · ")
+                      : "every model on this window")}
+                </div>
+
+                <div className="usage-burn-stats">
+                  <span className="usage-burn-stat" title="Share of the window still available">
+                    <span className="usage-burn-stat-label">Left</span>
+                    <span className="usage-burn-stat-value">{remainingPct}%</span>
+                  </span>
+                  <span
+                    className="usage-burn-stat"
+                    title="Share of this window consumed per million tokens, at the observed rate"
+                  >
+                    <span className="usage-burn-stat-label">Per 1M tokens</span>
+                    <span className="usage-burn-stat-value">
+                      {approx}
+                      {formatWindowPercentPerMillionTokens(estimate.fractionPer1kTokens)}
+                    </span>
+                  </span>
+                  <span
+                    className="usage-burn-stat"
+                    title="Requests the full window pays for, at the observed cost per request"
+                  >
+                    <span className="usage-burn-stat-label">Requests to empty</span>
+                    <span className="usage-burn-stat-value">
+                      {approx}
+                      {formatRequestsToEmpty(estimate.fractionPerRequest)}
+                    </span>
+                  </span>
+                  <span
+                    className="usage-burn-stat"
+                    title={
+                      estimate.relativeSpread == null
+                        ? "No spread yet — a second solved interval is needed to compare"
+                        : "How much the solved intervals disagree with each other"
+                    }
+                  >
+                    <span className="usage-burn-stat-label">Spread</span>
+                    <span className="usage-burn-stat-value">
+                      {estimate.relativeSpread == null
+                        ? "—"
+                        : `±${Math.round(estimate.relativeSpread * 100)}%`}
+                    </span>
+                  </span>
+                  <span className="usage-burn-stat" title="Solved intervals backing this rate">
+                    <span className="usage-burn-stat-label">Samples</span>
+                    <span className="usage-burn-stat-value">{estimate.intervals}</span>
+                  </span>
+                </div>
+
+                {estimate.projectedExhaustionAt != null || estimate.resetsAt != null ? (
+                  <div className="usage-burn-times">
+                    {estimate.projectedExhaustionAt != null ? (
+                      <span>Empties {new Date(estimate.projectedExhaustionAt).toLocaleString()}</span>
+                    ) : null}
+                    {estimate.resetsAt != null ? (
+                      <span>Resets {new Date(estimate.resetsAt).toLocaleString()}</span>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {emptiesBeforeReset ? (
+                  <p className="usage-burn-note text-danger text-sm">
+                    <AlertTriangle size={13} /> At this rate the window empties before it resets.
+                  </p>
+                ) : null}
+                {estimate.confidence === "low" ? (
+                  <p className="usage-burn-note is-estimate text-sm">
+                    <AlertCircle size={13} /> Estimate, not a measurement: {estimate.intervals}{" "}
+                    {intervalWord} solved so far.
+                  </p>
+                ) : null}
+                {shared ? (
+                  <p className="text-muted text-sm">
+                    Shared window — this rate is a blend across {estimate.models.length} models, not
+                    the cost of any one of them.
+                  </p>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+    </section>
   );
 }
 

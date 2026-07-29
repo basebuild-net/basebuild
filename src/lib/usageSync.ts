@@ -172,6 +172,43 @@ export async function usageDeclareProviderPlans(plans: Record<string, string>): 
   return invoke<string>("usage_declare_provider_plans", { plans });
 }
 
+/**
+ * One provider quota window's observed drain rate, solved locally by pairing
+ * two quota readings against the traffic measured between them.
+ */
+export type DrainEstimate = {
+  provider: string;
+  limitId: string;
+  /** Set only when the provider scopes the window to one model. */
+  modelId: string | null;
+  planType: string | null;
+  /** Window length as the provider names it, e.g. "5h" or "7d". */
+  windowLabel: string | null;
+  /** Solved intervals backing this estimate. */
+  intervals: number;
+  requests: number;
+  totalTokens: number;
+  /** Window fraction consumed per 1000 tokens. */
+  fractionPer1kTokens: number;
+  fractionPerRequest: number;
+  /** Null below two intervals. */
+  relativeSpread: number | null;
+  confidence: "high" | "medium" | "low";
+  /** Models seen in this window, most traffic first. */
+  models: string[];
+  /** Epoch milliseconds. */
+  observedAt: number;
+  remainingFraction: number;
+  /** Epoch milliseconds. */
+  resetsAt: number | null;
+  /** Epoch milliseconds. */
+  projectedExhaustionAt: number | null;
+};
+
+export async function usageDrainRates(): Promise<DrainEstimate[]> {
+  return invoke<DrainEstimate[]>("usage_drain_rates");
+}
+
 export async function listenUsageSyncStatus(
   handler: EventCallback<SyncResult>,
 ): Promise<UnlistenFn> {

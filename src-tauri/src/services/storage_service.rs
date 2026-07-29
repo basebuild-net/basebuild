@@ -595,6 +595,10 @@ impl StorageService {
                     -- has not been tailed off disk yet are the same observation,
                     -- and the newest interval is the one that suffers.
                     ingested_through INTEGER,
+                    -- SHA-256 of the provider account, truncated. The raw
+                    -- account id and email are never stored: a quota window
+                    -- belongs to an account, but which account is not usage.
+                    account_hash TEXT,
                     PRIMARY KEY (provider, limit_id, observed_at)
                 );
                 CREATE INDEX IF NOT EXISTS idx_usage_quota_samples_window
@@ -1016,6 +1020,19 @@ impl StorageService {
         if !has_account_id {
             let _ = connection.execute(
                 "ALTER TABLE native_request_metrics ADD COLUMN account_id TEXT",
+                [],
+            );
+        }
+
+        // Migration: carry the provider's own request id on each metric. The
+        // usage envelope already accepts `providerRequestId` and had been
+        // sending null, so this is the local half of a field the wire wanted.
+        let has_provider_request_id = connection
+            .prepare("SELECT provider_request_id FROM native_request_metrics LIMIT 0")
+            .is_ok();
+        if !has_provider_request_id {
+            let _ = connection.execute(
+                "ALTER TABLE native_request_metrics ADD COLUMN provider_request_id TEXT",
                 [],
             );
         }

@@ -435,6 +435,11 @@ pub struct NativeRequestMetric {
     /// attribution). None for pre-migration rows and the local provider.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account_id: Option<String>,
+    /// The provider's own id for this request, when it published one. Lets a
+    /// local span be reconciled against provider-side billing later, and is a
+    /// field the usage envelope already accepts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_request_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

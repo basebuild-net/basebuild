@@ -28,6 +28,9 @@ const STATE_HEARTBEAT_MS: &str = "coverage_heartbeat_ms";
 const STATE_RUNNING: &str = "coverage_running";
 const STATE_SPOOL_GAP: &str = "spool_gap";
 const STATE_LAST_SPANS: &str = "last_span_count";
+const STATE_HISTORY_BACKFILL: &str = "quota_history_backfilled_through";
+/// How far back to pull OMP's recorded quota history on first run.
+const HISTORY_BACKFILL_DAYS: i64 = 30;
 
 static COLLECTOR_RUNNING: AtomicBool = AtomicBool::new(false);
 
@@ -42,6 +45,13 @@ impl UsageV2CollectorService {
             return Ok(0);
         }
         let now_ms = now_millis();
+        // Seed from OMP's own recorded quota history before collecting. Cheap
+        // after the first pass (it only reads forward of what it already has)
+        // and it is what stops a fresh install from being unable to report a
+        // drain rate until it has watched two windows go by.
+        if let Err(error) = backfill_quota_history(now_ms) {
+            eprintln!("[SYNC V2] quota history: backfill failed: {error}");
+        }
         let mut batches = crate::services::usage_source_service::collect_all_sources_v2()
             .into_iter()
             .filter_map(|collection| {
@@ -541,6 +551,8 @@ struct QuotaObservation {
     remaining_fraction: f64,
     resets_at: Option<i64>,
     window_duration_ms: Option<i64>,
+    /// Hashed provider account, never the raw id.
+    account_hash: Option<String>,
 }
 
 /// Flatten `omp usage --json` into quota observations.
@@ -561,6 +573,17 @@ fn quota_observations_from_payload(payload: &Value) -> Vec<QuotaObservation> {
         .unwrap_or_default()
     {
         let report_provider = report.get("provider").and_then(Value::as_str);
+        // `metadata` carries the account identity and, on some providers, the
+        // only statement of plan type. It also carries the account email, which
+        // is deliberately never read: it is not usage and must not be persisted.
+        let metadata = report.get("metadata");
+        let raw_account = metadata
+            .and_then(|metadata| metadata.get("accountId"))
+            .and_then(Value::as_str);
+        let metadata_plan = metadata
+            .and_then(|metadata| metadata.get("planType"))
+            .and_then(Value::as_str)
+            .and_then(safe_label);
         for limit in report
             .get("limits")
             .and_then(Value::as_array)
@@ -608,17 +631,19 @@ fn quota_observations_from_payload(payload: &Value) -> Vec<QuotaObservation> {
                 .or_else(|| limit.get("label"))
                 .and_then(Value::as_str)
                 .and_then(safe_label);
+            let hashed_account = raw_account.and_then(|account| account_hash(&provider, account));
             observations.push(QuotaObservation {
-                provider,
-                limit_id,
                 model_id: scope
                     .and_then(|scope| scope.get("modelId"))
                     .and_then(Value::as_str)
                     .and_then(normalize_identifier),
+                // `scope.tier` is the per-window label; `metadata.planType` is
+                // the account's plan. Prefer the narrower one when present.
                 plan_type: scope
                     .and_then(|scope| scope.get("tier"))
                     .and_then(Value::as_str)
-                    .and_then(safe_label),
+                    .and_then(safe_label)
+                    .or_else(|| metadata_plan.clone()),
                 used_fraction,
                 remaining_fraction: remaining_fraction
                     .unwrap_or(1.0 - used_fraction)
@@ -629,6 +654,9 @@ fn quota_observations_from_payload(payload: &Value) -> Vec<QuotaObservation> {
                     .and_then(Value::as_i64)
                     .or_else(|| window_label.as_deref().and_then(duration_from_label)),
                 window_label,
+                account_hash: hashed_account,
+                provider,
+                limit_id,
             });
         }
     }
@@ -689,6 +717,8 @@ fn quota_observations_from_payload(payload: &Value) -> Vec<QuotaObservation> {
                 .and_then(Value::as_i64)
                 .or_else(|| window_label.as_deref().and_then(duration_from_label)),
             window_label,
+            // The normalized header shape carries no account identity.
+            account_hash: None,
         });
     }
     observations
@@ -720,8 +750,8 @@ fn record_quota_sample(
             "INSERT OR IGNORE INTO usage_quota_samples
                 (provider, limit_id, observed_at, model_id, window_label, plan_type,
                  used_fraction, remaining_fraction, resets_at, window_duration_ms,
-                 ingested_through)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                 ingested_through, account_hash)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 observation.provider,
                 observation.limit_id,
@@ -734,10 +764,161 @@ fn record_quota_sample(
                 observation.resets_at,
                 observation.window_duration_ms,
                 ingested_through,
+                observation.account_hash,
             ],
         )
         .map_err(|error| error.to_string())?;
     Ok(())
+}
+
+/// Hash a provider account id the way the wire schema requires.
+///
+/// 32 hex chars of SHA-256 over `provider:account`. The raw id and the email
+/// that sits beside it in OMP's history are never persisted: which account owns
+/// a quota window is not usage data.
+fn account_hash(provider: &str, account_id: &str) -> Option<String> {
+    if account_id.is_empty() {
+        return None;
+    }
+    let digest = Sha256::digest(format!("{provider}:{account_id}").as_bytes());
+    Some(format!("{digest:x}")[..32].to_string())
+}
+
+/// Test hook: seed from OMP's recorded history and report how many readings
+/// were offered. Exposed so the correlation service can exercise the real
+/// cold-start path end to end.
+#[cfg(test)]
+impl UsageV2CollectorService {
+    pub fn backfill_history_for_test() -> Result<usize, String> {
+        backfill_quota_history(now_millis())
+    }
+}
+
+/// Seed retained readings from OMP's own recorded quota history.
+///
+/// OMP already keeps hourly quota snapshots (`omp usage --history`), which is
+/// weeks of the exact signal the solver needs. Without this a fresh install
+/// starts blind and cannot report a rate until it has watched two windows go by;
+/// with it, a first run has hundreds of intervals immediately.
+///
+/// Idempotent: readings are keyed by their observation instant, so re-running
+/// inserts nothing new. Runs once per app start, and only forward of whatever
+/// was already backfilled.
+fn backfill_quota_history(now_ms: i64) -> Result<usize, String> {
+    if !crate::services::omp_service::OmpService::is_installed_cached() {
+        return Ok(0);
+    }
+    let already = get_state(STATE_HISTORY_BACKFILL)?
+        .and_then(|value| value.parse::<i64>().ok())
+        .unwrap_or(0);
+    let days = HISTORY_BACKFILL_DAYS.to_string();
+    let output = match crate::services::omp_service::OmpService::run_json(&[
+        "usage",
+        "--history",
+        "--json",
+        "--days",
+        &days,
+    ]) {
+        Ok(output) if output.success => output,
+        Ok(_) => return Ok(0),
+        Err(error) => {
+            eprintln!("[SYNC V2] quota history: sampling failed: {error}");
+            return Ok(0);
+        }
+    };
+    let Some(payload) = output.json else {
+        return Ok(0);
+    };
+    let inserted = backfill_entries(
+        &payload,
+        already,
+        // Everything historical is already on disk in the traffic store, so
+        // these readings are fully ingested by definition.
+        crate::services::usage_source_service::omp_ingestion_horizon(),
+    )?;
+    if inserted > 0 {
+        eprintln!("[SYNC V2] quota history: backfilled {inserted} recorded readings");
+    }
+    Ok(inserted)
+}
+
+/// Seed retained readings from a history payload. Split out from the OMP call so
+/// the parsing and privacy guarantees are testable without spawning a process.
+///
+/// Returns how many entries were offered; duplicates are ignored by the store
+/// rather than counted separately, so a repeat run reports the same number and
+/// inserts nothing.
+fn backfill_entries(
+    payload: &Value,
+    already: i64,
+    ingested_through: Option<i64>,
+) -> Result<usize, String> {
+    let entries = payload
+        .get("entries")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let mut inserted = 0usize;
+    let mut newest = already;
+    for entry in entries {
+        let Some(recorded_at) = timestamp_millis(entry.get("recordedAt")) else {
+            continue;
+        };
+        if recorded_at <= already {
+            continue;
+        }
+        let Some(provider) = entry
+            .get("provider")
+            .and_then(Value::as_str)
+            .and_then(normalize_identifier)
+        else {
+            continue;
+        };
+        let Some(limit_id) = entry
+            .get("limitId")
+            .and_then(Value::as_str)
+            .and_then(normalize_identifier)
+        else {
+            continue;
+        };
+        let Some(used_fraction) = entry
+            .get("usedFraction")
+            .and_then(Value::as_f64)
+            .filter(|value| value.is_finite())
+            .map(|value| value.clamp(0.0, 1.0))
+        else {
+            continue;
+        };
+        let window_label = entry
+            .get("windowLabel")
+            .or_else(|| entry.get("label"))
+            .and_then(Value::as_str)
+            .and_then(safe_label);
+        let observation = QuotaObservation {
+            model_id: None,
+            plan_type: None,
+            used_fraction,
+            // History records only the used side.
+            remaining_fraction: (1.0 - used_fraction).clamp(0.0, 1.0),
+            resets_at: timestamp_millis(entry.get("resetsAt")),
+            window_duration_ms: window_label.as_deref().and_then(duration_from_label),
+            // `accountId` is hashed and the `email` beside it is never read.
+            account_hash: entry
+                .get("accountId")
+                .and_then(Value::as_str)
+                .and_then(|account| account_hash(&provider, account)),
+            window_label,
+            provider,
+            limit_id,
+        };
+        record_quota_sample(&observation, recorded_at, ingested_through)?;
+        inserted += 1;
+        newest = newest.max(recorded_at);
+    }
+    if newest > already {
+        set_state(STATE_HISTORY_BACKFILL, &newest.to_string(), now_millis())?;
+    }
+    Ok(inserted)
 }
 
 /// Drop quota samples older than the retention horizon.
@@ -782,7 +963,9 @@ fn quota_rows_from_payload(payload: &Value, now_ms: i64) -> Result<Vec<V2Row>, S
         rows.push(V2Row::QuotaSnapshot(QuotaSnapshotRow {
             snapshot_id: format!("quota:{digest:x}"),
             provider: observation.provider.clone(),
-            account_hash: None,
+            // Hashed, never the raw id. The schema accepts this and it had been
+            // sent as null, so per-account windows were indistinguishable.
+            account_hash: observation.account_hash.clone(),
             limit_id: observation.limit_id.clone(),
             window_label: observation.window_label.clone(),
             observed_at: now_ms,
@@ -1158,6 +1341,135 @@ mod tests {
         // `used` is derived from `remaining` when the sampler reports only one.
         assert_eq!(snapshot.used_fraction, 0.75);
         assert_eq!(snapshot.remaining_fraction, 0.25);
+    }
+
+    /// The account identity lives in `metadata`, alongside the account email.
+    /// The id must be hashed and the email must never leave the payload — a
+    /// quota window belongs to an account, but which human owns it is not usage.
+    #[test]
+    fn quota_parser_hashes_the_account_and_never_reads_the_email() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&dir);
+        let payload = json!({
+            "reports": [{
+                "provider": "anthropic",
+                "metadata": {
+                    "accountId": "fbff1c2c-342a-4193-b058-8fd9216678c6",
+                    "email": "person@example.com",
+                    "planType": "plus"
+                },
+                "limits": [{
+                    "id": "anthropic:5h",
+                    "scope": { "provider": "anthropic", "shared": true },
+                    "window": { "resetsAt": 1_800_018_000_000i64 },
+                    "amount": { "usedFraction": 0.31, "remainingFraction": 0.69 }
+                }]
+            }]
+        });
+        let rows = quota_rows_from_payload(&payload, 1_800_000_000_000).unwrap();
+        let V2Row::QuotaSnapshot(snapshot) = &rows[0] else {
+            panic!("expected quota snapshot")
+        };
+        let hash = snapshot
+            .account_hash
+            .as_deref()
+            .expect("the account must be identified, in hashed form");
+        assert_eq!(hash.len(), 32, "32 hex chars, as the wire schema requires");
+        assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
+        assert!(
+            !hash.contains("fbff1c2c"),
+            "the raw account id must not survive hashing"
+        );
+        // `scope.tier` is absent here, so the plan falls back to metadata.
+        assert_eq!(snapshot.plan_type.as_deref(), Some("plus"));
+        validate_v2_row(&rows[0]).unwrap();
+
+        // Nothing anywhere in the serialized row, or in what was retained
+        // locally, may carry the email.
+        let wire = serde_json::to_string(&rows[0]).unwrap();
+        assert!(!wire.contains("person@example.com"), "email reached the wire");
+        assert!(!wire.contains("@"), "no address-shaped value may appear: {wire}");
+        let retained: String = StorageService::connect()
+            .unwrap()
+            .query_row(
+                "SELECT group_concat(COALESCE(account_hash, '') || '|' || provider)
+                 FROM usage_quota_samples",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!retained.contains('@'), "email was persisted: {retained}");
+    }
+
+    /// OMP already records hourly quota snapshots. Seeding from them is what
+    /// lets a fresh install report a drain rate immediately instead of waiting
+    /// days to observe two windows itself.
+    #[test]
+    fn history_backfill_is_idempotent_and_hashes_accounts() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&dir);
+        let entries = json!({
+            "entries": [
+                {
+                    "recordedAt": 1_800_000_000_000i64,
+                    "provider": "anthropic",
+                    "accountId": "acct-1",
+                    "email": "person@example.com",
+                    "limitId": "anthropic:5h",
+                    "windowLabel": "5h",
+                    "usedFraction": 0.20,
+                    "resetsAt": 1_800_018_000_000i64
+                },
+                {
+                    "recordedAt": 1_800_003_600_000i64,
+                    "provider": "anthropic",
+                    "accountId": "acct-1",
+                    "limitId": "anthropic:5h",
+                    "windowLabel": "5h",
+                    "usedFraction": 0.26,
+                    "resetsAt": 1_800_018_000_000i64
+                },
+                // Unusable: no fraction to derive a drain from.
+                {
+                    "recordedAt": 1_800_007_200_000i64,
+                    "provider": "anthropic",
+                    "limitId": "anthropic:5h"
+                }
+            ]
+        });
+        let inserted = backfill_entries(&entries, 0, None).unwrap();
+        assert_eq!(inserted, 2, "only readings carrying a fraction are seeded");
+
+        let (count, emails): (i64, String) = StorageService::connect()
+            .unwrap()
+            .query_row(
+                "SELECT COUNT(*), COALESCE(group_concat(account_hash), '')
+                 FROM usage_quota_samples",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(count, 2);
+        assert!(!emails.contains('@'), "history email was persisted: {emails}");
+        assert!(!emails.contains("acct-1"), "raw account id was persisted");
+
+        // Re-running seeds nothing: readings are keyed by their instant.
+        let again = backfill_entries(&entries, 0, None).unwrap();
+        assert_eq!(again, 2, "the same rows are re-offered");
+        let after: i64 = StorageService::connect()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM usage_quota_samples", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(after, 2, "but none are duplicated");
+
+        // A watermark skips what was already seeded.
+        assert_eq!(
+            backfill_entries(&entries, 1_800_000_000_000, None).unwrap(),
+            1,
+            "only readings newer than the watermark are considered"
+        );
     }
 
     #[test]

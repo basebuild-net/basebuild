@@ -116,6 +116,16 @@ pub struct ProviderResponse {
     pub reasoning: Option<String>,
     pub input_tokens: Option<i64>,
     pub output_tokens: Option<i64>,
+    /// Prompt tokens served from the provider's cache. Billed at a reduced rate
+    /// and often the largest counter by volume, so omitting it understates both
+    /// cost and plan consumption.
+    pub cache_read_tokens: Option<i64>,
+    /// Prompt tokens written into the provider's cache this turn.
+    pub cache_write_tokens: Option<i64>,
+    /// The provider's own id for this request. Carried so a local span can be
+    /// reconciled against provider-side billing records later; the usage
+    /// envelope already accepts it and has been sending `null`.
+    pub provider_request_id: Option<String>,
     pub ttft_ms: Option<i64>,
     pub duration_ms: i64,
     /// Tool calls the model issued this turn. Empty for plain-chat turns.
@@ -543,6 +553,11 @@ impl ProviderClient for OmpRpcClient {
                     .sum(),
             ),
             output_tokens: Some(estimate_tokens(&final_content)),
+            // Token counts here are local estimates, so there is no cache split
+            // and no provider-side request id to carry.
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            provider_request_id: None,
             ttft_ms: ttft_ms.or(Some(duration_ms)),
             duration_ms,
             tool_calls: Vec::new(),
@@ -794,6 +809,10 @@ impl ProviderClient for LocalCoordinator {
                     .sum(),
             ),
             output_tokens: Some(estimate_tokens(&text)),
+            // Runs locally: nothing is cached remotely and no id is issued.
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            provider_request_id: None,
             ttft_ms: Some(elapsed),
             duration_ms: elapsed.max(1),
             content: text,
@@ -815,6 +834,8 @@ struct OpenAiStreamState {
     ttft_ms: Option<i64>,
     input_tokens: Option<i64>,
     output_tokens: Option<i64>,
+    cache_read_tokens: Option<i64>,
+    provider_request_id: Option<String>,
     tool_calls: Vec<ToolCallRequest>,
 }
 
@@ -832,6 +853,14 @@ impl OpenAiStreamState {
             Ok(v) => v,
             Err(_) => return,
         };
+        // The chunk id is stable across a stream, so the first one wins.
+        if self.provider_request_id.is_none() {
+            self.provider_request_id = value
+                .get("id")
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty())
+                .map(str::to_string);
+        }
         if let Some(usage) = value.get("usage").filter(|u| !u.is_null()) {
             self.input_tokens = usage
                 .get("prompt_tokens")
@@ -841,6 +870,18 @@ impl OpenAiStreamState {
                 .get("completion_tokens")
                 .and_then(Value::as_i64)
                 .or(self.output_tokens);
+            // Chat Completions reports the cache hit under prompt details.
+            // `prompt_cache_hit_tokens` is DeepSeek's spelling of the same idea.
+            self.cache_read_tokens = usage
+                .get("prompt_tokens_details")
+                .and_then(|details| details.get("cached_tokens"))
+                .and_then(Value::as_i64)
+                .or_else(|| {
+                    usage
+                        .get("prompt_cache_hit_tokens")
+                        .and_then(Value::as_i64)
+                })
+                .or(self.cache_read_tokens);
         }
         let delta = value
             .get("choices")
@@ -922,6 +963,8 @@ struct CodexStreamState {
     ttft_ms: Option<i64>,
     input_tokens: Option<i64>,
     output_tokens: Option<i64>,
+    cache_read_tokens: Option<i64>,
+    provider_request_id: Option<String>,
     tool_calls: Vec<ToolCallRequest>,
     error: Option<String>,
 }
@@ -1008,9 +1051,13 @@ impl CodexStreamState {
                 }
             }
             Some("response.completed") => {
-                let usage = event
-                    .get("response")
-                    .and_then(|response| response.get("usage"));
+                let response = event.get("response");
+                self.provider_request_id = response
+                    .and_then(|response| response.get("id"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .or_else(|| self.provider_request_id.take());
+                let usage = response.and_then(|response| response.get("usage"));
                 self.input_tokens = usage
                     .and_then(|usage| usage.get("input_tokens"))
                     .and_then(Value::as_i64)
@@ -1019,6 +1066,13 @@ impl CodexStreamState {
                     .and_then(|usage| usage.get("output_tokens"))
                     .and_then(Value::as_i64)
                     .or(self.output_tokens);
+                // The Responses API nests the cache hit under input details.
+                // There is no separate cache-write counter on this API.
+                self.cache_read_tokens = usage
+                    .and_then(|usage| usage.get("input_tokens_details"))
+                    .and_then(|details| details.get("cached_tokens"))
+                    .and_then(Value::as_i64)
+                    .or(self.cache_read_tokens);
             }
             Some("error") | Some("response.failed") => {
                 self.error = event
@@ -1226,6 +1280,10 @@ impl ProviderClient for OpenAiCodexClient {
                 )
             }),
             output_tokens,
+            cache_read_tokens: state.cache_read_tokens,
+            // The Responses API publishes no cache-write counter.
+            cache_write_tokens: None,
+            provider_request_id: state.provider_request_id,
             ttft_ms: state.ttft_ms.or(Some(duration_ms)),
             duration_ms,
             tool_calls: state.tool_calls,
@@ -1361,6 +1419,8 @@ impl ProviderClient for OpenAiCompatibleClient {
             ttft_ms,
             input_tokens,
             output_tokens,
+            cache_read_tokens,
+            provider_request_id,
             tool_calls,
         } = state;
 
@@ -1393,6 +1453,10 @@ impl ProviderClient for OpenAiCompatibleClient {
         }
         Ok(ProviderResponse {
             output_tokens: output_tokens.or_else(|| Some(estimate_tokens(&clean_content))),
+            cache_read_tokens,
+            // Chat Completions publishes no cache-write counter.
+            cache_write_tokens: None,
+            provider_request_id,
             input_tokens: input_tokens.or_else(|| {
                 Some(
                     req.messages
@@ -1418,6 +1482,9 @@ struct AnthropicStreamState {
     ttft_ms: Option<i64>,
     input_tokens: Option<i64>,
     output_tokens: Option<i64>,
+    cache_read_tokens: Option<i64>,
+    cache_write_tokens: Option<i64>,
+    provider_request_id: Option<String>,
     tool_calls: Vec<ToolCallRequest>,
     current_block_idx: Option<usize>,
 }
@@ -1437,12 +1504,29 @@ impl AnthropicStreamState {
         };
         match value.get("type").and_then(Value::as_str) {
             Some("message_start") => {
-                self.input_tokens = value
-                    .get("message")
-                    .and_then(|m| m.get("usage"))
-                    .and_then(|u| u.get("input_tokens"))
+                let message = value.get("message");
+                // Anthropic reports the message id once, on the opening frame.
+                self.provider_request_id = message
+                    .and_then(|message| message.get("id"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .or_else(|| self.provider_request_id.take());
+                let usage = message.and_then(|message| message.get("usage"));
+                self.input_tokens = usage
+                    .and_then(|usage| usage.get("input_tokens"))
                     .and_then(Value::as_i64)
                     .or(self.input_tokens);
+                // Cache counters ride on the same frame. `cache_creation` is the
+                // write side, `cache_read` the read side; on a long conversation
+                // the read side dwarfs `input_tokens`.
+                self.cache_read_tokens = usage
+                    .and_then(|usage| usage.get("cache_read_input_tokens"))
+                    .and_then(Value::as_i64)
+                    .or(self.cache_read_tokens);
+                self.cache_write_tokens = usage
+                    .and_then(|usage| usage.get("cache_creation_input_tokens"))
+                    .and_then(Value::as_i64)
+                    .or(self.cache_write_tokens);
             }
             Some("content_block_start") => {
                 let idx = value
@@ -1663,6 +1747,9 @@ impl ProviderClient for AnthropicClient {
             ttft_ms,
             input_tokens,
             output_tokens,
+            cache_read_tokens,
+            cache_write_tokens,
+            provider_request_id,
             tool_calls,
             ..
         } = state;
@@ -1704,6 +1791,9 @@ impl ProviderClient for AnthropicClient {
                         .sum(),
                 )
             }),
+            cache_read_tokens,
+            cache_write_tokens,
+            provider_request_id,
             ttft_ms: ttft_ms.or(Some(duration_ms)),
             duration_ms,
             content: clean_content,
@@ -2074,6 +2164,94 @@ mod tests {
         assert_eq!(call.id, "toolu_1");
         assert_eq!(call.name, "read_file");
         assert_eq!(call.arguments, r#"{"path":"src/lib.rs"}"#);
+    }
+
+    /// Cache counters and the provider's request id ride on the same frames the
+    /// token counts do. Both were being dropped: cost was understated by the
+    /// cache read (which dwarfs `input_tokens` on a long conversation) and the
+    /// usage envelope's `providerRequestId` was always `null` despite the schema
+    /// accepting it.
+    #[test]
+    fn anthropic_captures_cache_counters_and_message_id() {
+        let lines = [
+            r#"data: {"type":"message_start","message":{"id":"msg_01ABC","usage":{"input_tokens":12,"cache_read_input_tokens":48000,"cache_creation_input_tokens":1024}}}"#,
+            r#"data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
+            r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}"#,
+            r#"data: {"type":"message_delta","usage":{"output_tokens":7}}"#,
+        ];
+        let start = Instant::now();
+        let mut state = AnthropicStreamState::default();
+        for line in &lines {
+            state.process_line(line, &|_, _| {}, &start);
+        }
+        assert_eq!(state.input_tokens, Some(12));
+        assert_eq!(state.output_tokens, Some(7));
+        assert_eq!(state.cache_read_tokens, Some(48_000));
+        assert_eq!(state.cache_write_tokens, Some(1_024));
+        assert_eq!(state.provider_request_id.as_deref(), Some("msg_01ABC"));
+        // The cache read is 4000x the counted input here, which is exactly why
+        // pricing without it was wrong by orders of magnitude.
+        assert!(state.cache_read_tokens.unwrap() > state.input_tokens.unwrap() * 100);
+    }
+
+    /// A stream with no cache fields must report absent, not zero: zero would
+    /// claim the provider served nothing from cache.
+    #[test]
+    fn anthropic_without_cache_fields_reports_absent_not_zero() {
+        let start = Instant::now();
+        let mut state = AnthropicStreamState::default();
+        state.process_line(
+            r#"data: {"type":"message_start","message":{"usage":{"input_tokens":5}}}"#,
+            &|_, _| {},
+            &start,
+        );
+        assert_eq!(state.cache_read_tokens, None);
+        assert_eq!(state.cache_write_tokens, None);
+        assert_eq!(state.provider_request_id, None);
+    }
+
+    #[test]
+    fn openai_chat_captures_cached_prompt_tokens_and_chunk_id() {
+        let start = Instant::now();
+        let mut state = OpenAiStreamState::default();
+        for line in [
+            r#"data: {"id":"chatcmpl-9x","choices":[{"delta":{"content":"hi"}}]}"#,
+            r#"data: {"id":"chatcmpl-9x","choices":[],"usage":{"prompt_tokens":100,"completion_tokens":20,"prompt_tokens_details":{"cached_tokens":64}}}"#,
+        ] {
+            state.process_line(line, &|_, _| {}, &start);
+        }
+        assert_eq!(state.input_tokens, Some(100));
+        assert_eq!(state.output_tokens, Some(20));
+        assert_eq!(state.cache_read_tokens, Some(64));
+        assert_eq!(state.provider_request_id.as_deref(), Some("chatcmpl-9x"));
+    }
+
+    /// DeepSeek-style providers spell the same counter differently.
+    #[test]
+    fn openai_chat_accepts_the_deepseek_cache_hit_spelling() {
+        let start = Instant::now();
+        let mut state = OpenAiStreamState::default();
+        state.process_line(
+            r#"data: {"id":"x","choices":[],"usage":{"prompt_tokens":90,"completion_tokens":3,"prompt_cache_hit_tokens":77}}"#,
+            &|_, _| {},
+            &start,
+        );
+        assert_eq!(state.cache_read_tokens, Some(77));
+    }
+
+    #[test]
+    fn codex_captures_cached_input_tokens_and_response_id() {
+        let start = Instant::now();
+        let mut state = CodexStreamState::default();
+        state.process_line(
+            r#"data: {"type":"response.completed","response":{"id":"resp_77","usage":{"input_tokens":30,"output_tokens":9,"input_tokens_details":{"cached_tokens":25}}}}"#,
+            &|_, _| {},
+            &start,
+        );
+        assert_eq!(state.input_tokens, Some(30));
+        assert_eq!(state.output_tokens, Some(9));
+        assert_eq!(state.cache_read_tokens, Some(25));
+        assert_eq!(state.provider_request_id.as_deref(), Some("resp_77"));
     }
 
     #[test]
