@@ -219,6 +219,10 @@ pub struct UsageSyncSettings {
     /// server accepted for the native source.
     #[serde(default)]
     pub last_envelope_sync_at: Option<i64>,
+    /// window_end of the last accepted version 2 native request batch.
+    /// Independent from v1 so either stream can retry without starving the other.
+    #[serde(default)]
+    pub last_envelope_v2_sync_at: Option<i64>,
     /// Managed-trigger state: a stable fingerprint of the set of connected
     /// providers/accounts. When this changes between trigger evaluations a
     /// sync fires before the next scheduled tick. Opaque to the server.
@@ -243,6 +247,7 @@ impl Default for UsageSyncSettings {
             usage_sync_mode: default_usage_sync_mode(),
             last_message_sync_at: None,
             last_envelope_sync_at: None,
+            last_envelope_v2_sync_at: None,
             last_provider_fingerprint: None,
             last_known_request_total: None,
         }

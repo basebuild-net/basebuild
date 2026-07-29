@@ -51,9 +51,12 @@ test.describe("OMP <-> Basebuild IDE sync", () => {
     await expect(page.locator(".settings-modal")).toBeVisible({ timeout: 15_000 });
     await page.getByRole("button", { name: "Analytics", exact: true }).click();
     // The sync panel maps privacy, attribution, source, and off-reason status.
-    await expect(page.getByRole("heading", { name: "Usage Sync" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Usage & plan drain" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Plan drain rate" })).toBeVisible();
+    await expect(page.getByText("Model hours / window").first()).toBeVisible();
+    await expect(page.getByText("12.5h")).toBeVisible();
     await expect(page.getByRole("heading", { name: "What uploads" })).toBeVisible();
-    await expect(page.getByText(/Aggregate counters in bounded windows/)).toBeVisible();
+    await expect(page.getByText(/Privacy-safe request spans and quota snapshots/)).toBeVisible();
     await expect(page.getByRole("heading", { name: "What never uploads" })).toBeVisible();
     await expect(page.getByText(/Prompts, responses, reasoning, tool arguments/)).toBeVisible();
     await expect(page.getByText("Account attribution")).toBeVisible();
@@ -95,7 +98,7 @@ test.describe("OMP <-> Basebuild IDE sync", () => {
     await expect(page.locator(".usage-table")).toContainText("claude-sonnet-4");
 
     // "Sync now" still triggers without error.
-    await page.getByTitle("Sync aggregate usage now").click();
+    await page.getByTitle("Sync usage and quota observations now").click();
 
     expect(pageErrors).toEqual([]);
   });
@@ -113,7 +116,7 @@ test.describe("OMP <-> Basebuild IDE sync", () => {
     await expect(page.getByText(/It is not a hardware ID and is not merged into an account later/)).toBeVisible();
     await expect(page.getByRole("heading", { name: "Live Utilization" })).toBeHidden();
     await expect(page.getByRole("heading", { name: "Provider Plans" })).toBeHidden();
-    await page.getByTitle("Sync aggregate usage now").click();
+    await page.getByTitle("Sync usage and quota observations now").click();
     await expect(page.getByText("Account sign-in required for projected usage")).toBeHidden();
   });
 });

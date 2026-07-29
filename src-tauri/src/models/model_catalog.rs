@@ -218,6 +218,39 @@ pub fn models_for(provider_id: &str) -> Vec<&'static CatalogModel> {
         .unwrap_or_default()
 }
 
+/// Metered cost in USD for one request's token counts.
+///
+/// Catalog rates are per million tokens. Returns `None` when the catalog
+/// publishes no rate for the model — either because it is absent or because
+/// every rate is zero, which is how subscription and passthrough routes appear.
+/// `None` means "unknown", and that distinction is the whole point: a hardcoded
+/// `Some(0.0)` asserts the request was free, and a usage graph built on that
+/// reads a confident $0.00 forever.
+pub fn cost_for(
+    provider_id: &str,
+    model_id: &str,
+    input_tokens: i64,
+    output_tokens: i64,
+    cache_read_tokens: i64,
+    cache_write_tokens: i64,
+) -> Option<f64> {
+    let cost = CATALOG
+        .get(provider_id)
+        .and_then(|models| models.get(model_id))
+        .map(|model| &model.cost)?;
+    let published =
+        [cost.input, cost.output, cost.cache_read, cost.cache_write].iter().any(|rate| *rate > 0.0);
+    if !published {
+        return None;
+    }
+    let total = (input_tokens.max(0) as f64) * cost.input
+        + (output_tokens.max(0) as f64) * cost.output
+        + (cache_read_tokens.max(0) as f64) * cost.cache_read
+        + (cache_write_tokens.max(0) as f64) * cost.cache_write;
+    let total = total / 1_000_000.0;
+    total.is_finite().then_some(total)
+}
+
 /// The number of providers in the catalog.
 pub fn provider_count() -> usize {
     CATALOG.len()
@@ -236,6 +269,41 @@ mod tests {
     fn catalog_parses_successfully() {
         assert!(provider_count() > 0, "catalog should have providers");
         assert!(model_count() > 0, "catalog should have models");
+    }
+
+    /// Cost must come from published rates, and an unpublished rate must read
+    /// as unknown rather than free. A hardcoded zero asserts "this request cost
+    /// nothing", and a spend graph built on that reads $0.00 forever.
+    #[test]
+    fn cost_is_derived_from_published_rates_and_absent_otherwise() {
+        // Rates are per million tokens: 1M input at $5/M is $5.
+        let metered = cost_for("anthropic", "claude-opus-5", 1_000_000, 0, 0, 0)
+            .expect("a metered model must price its tokens");
+        assert!(
+            (metered - 5.0).abs() < 1e-9,
+            "1M input tokens at $5/M should be $5, got {metered}"
+        );
+        // Output is charged at its own rate, and the components add.
+        let mixed = cost_for("anthropic", "claude-opus-5", 1_000_000, 1_000_000, 0, 0).unwrap();
+        assert!(
+            (mixed - 30.0).abs() < 1e-9,
+            "$5 input + $25 output should be $30, got {mixed}"
+        );
+        // Zero traffic on a metered model is a real zero.
+        assert_eq!(cost_for("anthropic", "claude-opus-5", 0, 0, 0, 0), Some(0.0));
+
+        // Subscription/passthrough routes publish no rate. Unknown, not free.
+        assert_eq!(
+            cost_for("devin", "glm-5-2", 1_000_000, 1_000_000, 0, 0),
+            None,
+            "a route with no published rate must report unknown cost"
+        );
+        // A model absent from the catalog cannot be priced either.
+        assert_eq!(
+            cost_for("devin", "claude-opus-5-high", 1_000_000, 0, 0, 0),
+            None
+        );
+        assert_eq!(cost_for("nope", "nope", 1_000, 1_000, 0, 0), None);
     }
 
     #[test]

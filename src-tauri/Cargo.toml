@@ -33,7 +33,7 @@ which = "6"
 parking_lot = "0.12"
 rmcp = { version = "2.1", features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "auth"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"] }
-tokio = { version = "1", features = ["process", "rt-multi-thread", "macros"] }
+tokio = { version = "1", features = ["process", "rt-multi-thread", "macros", "time"] }
 async-trait = "0.1.89"
 http = "1.4.2"
 oauth2 = "5.0"

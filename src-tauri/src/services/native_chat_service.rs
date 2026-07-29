@@ -1307,7 +1307,14 @@ impl NativeChatService {
                 cache_read_tokens: 0,
                 cache_write_tokens: 0,
                 tokens_per_second: None,
-                cost_total: Some(0.0),
+                cost_total: crate::models::model_catalog::cost_for(
+                    &provider_id,
+                    &model_id,
+                    0,
+                    estimate_tokens(&run_result.content),
+                    0,
+                    0,
+                ),
                 outcome: if run_result.cancelled {
                     "cancelled"
                 } else {
@@ -1320,6 +1327,9 @@ impl NativeChatService {
                 plan_name: subscription.2.clone(),
                 created_at: now_seconds(),
                 account_id: used_account_id.clone(),
+                // An agent-loop turn spans many provider calls, so no single
+                // request id identifies it.
+                provider_request_id: None,
             };
             Self::insert_metric(&metric)?;
             Self::touch_session(&request.session_id)?;
@@ -1454,6 +1464,9 @@ impl NativeChatService {
                         cache_read_tokens: 0,
                         cache_write_tokens: 0,
                         tokens_per_second: None,
+                        // A request that failed before billing any tokens
+                        // genuinely cost nothing, so zero is a measurement here
+                        // rather than an assumption.
                         cost_total: Some(0.0),
                         outcome: "error".to_string(),
                         error_class: Some(pacct::provider_error_class(&e).to_string()),
@@ -1462,6 +1475,8 @@ impl NativeChatService {
                         plan_name: subscription.2.clone(),
                         created_at: now_seconds(),
                         account_id: used_account_id.clone(),
+                        // The request failed before the provider issued an id.
+                        provider_request_id: None,
                     };
                     let _ = Self::insert_metric(&metric);
                     let _ =
@@ -1505,10 +1520,24 @@ impl NativeChatService {
             ttlt_ms: Some(duration_ms),
             input_tokens,
             output_tokens,
-            cache_read_tokens: 0,
-            cache_write_tokens: 0,
+            cache_read_tokens: response.cache_read_tokens.unwrap_or(0).max(0),
+            cache_write_tokens: response.cache_write_tokens.unwrap_or(0).max(0),
             tokens_per_second,
-            cost_total: Some(0.0),
+            // Metered cost from the catalog's published rates, or `None` when
+            // the model has none — subscription and passthrough routes report
+            // no rate, and `Some(0.0)` there would assert the request was free.
+            //
+            // Cache tokens are now measured, so they are priced: on a long
+            // conversation the cache-read counter dwarfs `input_tokens`, and
+            // leaving it out understated cost by an order of magnitude.
+            cost_total: crate::models::model_catalog::cost_for(
+                &provider_id,
+                &model_id,
+                input_tokens,
+                output_tokens,
+                response.cache_read_tokens.unwrap_or(0).max(0),
+                response.cache_write_tokens.unwrap_or(0).max(0),
+            ),
             outcome: "success".to_string(),
             error_class: None,
             subscription_tier: subscription.0.clone(),
@@ -1516,8 +1545,18 @@ impl NativeChatService {
             plan_name: subscription.2.clone(),
             created_at: now_seconds(),
             account_id: used_account_id.clone(),
+            provider_request_id: response.provider_request_id.clone(),
         };
         Self::insert_metric(&metric)?;
+        if let Err(error) =
+            crate::services::usage_v2_collector_service::UsageV2CollectorService::record_native_quota_windows(
+                &provider_id,
+                used_account_id.as_deref(),
+                &response.quota_windows,
+            )
+        {
+            eprintln!("[SYNC V2] quota header capture failed for {provider_id}: {error}");
+        }
 
         let summary = if is_local {
             "No provider connected — select a provider to chat."
@@ -1928,7 +1967,7 @@ impl NativeChatService {
             .prepare(
                 "SELECT id, session_id, provider_id, model_id, effort_level, started_at, completed_at, duration_ms, ttft_ms, ttlt_ms,
                         input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, tokens_per_second, cost_total, outcome, error_class, created_at,
-                        subscription_tier, subscription_source, plan_name, account_id
+                        subscription_tier, subscription_source, plan_name, account_id, provider_request_id
                  FROM native_request_metrics ORDER BY created_at DESC LIMIT ?1",
             )
             .map_err(|e| e.to_string())?;
@@ -1944,7 +1983,7 @@ impl NativeChatService {
         conn.query_row(
             "SELECT id, session_id, provider_id, model_id, effort_level, started_at, completed_at, duration_ms, ttft_ms, ttlt_ms,
                     input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, tokens_per_second, cost_total, outcome, error_class, created_at,
-                    subscription_tier, subscription_source, plan_name, account_id
+                    subscription_tier, subscription_source, plan_name, account_id, provider_request_id
              FROM native_request_metrics
              WHERE session_id = ?1
              ORDER BY created_at DESC
@@ -1980,7 +2019,7 @@ impl NativeChatService {
             .prepare(
                 "SELECT id, session_id, provider_id, model_id, effort_level, started_at, completed_at, duration_ms, ttft_ms, ttlt_ms,
                         input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, tokens_per_second, cost_total, outcome, error_class, created_at,
-                        subscription_tier, subscription_source, plan_name, account_id
+                        subscription_tier, subscription_source, plan_name, account_id, provider_request_id
                  FROM native_request_metrics WHERE created_at > ?1 ORDER BY created_at ASC LIMIT ?2",
             )
             .map_err(|e| e.to_string())?;
@@ -2550,8 +2589,8 @@ impl NativeChatService {
             "INSERT INTO native_request_metrics (
                 id, session_id, provider_id, model_id, effort_level, started_at, completed_at, duration_ms, ttft_ms, ttlt_ms,
                 input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, tokens_per_second, cost_total, outcome, error_class, created_at,
-                subscription_tier, subscription_source, plan_name, account_id
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
+                subscription_tier, subscription_source, plan_name, account_id, provider_request_id
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
             params![
                 metric.id,
                 metric.session_id,
@@ -2576,6 +2615,7 @@ impl NativeChatService {
                 metric.subscription_source,
                 metric.plan_name,
                 metric.account_id,
+                metric.provider_request_id,
             ],
         )
         .map_err(|e| format!("Failed to save native request metrics: {e}"))?;
@@ -2827,6 +2867,7 @@ fn map_metric(row: &rusqlite::Row<'_>) -> rusqlite::Result<NativeRequestMetric> 
         subscription_source: row.get(20)?,
         plan_name: row.get(21)?,
         account_id: row.get(22)?,
+        provider_request_id: row.get(23)?,
     })
 }
 

@@ -162,7 +162,7 @@ use commands::{
     },
     sync::{
         sync_raw_usage_native, usage_declare_provider_plans, usage_detect_provider_plans,
-        usage_list_provider_plans, usage_sync_projected_usage, usage_sync_retry,
+        usage_drain_rates, usage_list_provider_plans, usage_sync_projected_usage, usage_sync_retry,
         usage_sync_set_enabled, usage_sync_set_mode, usage_sync_status, usage_sync_trigger,
     },
     terminal::{
@@ -304,6 +304,8 @@ pub fn run() {
             let _ = crate::services::connector_service::ConnectorService::restore_on_startup();
             // Start the auto-sync loop (off by default; gates re-checked each tick).
             crate::services::sync_service::start_autosync_loop(app.handle().clone());
+            // Collect v2 rows locally every five minutes when collection consent is enabled.
+            crate::services::usage_v2_collector_service::UsageV2CollectorService::start_background_loop();
             // Start the freeze watchdog (heartbeat + freeze report + abort).
             crate::services::stability_service::start_watchdog(app.handle().clone());
             // Reconcile Windows autostart registration with persisted intent
@@ -662,6 +664,7 @@ pub fn run() {
             usage_detect_provider_plans,
             usage_list_provider_plans,
             usage_declare_provider_plans,
+            usage_drain_rates,
             get_workspace_restore_state,
             save_workspace_restore_state,
             workspace_create,

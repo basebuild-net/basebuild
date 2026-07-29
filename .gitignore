@@ -1,8 +1,9 @@
 node_modules/
 dist/
 .vite/
-src-tauri/target/
-src-tauri/target-verify/
+# Cargo build output — the default `target/` plus any alternate CARGO_TARGET_DIR
+# used for isolated check/test runs while the app holds a lock on `target/`.
+src-tauri/target*/
 *.log
 .DS_Store
 .bb-screenshots/

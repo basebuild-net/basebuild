@@ -2,6 +2,7 @@ use tauri::AppHandle;
 
 use crate::models::usage_sync::{AutoSyncStatus, ProjectedUsage};
 use crate::services::sync_service;
+use crate::services::usage_correlation_service::DrainEstimate;
 
 /// Sync raw OMP usage to basebuild.net using the stored native token.
 /// Collects `omp stats --json` and `omp usage --json`, then sends them
@@ -59,6 +60,18 @@ pub async fn usage_sync_projected_usage() -> Result<ProjectedUsage, String> {
     tauri::async_runtime::spawn_blocking(sync_service::fetch_projected_usage)
         .await
         .map_err(|e| format!("Projected-usage task panicked: {e}"))?
+}
+
+/// Observed plan-window drain rates, solved locally from retained quota
+/// readings paired against measured traffic. Reads two SQLite stores, so it
+/// runs on a blocking thread.
+#[tauri::command]
+pub async fn usage_drain_rates() -> Result<Vec<DrainEstimate>, String> {
+    tauri::async_runtime::spawn_blocking(
+        crate::services::usage_correlation_service::UsageCorrelationService::estimate_drain_rates,
+    )
+    .await
+    .map_err(|e| format!("Drain-rate task panicked: {e}"))?
 }
 
 /// Detect per-provider subscription plans from the local OMP usage ledger.

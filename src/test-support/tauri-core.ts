@@ -2551,6 +2551,80 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         timeline: { windows: [] },
         assembledAt: Math.floor(Date.now() / 1000),
       } as T;
+    case "usage_drain_rates":
+      {
+        // Locally solved, so unlike projected usage this needs no account.
+        // The three rows cover the branches the UI has to be honest about:
+        // a shared window projected to empty before it resets, a
+        // single-model window with only one interval (no spread yet), and a
+        // settled window that resets first.
+        const nowMs = Date.now();
+        return [
+          {
+            provider: "anthropic",
+            limitId: "five_hour",
+            modelId: null,
+            planType: "Max 20x",
+            windowLabel: "5h",
+            intervals: 6,
+            requests: 412,
+            totalTokens: 3_180_000,
+            durationMs: 11_520_000,
+            fractionPer1kTokens: 0.000_244,
+            fractionPerRequest: 0.001_9,
+            fractionPerModelHour: 0.08,
+            relativeSpread: 0.14,
+            confidence: "high",
+            models: ["claude-sonnet-4", "claude-haiku-4"],
+            observedAt: nowMs - 4 * 60_000,
+            remainingFraction: 0.23,
+            resetsAt: nowMs + 95 * 60_000,
+            projectedExhaustionAt: nowMs + 38 * 60_000,
+          },
+          {
+            provider: "openai",
+            limitId: "codex_weekly",
+            modelId: "gpt-5-codex",
+            planType: null,
+            windowLabel: "7d",
+            intervals: 1,
+            requests: 24,
+            totalTokens: 196_000,
+            durationMs: 3_600_000,
+            fractionPer1kTokens: 0.000_002_4,
+            fractionPerRequest: 0.000_31,
+            fractionPerModelHour: 0.02,
+            relativeSpread: null,
+            confidence: "low",
+            models: ["gpt-5-codex"],
+            observedAt: nowMs - 26 * 60_000,
+            remainingFraction: 0.71,
+            resetsAt: nowMs + 3 * 24 * 60 * 60_000,
+            projectedExhaustionAt: null,
+          },
+          {
+            provider: "google",
+            limitId: "daily",
+            modelId: null,
+            planType: "Free",
+            windowLabel: "24h",
+            intervals: 3,
+            requests: 58,
+            totalTokens: 402_000,
+            durationMs: 7_200_000,
+            fractionPer1kTokens: 0.000_041,
+            fractionPerRequest: 0.002_8,
+            fractionPerModelHour: 0.07,
+            relativeSpread: 0.41,
+            confidence: "medium",
+            models: ["gemini-2.5-pro"],
+            observedAt: nowMs - 11 * 60_000,
+            remainingFraction: 0.62,
+            resetsAt: nowMs + 7 * 60 * 60_000,
+            projectedExhaustionAt: nowMs + 19 * 60 * 60_000,
+          },
+        ] as T;
+      }
     case "git_current_branch":
       return "main" as T;
     case "git_default_branch":

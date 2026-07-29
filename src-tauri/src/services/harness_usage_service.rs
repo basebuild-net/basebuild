@@ -19,11 +19,13 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use rusqlite::params;
+use sha2::{Digest, Sha256};
 use serde_json::{json, Value};
 
 use crate::models::usage_envelope::{
-    clamp_window, normalize_identifier, SourceKind, UsageBatch, MAX_FUTURE_SKEW_SECS,
-    MAX_ROWS_PER_BATCH, MAX_WINDOW_AGE_SECS, MAX_WINDOW_SECS,
+    clamp_v2_rows, clamp_window, normalize_identifier, RequestSpanRow, SourceKind, UsageBatch,
+    V2Row, V2UsageBatch, MAX_FUTURE_SKEW_SECS, MAX_ROWS_PER_BATCH, MAX_WINDOW_AGE_SECS,
+    MAX_WINDOW_SECS,
 };
 use crate::services::storage_service::StorageService;
 
@@ -324,6 +326,10 @@ impl HarnessSource {
         self.reader.name()
     }
 
+    fn v2_checkpoint_key(&self) -> String {
+        format!("{}:v2", self.reader.name())
+    }
+
     fn get_checkpoint(&self) -> i64 {
         let conn = match StorageService::connect() {
             Ok(c) => c,
@@ -347,6 +353,29 @@ impl HarnessSource {
             params![self.checkpoint_key(), ts],
         )
         .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    fn get_v2_checkpoint(&self) -> i64 {
+        let Ok(conn) = StorageService::connect() else {
+            return 0;
+        };
+        conn.query_row(
+            "SELECT last_ts FROM harness_sync_checkpoints WHERE source = ?1",
+            params![self.v2_checkpoint_key()],
+            |row| row.get(0),
+        )
+        .unwrap_or(0)
+    }
+
+    fn set_v2_checkpoint(&self, timestamp: i64) -> Result<(), String> {
+        let conn = StorageService::connect()?;
+        conn.execute(
+            "INSERT INTO harness_sync_checkpoints (source, last_ts) VALUES (?1, ?2)
+             ON CONFLICT(source) DO UPDATE SET last_ts = excluded.last_ts",
+            params![self.v2_checkpoint_key(), timestamp],
+        )
+        .map_err(|error| error.to_string())?;
         Ok(())
     }
 }
@@ -401,6 +430,69 @@ impl crate::services::usage_source_service::UsageSource for HarnessSource {
             window_end,
             rows,
         }))
+    }
+
+    fn collect_v2(&self) -> Result<Option<V2UsageBatch>, String> {
+        if !matches!(self.kind(), SourceKind::ClaudeCode | SourceKind::Codex) {
+            return Ok(None);
+        }
+        let since = self.get_v2_checkpoint();
+        let entries = self.reader.read_entries(since);
+        let now = now_seconds();
+        // `entry_high_water` is the newest entry actually emitted, on the same
+        // clock `read_entries` filters by. It stops short of entries dropped by
+        // the row cap, so the next pass picks them up.
+        let (rows, _, entry_high_water) = request_span_entries(self.kind(), &entries, since, now);
+        if rows.is_empty() {
+            let horizon = now - MAX_WINDOW_AGE_SECS + 60;
+            if horizon > since {
+                self.set_v2_checkpoint(horizon)?;
+            }
+            return Ok(None);
+        }
+        // The window is derived from the spans themselves so every row falls
+        // inside the window its batch declares — the server rejects the batch
+        // otherwise. It is deliberately NOT reused as the cursor: that is a
+        // different clock, and the two only agree by accident today.
+        let Some((rows, window_start, window_end)) = clamp_v2_rows(rows, now) else {
+            self.set_v2_checkpoint(entry_high_water)?;
+            return Ok(None);
+        };
+        let digest =
+            Sha256::digest(serde_json::to_vec(&rows).map_err(|error| error.to_string())?);
+        let idempotency_key = format!("harness:{}:v2:{digest:x}", self.kind().as_str());
+        crate::services::usage_source_service::bank_v2_cursor(
+            &self.v2_checkpoint_key(),
+            &idempotency_key,
+            entry_high_water,
+        )?;
+        // Retain traffic before shipping. A retention failure must leave this
+        // batch uncollected: advancing the file cursor would permanently lose
+        // the denominator needed to solve provider drain rates.
+        crate::services::usage_source_service::retain_span_traffic(self.kind(), &rows)?;
+        Ok(Some(V2UsageBatch {
+            source: self.kind(),
+            idempotency_key,
+            window_start,
+            window_end,
+            rows,
+        }))
+    }
+
+    /// Adopt the banked entry high-water mark, never the span-derived window.
+    fn advance_v2_checkpoint(&self, batch: &V2UsageBatch) -> Result<(), String> {
+        let Some(high_water) = crate::services::usage_source_service::take_banked_v2_cursor(
+            &self.v2_checkpoint_key(),
+            &batch.idempotency_key,
+        )?
+        else {
+            return Ok(());
+        };
+        // Monotonic: a late acceptance must not rewind past newer progress.
+        if self.get_v2_checkpoint() >= high_water {
+            return Ok(());
+        }
+        self.set_v2_checkpoint(high_water)
     }
 
     fn advance_checkpoint(&self, batch: &UsageBatch) -> Result<(), String> {
@@ -591,6 +683,143 @@ fn aggregate_entries(
     (rows, window_start, window_end)
 }
 
+/// Convert Claude Code and Codex file metadata into request spans. The helper
+/// only accesses ids, model, token counters, timestamps, and outcome flags.
+fn request_span_entries(
+    source: SourceKind,
+    entries: &[Value],
+    since: i64,
+    now: i64,
+) -> (Vec<V2Row>, i64, i64) {
+    let horizon = now - MAX_WINDOW_AGE_SECS + 60;
+    let newest = now + MAX_FUTURE_SKEW_SECS;
+    let mut metadata = entries
+        .iter()
+        .filter_map(|entry| {
+            let (provider, model, input, output, cache_read, _, timestamp) = match source {
+                SourceKind::ClaudeCode => extract_claude_code(entry),
+                SourceKind::Codex => extract_codex(entry),
+                _ => return None,
+            };
+            if timestamp <= since || timestamp < horizon || timestamp > newest {
+                return None;
+            }
+            Some((entry, provider, model, input, output, cache_read, timestamp))
+        })
+        .collect::<Vec<_>>();
+    metadata.sort_by_key(|item| item.6);
+    let Some(first_timestamp) = metadata.first().map(|item| item.6) else {
+        return (Vec::new(), since.max(horizon), since.max(horizon));
+    };
+    let chunk_end = first_timestamp.saturating_add(MAX_WINDOW_SECS).min(newest);
+    let mut rows = Vec::new();
+    let mut window_end = first_timestamp;
+    for (entry, provider, model, input, output, cache_read, timestamp) in metadata {
+        if timestamp > chunk_end || rows.len() >= MAX_ROWS_PER_BATCH {
+            break;
+        }
+        let (Some(provider), Some(model)) = (
+            normalize_identifier(&provider),
+            normalize_identifier(&model),
+        ) else {
+            continue;
+        };
+        let raw_session = entry
+            .get("sessionId")
+            .or_else(|| entry.get("session_id"))
+            .or_else(|| entry.get("conversation_id"))
+            .or_else(|| entry.get("payload").and_then(|value| value.get("session_id")))
+            .and_then(Value::as_str)
+            .unwrap_or("unknown-session");
+        let session_id =
+            normalize_identifier(raw_session).unwrap_or_else(|| "unknown-session".to_string());
+        let raw_identity = entry
+            .get("uuid")
+            .or_else(|| entry.get("id"))
+            .or_else(|| entry.get("request_id"))
+            .or_else(|| entry.get("payload").and_then(|value| value.get("id")))
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let identity = format!(
+            "{}|{}|{}|{}|{}|{}|{}",
+            source.as_str(),
+            raw_identity,
+            session_id,
+            model,
+            timestamp,
+            input,
+            output
+        );
+        let event_digest = Sha256::digest(identity.as_bytes());
+        let event_id = format!("{}:{event_digest:x}", source.as_str());
+        let agent_id = entry
+            .get("agentId")
+            .and_then(Value::as_str)
+            .and_then(normalize_identifier);
+        let provider_request_id = entry
+            .get("request_id")
+            .or_else(|| entry.get("requestId"))
+            .and_then(Value::as_str)
+            .and_then(normalize_identifier);
+        let interrupted = entry
+            .get("interrupted")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let errored = entry
+            .get("is_error")
+            .or_else(|| entry.get("isError"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+            || entry.get("error").is_some();
+        let outcome = if interrupted {
+            "cancelled"
+        } else if errored {
+            "error"
+        } else {
+            "success"
+        };
+        let cache_write = entry
+            .get("message")
+            .and_then(|message| message.get("usage"))
+            .and_then(|usage| usage.get("cache_creation_input_tokens"))
+            .and_then(Value::as_i64)
+            .unwrap_or(0);
+        let timestamp_ms = timestamp.saturating_mul(1000);
+        rows.push(V2Row::RequestSpan(RequestSpanRow {
+            event_id,
+            provider,
+            account_hash: None,
+            model,
+            session_id,
+            agent_id,
+            provider_request_id,
+            started_at: timestamp_ms,
+            completed_at: timestamp_ms,
+            input_tokens: Some(input.clamp(0, i32::MAX as i64)),
+            output_tokens: Some(output.clamp(0, i32::MAX as i64)),
+            cache_read_tokens: Some(cache_read.clamp(0, i32::MAX as i64)),
+            cache_write_tokens: Some(cache_write.clamp(0, i32::MAX as i64)),
+            cost_total: None,
+            ttft_ms: None,
+            effort: None,
+            outcome: outcome.to_string(),
+        }));
+        window_end = window_end.max(timestamp);
+    }
+    rows.sort_by(|left, right| {
+        let left_id = match left {
+            V2Row::RequestSpan(row) => row.event_id.as_str(),
+            _ => "",
+        };
+        let right_id = match right {
+            V2Row::RequestSpan(row) => row.event_id.as_str(),
+            _ => "",
+        };
+        left_id.cmp(right_id)
+    });
+    (rows, first_timestamp, window_end)
+}
+
 /// Harness timestamps arrive in seconds or milliseconds depending on the
 /// tool. Anything past year 5138 in seconds is milliseconds.
 fn normalize_epoch_seconds(value: i64) -> i64 {
@@ -777,7 +1006,7 @@ fn file_is_fresh(path: &Path, since_epoch: i64) -> bool {
 
 /// Parse an ISO-8601 timestamp to epoch seconds. Lenient — returns None on
 /// any parse failure.
-fn parse_iso_to_epoch(s: &str) -> Option<i64> {
+pub(crate) fn parse_iso_to_epoch(s: &str) -> Option<i64> {
     // Trim subsecond + timezone to a coarse epoch. We only need hour-bucket
     // granularity, so a 1-second approximation is fine.
     // Accept shapes like 2026-07-18T12:34:56.789Z or 2026-07-18T12:34:56Z.
@@ -1145,5 +1374,75 @@ mod tests {
         // The actual ~/.claude/projects may or may not exist on the test
         // machine; either way available() must not panic.
         let _ = source.available();
+    }
+    #[test]
+    fn claude_file_source_collects_v2_spans_without_message_content() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&dir);
+        let root = dir.path().join("claude-projects");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("session.jsonl"),
+            json!({
+                "type": "assistant",
+                "uuid": "entry-1",
+                "sessionId": "session-1",
+                "message": {
+                    "model": "claude-sonnet-4",
+                    "usage": {
+                        "input_tokens": 120,
+                        "output_tokens": 30,
+                        "cache_read_input_tokens": 40,
+                        "cache_creation_input_tokens": 5
+                    },
+                    "content": "private response body"
+                },
+                "timestamp": "2026-07-27T00:00:00Z"
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let source = HarnessSource {
+            reader: Box::new(ClaudeCodeReader { dir: Some(root) }),
+        };
+        let batch = source.collect_v2().unwrap().expect("v2 harness batch");
+        assert_eq!(batch.source, SourceKind::ClaudeCode);
+        assert_eq!(batch.rows.len(), 1);
+        crate::models::usage_envelope::validate_v2_row(&batch.rows[0]).unwrap();
+        let value = serde_json::to_value(&batch.rows[0]).unwrap();
+        for forbidden in ["message", "content", "text", "prompt", "response"] {
+            assert!(value.get(forbidden).is_none());
+        }
+        let conn =
+            crate::services::storage_service::StorageService::connect().unwrap();
+        let retained: (String, String, i64, i64, i64, i64) = conn
+            .query_row(
+                "SELECT source, model, input_tokens, output_tokens,
+                        cache_read_tokens, cache_write_tokens
+                 FROM usage_span_traffic",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            retained,
+            (
+                "claude-code".to_string(),
+                "claude-sonnet-4".to_string(),
+                120,
+                30,
+                40,
+                5,
+            )
+        );
     }
 }

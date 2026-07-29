@@ -218,9 +218,15 @@ impl ProviderClient for DevinClient {
             reasoning: (!reasoning.is_empty()).then_some(reasoning),
             input_tokens,
             output_tokens,
+            // Devin's protobuf usage message carries only input and output
+            // counters, and publishes no request id.
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            provider_request_id: None,
             ttft_ms: ttft_ms.or(Some(duration_ms)),
             duration_ms,
             tool_calls,
+            quota_windows: Vec::new(),
         })
     }
 }

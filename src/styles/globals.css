@@ -3899,7 +3899,8 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
   border-radius: var(--bb-radius-sm); cursor: pointer;
 }
 .usage-consent-banner-close:hover { color: var(--bb-text); background: var(--bb-surface-hover); }
-.usage-source-section {
+.usage-source-section,
+.usage-burn-section {
   display: flex;
   flex-direction: column;
   gap: var(--bb-space-sm);
@@ -3954,6 +3955,50 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .usage-table td { padding: 4px 6px; border-bottom: 1px solid var(--bb-border); }
 .usage-plan-row { padding: 4px 0; align-items: center; }
 .usage-plan-provider { min-width: 96px; font-weight: 600; }
+
+/* Locally-solved plan drain rates. Rows sit on the same surface as
+   .usage-source-row so both lists in the panel read as one family. */
+.usage-burn-list { display: flex; flex-direction: column; gap: var(--bb-space-1); }
+.usage-burn-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--bb-space-1);
+  padding: var(--bb-space-2) var(--bb-space-3);
+  border: 1px solid transparent;
+  border-radius: var(--bb-radius-sm);
+  background: var(--bb-surface);
+}
+/* Projected to run out before the window resets — the one case worth acting
+   on, so it carries the same danger treatment as other blocking notices. */
+.usage-burn-row.is-exhausting {
+  border-color: var(--bb-danger-border);
+  background: color-mix(in srgb, var(--bb-negative) 6%, var(--bb-surface));
+}
+.usage-burn-head { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.usage-burn-window { font-family: var(--bb-mono); font-size: 11px; color: var(--bb-muted); }
+.usage-burn-confidence {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 1px 5px;
+  border: 1px solid var(--bb-border-strong);
+  border-radius: var(--bb-radius-full);
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--bb-muted);
+}
+.usage-burn-confidence.is-high { color: var(--bb-positive); border-color: var(--bb-success-border); }
+.usage-burn-confidence.is-low { color: var(--bb-warning); border-color: var(--bb-warning-border); }
+.usage-burn-scope { font-family: var(--bb-mono); font-size: 11px; color: var(--bb-muted); overflow-wrap: anywhere; }
+.usage-burn-stats { display: flex; flex-wrap: wrap; gap: 10px; font-size: 11px; }
+.usage-burn-stat { display: flex; align-items: baseline; gap: 4px; }
+.usage-burn-stat-label { color: var(--bb-muted); }
+.usage-burn-stat-value { font-family: var(--bb-mono); color: var(--bb-text); }
+.usage-burn-times { display: flex; flex-wrap: wrap; gap: 10px; font-size: 11px; color: var(--bb-muted); }
+.usage-burn-note { display: flex; align-items: center; gap: 4px; }
+.usage-burn-note > svg { flex: 0 0 auto; }
+.usage-burn-note.is-estimate { color: var(--bb-warning); }
 
 /* ─── Project chat sidebar (left column) ─── */
 .project-chat-sidebar {

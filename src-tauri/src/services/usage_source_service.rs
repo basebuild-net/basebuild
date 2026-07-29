@@ -5,13 +5,17 @@
 //! usage, and native failures cannot block OMP usage.
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
-use crate::models::usage_envelope::{clamp_window, normalize_identifier, SourceKind, UsageBatch};
+use crate::models::usage_envelope::{
+    clamp_v2_rows, clamp_window, normalize_identifier, RequestSpanRow, SourceKind, UsageBatch,
+    V2Row, V2UsageBatch, MAX_ROWS_PER_BATCH,
+};
 use crate::services::storage_service::StorageService;
 
 /// Result of collecting a usage batch from a source.
@@ -30,6 +34,15 @@ pub struct SourceCollection {
     pub error: Option<String>,
 }
 
+/// Result of collecting a typed version 2 batch from one source.
+#[derive(Debug)]
+pub struct SourceCollectionV2 {
+    pub source: SourceKind,
+    pub batch: Option<V2UsageBatch>,
+    pub diagnostic: String,
+    pub error: Option<String>,
+}
+
 /// return batches but never mutate process state.
 pub trait UsageSource: Send + Sync {
     /// Which source kind this is.
@@ -44,6 +57,12 @@ pub trait UsageSource: Send + Sync {
     /// tool content, credentials, or project paths.
     fn collect(&self) -> Result<Option<UsageBatch>, String>;
 
+    /// Collect request-level version 2 rows when this source supports them.
+    /// Unsupported sources remain on the unchanged version 1 path.
+    fn collect_v2(&self) -> Result<Option<V2UsageBatch>, String> {
+        Ok(None)
+    }
+
     /// Advance the checkpoint after the server acknowledged the batch.
     /// Only called after a successful push.
     fn advance_checkpoint(&self, batch: &UsageBatch) -> Result<(), String>;
@@ -53,6 +72,11 @@ pub trait UsageSource: Send + Sync {
     /// Defaults to the accept path, which is correct for cursor-only sources.
     fn discard_batch(&self, batch: &UsageBatch) -> Result<(), String> {
         self.advance_checkpoint(batch)
+    }
+
+    /// Advance the independent version 2 checkpoint after a terminal receipt.
+    fn advance_v2_checkpoint(&self, _batch: &V2UsageBatch) -> Result<(), String> {
+        Ok(())
     }
 
     /// Locally recorded usage not yet accepted by the server, when it can be
@@ -201,6 +225,67 @@ impl UsageSource for OmpSource {
         };
         self.persist_pending(&current, &batch)?;
         Ok(Some(batch))
+    }
+
+    /// Collect per-request spans straight from OMP's `stats.db`.
+    ///
+    /// `omp stats --json` only exposes cumulative per-model counters, which is
+    /// why the v1 path has to diff them. The underlying `messages` table is
+    /// already one row per request and carries the two fields no other source
+    /// can supply: a real `cost_total` and a measured `ttft`.
+    ///
+    /// The cursor is `messages.rowid`, not a timestamp. Rows are only ever
+    /// appended, so a monotonic rowid cannot skip a row that was inserted while
+    /// a batch was in flight — which is exactly the failure a wall-clock cursor
+    /// invites. It is banked against the batch key and only adopted once the
+    /// server accepts, so a crash mid-flight re-offers rows instead of losing
+    /// them.
+    fn collect_v2(&self) -> Result<Option<V2UsageBatch>, String> {
+        let Some(path) = omp_stats_db_path() else {
+            return Ok(None);
+        };
+        if !path.exists() {
+            return Ok(None);
+        }
+        // OMP tails its session files lazily, so `stats.db` routinely lags the
+        // wall clock by minutes. Asking it for stats first flushes that backlog,
+        // which is what keeps spans and quota readings describing the same
+        // stretch of time — without it, every fresh interval looks like traffic
+        // that never happened.
+        if let Err(error) = crate::services::omp_service::OmpService::run_json(&["stats", "--json"])
+        {
+            eprintln!("[SYNC V2] omp: could not flush stats before reading spans: {error}");
+        }
+        let since = v2_cursor(OMP_V2_CURSOR)?;
+        let (rows, max_rowid) = read_omp_spans(&path, since, MAX_ROWS_PER_BATCH)?;
+        if rows.is_empty() {
+            return Ok(None);
+        }
+        let now = now_seconds();
+        let Some((rows, window_start, window_end)) = clamp_v2_rows(rows, now) else {
+            // Everything readable is older than the retention horizon. Bank the
+            // rowid so the dead tail is not re-read on every pass.
+            set_v2_cursor(OMP_V2_CURSOR, max_rowid)?;
+            return Ok(None);
+        };
+        let digest = Sha256::digest(serde_json::to_vec(&rows).map_err(|e| e.to_string())?);
+        let idempotency_key = format!("omp:v2:{digest:x}");
+        bank_v2_cursor(OMP_V2_CURSOR, &idempotency_key, max_rowid)?;
+        Ok(Some(V2UsageBatch {
+            source: SourceKind::Omp,
+            idempotency_key,
+            window_start,
+            window_end,
+            rows,
+        }))
+    }
+
+    /// Adopt the banked rowid for the batch the server just accepted.
+    fn advance_v2_checkpoint(&self, batch: &V2UsageBatch) -> Result<(), String> {
+        if let Some(rowid) = take_banked_v2_cursor(OMP_V2_CURSOR, &batch.idempotency_key)? {
+            set_v2_cursor(OMP_V2_CURSOR, rowid)?;
+        }
+        Ok(())
     }
 
     /// Clear the pending batch without adopting its counters as the new
@@ -414,6 +499,35 @@ impl UsageSource for NativeSource {
         }
     }
 
+    fn collect_v2(&self) -> Result<Option<V2UsageBatch>, String> {
+        match crate::services::sync_service::collect_native_v2_batch() {
+            Ok(batch) if batch.rows.is_empty() => Ok(None),
+            Ok(batch) => Ok(Some(batch)),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Adopt the banked `created_at` high-water mark for the accepted batch.
+    ///
+    /// Never `batch.window_end`: that is derived from span timestamps, while the
+    /// collect query filters on `created_at`. They are separate clocks read at
+    /// separate instants, and advancing one by the other silently skips every
+    /// metric that landed in the gap.
+    fn advance_v2_checkpoint(&self, batch: &V2UsageBatch) -> Result<(), String> {
+        let Some(high_water) = take_banked_v2_cursor(NATIVE_V2_CURSOR, &batch.idempotency_key)?
+        else {
+            return Ok(());
+        };
+        use crate::services::settings_service::SettingsService;
+        let mut settings = SettingsService::get_usage_sync_settings()?;
+        // Monotonic: a late-arriving acceptance must never rewind the cursor.
+        if settings.last_envelope_v2_sync_at.unwrap_or(0) >= high_water {
+            return Ok(());
+        }
+        settings.last_envelope_v2_sync_at = Some(high_water);
+        SettingsService::set_usage_sync_settings(&settings)
+    }
+
     fn advance_checkpoint(&self, batch: &UsageBatch) -> Result<(), String> {
         use crate::services::settings_service::SettingsService;
         let mut settings = SettingsService::get_usage_sync_settings()?;
@@ -486,9 +600,419 @@ pub fn collect_all_sources() -> Vec<SourceCollection> {
     results
 }
 
+/// Collect typed version 2 rows from capable sources. OMP remains on version 1
+/// because its public stats payload contains cumulative aggregates, not events.
+pub fn collect_all_sources_v2() -> Vec<SourceCollectionV2> {
+    let sources = registered_sources();
+    let mut results = Vec::new();
+    for source in &sources {
+        let kind = source.kind();
+        if !source.available() {
+            results.push(SourceCollectionV2 {
+                source: kind,
+                batch: None,
+                diagnostic: format!("{} unavailable: {}", kind.as_str(), source.diagnostic()),
+                error: None,
+            });
+            continue;
+        }
+        match source.collect_v2() {
+            Ok(batch) => results.push(SourceCollectionV2 {
+                source: kind,
+                batch,
+                diagnostic: source.diagnostic(),
+                error: None,
+            }),
+            Err(error) => results.push(SourceCollectionV2 {
+                source: kind,
+                batch: None,
+                diagnostic: format!("{} v2 error: {error}", kind.as_str()),
+                error: Some(error),
+            }),
+        }
+    }
+    results
+}
+
+/// Path to OMP's per-request statistics database.
+fn omp_stats_db_path() -> Option<PathBuf> {
+    std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .map(|home| PathBuf::from(home).join(".omp").join("stats.db"))
+}
+
+/// Newest request timestamp OMP has ingested into `stats.db`.
+///
+/// `None` when the store is missing, empty, or unreadable. Callers use it to
+/// tell "no requests happened" apart from "the requests have not been tailed off
+/// disk yet" — two states that are otherwise identical from the outside.
+pub(crate) fn omp_ingestion_horizon() -> Option<i64> {
+    let path = omp_stats_db_path()?;
+    if !path.exists() {
+        return None;
+    }
+    let flags = rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+        | rusqlite::OpenFlags::SQLITE_OPEN_URI
+        | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    let conn =
+        rusqlite::Connection::open_with_flags(format!("file:{}", path.to_string_lossy()), flags)
+            .ok()?;
+    conn.query_row("SELECT MAX(timestamp) FROM messages", [], |row| {
+        row.get::<_, Option<i64>>(0)
+    })
+    .ok()
+    .flatten()
+}
+
+/// Retain per-request traffic from a harness batch so a past window can be
+/// re-queried after the batch itself is shipped and deleted.
+///
+/// Keyed on `event_id`, so re-offering the same span is a no-op. Only spans are
+/// retained: quota and coverage rows carry no traffic.
+pub(crate) fn retain_span_traffic(source: SourceKind, rows: &[V2Row]) -> Result<(), String> {
+    let mut conn = StorageService::connect()?;
+    let transaction = conn.transaction().map_err(|error| error.to_string())?;
+    for row in rows {
+        let V2Row::RequestSpan(span) = row else {
+            continue;
+        };
+        transaction
+            .execute(
+                "INSERT OR IGNORE INTO usage_span_traffic
+                    (event_id, source, provider, model, started_at,
+                     input_tokens, output_tokens, cache_read_tokens,
+                     cache_write_tokens, duration_ms)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                params![
+                    span.event_id,
+                    source.as_str(),
+                    span.provider,
+                    span.model,
+                    span.started_at,
+                    span.input_tokens.unwrap_or_default().max(0),
+                    span.output_tokens.unwrap_or_default().max(0),
+                    span.cache_read_tokens.unwrap_or_default().max(0),
+                    span.cache_write_tokens.unwrap_or_default().max(0),
+                    span.completed_at.saturating_sub(span.started_at).max(0),
+                ],
+            )
+            .map_err(|error| error.to_string())?;
+    }
+    transaction.commit().map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+/// Drop retained traffic older than `cutoff`. Kept in step with the quota
+/// sample horizon: traffic with no reading to pair against is dead weight.
+pub(crate) fn prune_span_traffic(cutoff_ms: i64) -> Result<usize, String> {
+    StorageService::connect()?
+        .execute(
+            "DELETE FROM usage_span_traffic WHERE started_at < ?1",
+            params![cutoff_ms],
+        )
+        .map_err(|error| error.to_string())
+}
+
+const OMP_V2_CURSOR: &str = "omp:v2";
+/// Cursor namespace for the native ledger's version 2 collection.
+pub(crate) const NATIVE_V2_CURSOR: &str = "native:v2";
+
+/// Read a persisted v2 cursor, or 0 when the source has never synced.
+fn v2_cursor(namespace: &str) -> Result<i64, String> {
+    let value: Option<i64> = StorageService::connect()?
+        .query_row(
+            "SELECT last_ts FROM harness_sync_checkpoints WHERE source = ?1",
+            params![namespace],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+    Ok(value.unwrap_or(0))
+}
+
+fn set_v2_cursor(namespace: &str, value: i64) -> Result<(), String> {
+    StorageService::connect()?
+        .execute(
+            "INSERT INTO harness_sync_checkpoints (source, last_ts) VALUES (?1, ?2)
+             ON CONFLICT(source) DO UPDATE SET last_ts = excluded.last_ts",
+            params![namespace, value],
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+/// Remember where a batch would advance its cursor to, without moving it.
+///
+/// The cursor is only adopted once the server accepts the batch, so a crash in
+/// between re-offers those rows rather than stepping over them. Duplicates are
+/// recoverable; a skipped row is gone.
+pub(crate) fn bank_v2_cursor(
+    namespace: &str,
+    idempotency_key: &str,
+    value: i64,
+) -> Result<(), String> {
+    set_v2_cursor(&format!("{namespace}:pending:{idempotency_key}"), value)
+}
+
+/// Take and clear a banked cursor. `None` means this batch never banked one.
+pub(crate) fn take_banked_v2_cursor(
+    namespace: &str,
+    idempotency_key: &str,
+) -> Result<Option<i64>, String> {
+    let key = format!("{namespace}:pending:{idempotency_key}");
+    let conn = StorageService::connect()?;
+    let value: Option<i64> = conn
+        .query_row(
+            "SELECT last_ts FROM harness_sync_checkpoints WHERE source = ?1",
+            params![key],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+    conn.execute(
+        "DELETE FROM harness_sync_checkpoints WHERE source = ?1",
+        params![key],
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(value)
+}
+
+/// Read appended `messages` rows as typed spans.
+///
+/// Opened read-only: OMP owns this database and may be writing to it. Returns
+/// the spans and the highest rowid read, which is the cursor the caller banks.
+fn read_omp_spans(
+    path: &std::path::Path,
+    since_rowid: i64,
+    limit: usize,
+) -> Result<(Vec<V2Row>, i64), String> {
+    let flags = rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+        | rusqlite::OpenFlags::SQLITE_OPEN_URI
+        | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    let uri = format!("file:{}?immutable=0", path.to_string_lossy());
+    let conn = rusqlite::Connection::open_with_flags(uri, flags)
+        .map_err(|error| format!("could not open OMP stats.db: {error}"))?;
+    let mut statement = conn
+        .prepare(
+            "SELECT rowid, provider, model, timestamp, duration, ttft, stop_reason,
+                    input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+                    cost_total, session_file
+             FROM messages WHERE rowid > ?1 ORDER BY rowid ASC LIMIT ?2",
+        )
+        .map_err(|error| error.to_string())?;
+    let mut max_rowid = since_rowid;
+    let mut rows = Vec::new();
+    let mapped = statement
+        .query_map(params![since_rowid, limit as i64], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<i64>>(3)?,
+                row.get::<_, Option<i64>>(4)?,
+                row.get::<_, Option<i64>>(5)?,
+                row.get::<_, Option<String>>(6)?,
+                row.get::<_, Option<i64>>(7)?,
+                row.get::<_, Option<i64>>(8)?,
+                row.get::<_, Option<i64>>(9)?,
+                row.get::<_, Option<i64>>(10)?,
+                row.get::<_, Option<f64>>(11)?,
+                row.get::<_, Option<String>>(12)?,
+            ))
+        })
+        .map_err(|error| error.to_string())?;
+    for entry in mapped {
+        let (
+            rowid,
+            provider,
+            model,
+            timestamp,
+            duration,
+            ttft,
+            stop_reason,
+            input,
+            output,
+            cache_read,
+            cache_write,
+            cost,
+            session_file,
+        ) = entry.map_err(|error| error.to_string())?;
+        max_rowid = max_rowid.max(rowid);
+        // Identity, provider, and model are mandatory; a row missing them
+        // cannot be attributed and is skipped rather than shipped as "unknown".
+        let (Some(provider), Some(model)) = (
+            provider.as_deref().and_then(normalize_identifier),
+            model.as_deref().and_then(normalize_identifier),
+        ) else {
+            continue;
+        };
+        let Some(started_at) = timestamp.filter(|value| *value > 0) else {
+            continue;
+        };
+        let duration = duration.unwrap_or_default().clamp(0, 86_400_000);
+        // `session_file` is a local path, so it is hashed rather than sent: it
+        // identifies the session for correlation without leaking the filesystem.
+        let session_id = session_file
+            .as_deref()
+            .map(|file| {
+                let digest = Sha256::digest(file.as_bytes());
+                format!("omp-{:.16}", format!("{digest:x}"))
+            })
+            .and_then(|value| normalize_identifier(&value))
+            .unwrap_or_else(|| "unknown-session".to_string());
+        let event_digest = Sha256::digest(format!("omp|{rowid}|{started_at}|{model}").as_bytes());
+        let outcome = match stop_reason.as_deref() {
+            Some("error") | Some("failed") => "error",
+            Some("cancelled") | Some("canceled") | Some("interrupted") | Some("aborted") => {
+                "cancelled"
+            }
+            _ => "success",
+        };
+        rows.push(V2Row::RequestSpan(RequestSpanRow {
+            event_id: format!("omp:{event_digest:x}"),
+            provider,
+            account_hash: None,
+            model,
+            session_id,
+            agent_id: None,
+            provider_request_id: None,
+            started_at,
+            completed_at: started_at.saturating_add(duration),
+            input_tokens: Some(input.unwrap_or_default().clamp(0, i32::MAX as i64)),
+            output_tokens: Some(output.unwrap_or_default().clamp(0, i32::MAX as i64)),
+            cache_read_tokens: Some(cache_read.unwrap_or_default().clamp(0, i32::MAX as i64)),
+            cache_write_tokens: Some(cache_write.unwrap_or_default().clamp(0, i32::MAX as i64)),
+            // The one source with a real cost. `None` stays `None` — an absent
+            // cost is unknown, not free.
+            cost_total: cost
+                .filter(|value| value.is_finite() && *value >= 0.0)
+                .map(|value| value.clamp(0.0, 1_000_000.0)),
+            ttft_ms: ttft.map(|value| value.clamp(0, 86_400_000)),
+            effort: None,
+            outcome: outcome.to_string(),
+        }));
+    }
+    Ok((rows, max_rowid))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Build a stand-in for OMP's `stats.db`, carrying only the columns the
+    /// reader selects.
+    fn seed_omp_stats(path: &std::path::Path, rows: &[(&str, &str, i64, i64, Option<f64>)]) {
+        let conn = rusqlite::Connection::open(path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_file TEXT, entry_id TEXT, folder TEXT, model TEXT, provider TEXT,
+                api TEXT, timestamp INTEGER, duration INTEGER, ttft INTEGER,
+                stop_reason TEXT, error_message TEXT,
+                input_tokens INTEGER, output_tokens INTEGER,
+                cache_read_tokens INTEGER, cache_write_tokens INTEGER,
+                total_tokens INTEGER, premium_requests INTEGER,
+                cost_input REAL, cost_output REAL, cost_cache_read REAL,
+                cost_cache_write REAL, cost_total REAL, agent_type TEXT)",
+        )
+        .unwrap();
+        for (provider, model, timestamp, output, cost) in rows {
+            conn.execute(
+                "INSERT INTO messages
+                    (session_file, model, provider, timestamp, duration, ttft, stop_reason,
+                     input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_total)
+                 VALUES ('/home/u/.omp/sess.jsonl', ?1, ?2, ?3, 1500, 250, 'stop',
+                         100, ?4, 4096, 64, ?5)",
+                params![model, provider, timestamp, output, cost],
+            )
+            .unwrap();
+        }
+    }
+
+    /// OMP's per-request table is the only source carrying a real cost and a
+    /// measured TTFT. Both must survive into the span, and an absent cost must
+    /// stay `None` rather than becoming a confident zero.
+    #[test]
+    fn omp_spans_carry_real_cost_and_ttft_and_hash_the_session_path() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let db = dir.path().join("stats.db");
+        seed_omp_stats(
+            &db,
+            &[
+                ("anthropic", "claude-opus-5", 1_800_000_000_000, 500, Some(0.42)),
+                ("devin", "glm-5-2", 1_800_000_060_000, 700, None),
+            ],
+        );
+        let (rows, max_rowid) = read_omp_spans(&db, 0, 500).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(max_rowid, 2, "cursor is the highest rowid read");
+
+        let V2Row::RequestSpan(first) = &rows[0] else {
+            panic!("expected request span")
+        };
+        assert_eq!(first.provider, "anthropic");
+        assert_eq!(first.model, "claude-opus-5");
+        assert_eq!(first.cost_total, Some(0.42), "real cost must survive");
+        assert_eq!(first.ttft_ms, Some(250), "measured TTFT must survive");
+        assert_eq!(first.cache_read_tokens, Some(4096));
+        assert_eq!(first.cache_write_tokens, Some(64));
+        assert_eq!(first.completed_at, 1_800_000_001_500, "duration extends span");
+        assert!(
+            !first.session_id.contains('/') && !first.session_id.contains(".omp"),
+            "session path must be hashed, not shipped: {}",
+            first.session_id
+        );
+
+        let V2Row::RequestSpan(second) = &rows[1] else {
+            panic!("expected request span")
+        };
+        assert_eq!(
+            second.cost_total, None,
+            "an absent cost is unknown, never a free request"
+        );
+        for row in &rows {
+            crate::models::usage_envelope::validate_v2_row(row).unwrap();
+        }
+    }
+
+    /// The cursor is a rowid, so a row appended while a batch is in flight is
+    /// re-read rather than skipped — the failure mode is duplication, not loss.
+    #[test]
+    fn omp_span_cursor_advances_by_rowid_and_never_skips_a_late_insert() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let db = dir.path().join("stats.db");
+        seed_omp_stats(
+            &db,
+            &[("anthropic", "claude-opus-5", 1_800_000_000_000, 500, Some(0.1))],
+        );
+        let (first, cursor) = read_omp_spans(&db, 0, 500).unwrap();
+        assert_eq!(first.len(), 1);
+        assert_eq!(cursor, 1);
+
+        // Nothing new past the cursor.
+        let (empty, unchanged) = read_omp_spans(&db, cursor, 500).unwrap();
+        assert!(empty.is_empty());
+        assert_eq!(unchanged, cursor, "an empty read must not move the cursor");
+
+        // A row inserted with an OLDER timestamp than the one already read is
+        // still picked up, because the cursor is not a clock.
+        seed_omp_stats_append(&db, "devin", "glm-5-2", 1_700_000_000_000);
+        let (late, advanced) = read_omp_spans(&db, cursor, 500).unwrap();
+        assert_eq!(late.len(), 1, "a back-dated append must not be skipped");
+        assert_eq!(advanced, 2);
+    }
+
+    fn seed_omp_stats_append(path: &std::path::Path, provider: &str, model: &str, timestamp: i64) {
+        let conn = rusqlite::Connection::open(path).unwrap();
+        conn.execute(
+            "INSERT INTO messages
+                (session_file, model, provider, timestamp, duration, ttft, stop_reason,
+                 input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_total)
+             VALUES ('/home/u/.omp/late.jsonl', ?1, ?2, ?3, 10, 5, 'stop', 1, 1, 0, 0, NULL)",
+            params![model, provider, timestamp],
+        )
+        .unwrap();
+    }
 
     #[test]
     fn registered_sources_contains_all_sources() {
