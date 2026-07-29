@@ -320,6 +320,14 @@ impl Traffic {
         *self.models.entry(model).or_insert(0) += 1;
     }
 
+    #[cfg(test)]
+    fn total_tokens(&self) -> i64 {
+        self.input
+            .saturating_add(self.output)
+            .saturating_add(self.cache_read)
+            .saturating_add(self.cache_write)
+    }
+
     fn merge(&mut self, other: Traffic) {
         self.input = self.input.saturating_add(other.input);
         self.output = self.output.saturating_add(other.output);
