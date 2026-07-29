@@ -3899,7 +3899,8 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
   border-radius: var(--bb-radius-sm); cursor: pointer;
 }
 .usage-consent-banner-close:hover { color: var(--bb-text); background: var(--bb-surface-hover); }
-.usage-source-section {
+.usage-source-section,
+.usage-burn-section {
   display: flex;
   flex-direction: column;
   gap: var(--bb-space-sm);

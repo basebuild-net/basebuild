@@ -603,7 +603,7 @@ function PlanBurnRatePanel() {
   }, [load]);
 
   return (
-    <section className="usage-source-section" aria-labelledby="usage-burn-heading">
+    <section className="usage-burn-section" aria-labelledby="usage-burn-heading">
       <h4 id="usage-burn-heading">Plan burn rate</h4>
       <p className="text-muted text-sm">
         Solved on this machine by pairing two readings of a provider quota window against the
