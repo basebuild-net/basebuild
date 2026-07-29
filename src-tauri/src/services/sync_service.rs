@@ -4,8 +4,8 @@ use std::time::Duration;
 
 use parking_lot::Mutex;
 use rusqlite::{params, OptionalExtension};
-use sha2::{Digest, Sha256};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter};
 
 use crate::events::{AUTH_CHANGED, USAGE_SYNC_STATUS};
@@ -50,6 +50,10 @@ const MANAGED_TRIGGER_EVAL_SECS: u64 = 60;
 /// relative vs the last pushed total. Small so active usage flows out quickly.
 const MANAGED_TRIGGER_ABS_DELTA: i64 = 5;
 const MANAGED_TRIGGER_REL_PCT: f64 = 0.20;
+/// Account syncs may drain a deep local backlog in one user-visible attempt.
+/// Guest writes stay below the server's 12-request rolling quota.
+const MAX_ACCOUNT_V2_PASSES_PER_SYNC: usize = 64;
+const MAX_GUEST_V2_PASSES_PER_SYNC: usize = 10;
 
 /// Every usage write carries a bearer token. Account tokens preserve private
 /// attribution; guest tokens represent only a random local installation UUID.
@@ -219,7 +223,9 @@ pub fn sync_messages_native() -> Result<String, String> {
 
     let mode = resolve_auth_mode()?;
     if matches!(&mode, AuthMode::GuestToken(_)) {
-        return Ok("skipped: raw message rows are available to signed-in accounts only".to_string());
+        return Ok(
+            "skipped: raw message rows are available to signed-in accounts only".to_string(),
+        );
     }
 
     let mut settings = SettingsService::get_usage_sync_settings()?;
@@ -330,9 +336,7 @@ pub fn collect_native_v2_batch() -> Result<V2UsageBatch, String> {
                 _ => "error",
             };
             let effort = match metric.effort_level.as_str() {
-                "none" | "low" | "medium" | "high" | "xhigh" => {
-                    Some(metric.effort_level.clone())
-                }
+                "none" | "low" | "medium" | "high" | "xhigh" => Some(metric.effort_level.clone()),
                 _ => None,
             };
             let started_at = metric.started_at.max(0);
@@ -468,13 +472,23 @@ fn aggregate_model_usage_rows(
         let tier = m
             .subscription_tier
             .as_deref()
-            .filter(|t| matches!(*t, "plus" | "pro" | "max" | "free" | "api" | "team" | "enterprise"))
+            .filter(|t| {
+                matches!(
+                    *t,
+                    "plus" | "pro" | "max" | "free" | "api" | "team" | "enterprise"
+                )
+            })
             .unwrap_or_default()
             .to_string();
         let source = m
             .subscription_source
             .as_deref()
-            .filter(|s| matches!(*s, "declared" | "provider-api" | "api-key" | "inferred" | "unknown"))
+            .filter(|s| {
+                matches!(
+                    *s,
+                    "declared" | "provider-api" | "api-key" | "inferred" | "unknown"
+                )
+            })
             .unwrap_or_default()
             .to_string();
         let plan = m
@@ -484,7 +498,14 @@ fn aggregate_model_usage_rows(
             .unwrap_or_default()
             .to_string();
         let acc = groups
-            .entry((m.provider_id.clone(), m.model_id.clone(), effort, tier, source, plan))
+            .entry((
+                m.provider_id.clone(),
+                m.model_id.clone(),
+                effort,
+                tier,
+                source,
+                plan,
+            ))
             .or_default();
         acc.requests += 1;
         acc.input = clamp(acc.input + clamp(m.input_tokens));
@@ -492,7 +513,9 @@ fn aggregate_model_usage_rows(
         acc.cache_read = clamp(acc.cache_read + clamp(m.cache_read_tokens));
         acc.cache_write = clamp(acc.cache_write + clamp(m.cache_write_tokens));
         acc.cost = (acc.cost
-            + m.cost_total.filter(|c| c.is_finite() && *c >= 0.0).unwrap_or(0.0))
+            + m.cost_total
+                .filter(|c| c.is_finite() && *c >= 0.0)
+                .unwrap_or(0.0))
         .min(1_000_000.0);
         if let Some(d) = m.duration_ms {
             acc.duration_ms = clamp(acc.duration_ms + clamp(d));
@@ -507,7 +530,13 @@ fn aggregate_model_usage_rows(
         }
     }
 
-    let opt = |s: String| if s.is_empty() { Value::Null } else { Value::String(s) };
+    let opt = |s: String| {
+        if s.is_empty() {
+            Value::Null
+        } else {
+            Value::String(s)
+        }
+    };
     groups
         .into_iter()
         .map(|((provider, model, effort, tier, source, plan), a)| {
@@ -617,10 +646,12 @@ fn classify_rejection(code: Option<&str>) -> RejectionDisposition {
         Some("idempotency_conflict") | Some("event_identity_conflict") => {
             RejectionDisposition::AlreadyStored
         }
-        Some("invalid_window") | Some("invalid_rows") | Some("invalid_row")
-        | Some("invalid_batch") | Some("invalid_idempotency_key") | Some("source_not_allowed") => {
-            RejectionDisposition::Unrepresentable
-        }
+        Some("invalid_window")
+        | Some("invalid_rows")
+        | Some("invalid_row")
+        | Some("invalid_batch")
+        | Some("invalid_idempotency_key")
+        | Some("source_not_allowed") => RejectionDisposition::Unrepresentable,
         _ => RejectionDisposition::Retry,
     }
 }
@@ -760,7 +791,10 @@ pub fn sync_envelope_native() -> Result<EnvelopeSyncReport, String> {
             .and_then(Value::as_str)
             .unwrap_or("the server did not accept this envelope");
         for batch in &envelope.batches {
-            record_source_error(batch.source, "Server rejected this upload; retry is pending");
+            record_source_error(
+                batch.source,
+                "Server rejected this upload; retry is pending",
+            );
         }
         return Err(format!("usage envelope rejected ({code}): {message}"));
     }
@@ -828,7 +862,8 @@ pub fn sync_envelope_native() -> Result<EnvelopeSyncReport, String> {
 }
 
 /// Sync the durable version 2 spool through the same MCP tool as version 1.
-/// Collection is attempted first, then pending rows from prior app runs replay.
+/// Collection runs once, then the existing spool drains without producing a
+/// fresh coverage/quota batch between network requests.
 pub fn sync_envelope_v2() -> Result<EnvelopeSyncReport, String> {
     eprintln!("[SYNC V2] sync attempt started");
     let mode = resolve_auth_mode()?;
@@ -837,6 +872,41 @@ pub fn sync_envelope_v2() -> Result<EnvelopeSyncReport, String> {
     {
         eprintln!("[SYNC V2] local collection failed, replaying spool: {error}");
     }
+
+    let max_passes = match &mode {
+        AuthMode::AccountToken(_) => MAX_ACCOUNT_V2_PASSES_PER_SYNC,
+        AuthMode::GuestToken(_) => MAX_GUEST_V2_PASSES_PER_SYNC,
+    };
+    let sources = crate::services::usage_source_service::registered_sources();
+    let mut total = EnvelopeSyncReport::default();
+    let mut passes = 0usize;
+    for pass in 1..=max_passes {
+        let report = sync_envelope_v2_pass(&mode, &sources)?;
+        passes = pass;
+        let should_stop = report.retryable > 0 || report.is_idle();
+        total.accepted += report.accepted;
+        total.skipped += report.skipped;
+        total.retryable += report.retryable;
+        if should_stop {
+            break;
+        }
+    }
+    total.message = format!(
+        "envelope v2: {} accepted, {} skipped, {} pending after {} pass{}",
+        total.accepted,
+        total.skipped,
+        total.retryable,
+        passes,
+        if passes == 1 { "" } else { "es" },
+    );
+    eprintln!("[SYNC V2] {}", total.message);
+    Ok(total)
+}
+
+fn sync_envelope_v2_pass(
+    mode: &AuthMode,
+    sources: &[Box<dyn crate::services::usage_source_service::UsageSource>],
+) -> Result<EnvelopeSyncReport, String> {
     let batches =
         crate::services::usage_v2_collector_service::UsageV2CollectorService::pending_batches()?;
     if batches.is_empty() {
@@ -845,7 +915,6 @@ pub fn sync_envelope_v2() -> Result<EnvelopeSyncReport, String> {
             ..Default::default()
         });
     }
-    let sources = crate::services::usage_source_service::registered_sources();
     let advance = |batch: &V2UsageBatch| {
         if let Some(source) = sources.iter().find(|source| source.kind() == batch.source) {
             if let Err(error) = source.advance_v2_checkpoint(batch) {
@@ -919,7 +988,7 @@ pub fn sync_envelope_v2() -> Result<EnvelopeSyncReport, String> {
                 .map_err(|error| format!("Failed to serialize v2 usage envelope: {error}"))?,
         }
     });
-    let result = post_mcp(&mode, &rpc_body)?;
+    let result = post_mcp(mode, &rpc_body)?;
     let acknowledgment: Value = serde_json::from_str(&result.text)
         .map_err(|error| format!("Invalid v2 usage-envelope acknowledgment: {error}"))?;
     if acknowledgment.get("ok").and_then(Value::as_bool) != Some(true) {
@@ -948,7 +1017,7 @@ pub fn sync_envelope_v2() -> Result<EnvelopeSyncReport, String> {
                     report.skipped += 1;
                 }
                 report.message =
-                    format!("v2 envelope refused ({code}): {message} — rows quarantined");
+                    format!("v2 envelope refused ({code}): {message} - rows quarantined");
                 return Ok(report);
             }
             RejectionDisposition::Retry => {
@@ -985,7 +1054,7 @@ pub fn sync_envelope_v2() -> Result<EnvelopeSyncReport, String> {
             .unwrap_or("no message");
         if status.is_none() {
             eprintln!(
-                "[SYNC V2] source {}: no server receipt — retry is pending",
+                "[SYNC V2] source {}: no server receipt - retry is pending",
                 batch.source.as_str()
             );
             record_source_error(batch.source, "No server receipt; retry is pending");
@@ -994,7 +1063,7 @@ pub fn sync_envelope_v2() -> Result<EnvelopeSyncReport, String> {
             match classify_rejection(code) {
                 RejectionDisposition::AlreadyStored => {
                     eprintln!(
-                        "[SYNC V2] source {}: already stored server-side ({}): {message} — dropping duplicate",
+                        "[SYNC V2] source {}: already stored server-side ({}): {message} - dropping duplicate",
                         batch.source.as_str(),
                         code.unwrap_or("unknown")
                     );
@@ -1004,7 +1073,7 @@ pub fn sync_envelope_v2() -> Result<EnvelopeSyncReport, String> {
                 }
                 RejectionDisposition::Unrepresentable => {
                     eprintln!(
-                        "[SYNC V2] source {}: refused ({}): {message} — quarantining rows",
+                        "[SYNC V2] source {}: refused ({}): {message} - quarantining rows",
                         batch.source.as_str(),
                         code.unwrap_or("unknown")
                     );
@@ -1030,11 +1099,6 @@ pub fn sync_envelope_v2() -> Result<EnvelopeSyncReport, String> {
             }
         }
     }
-    report.message = format!(
-        "envelope v2: {} accepted, {} skipped, {} pending",
-        report.accepted, report.skipped, report.retryable
-    );
-    eprintln!("[SYNC V2] {}", report.message);
     Ok(report)
 }
 
@@ -1508,7 +1572,10 @@ pub fn sync_environment_native() -> Result<String, String> {
     });
     let result = post_mcp(&mode, &rpc_body)?;
     if result.is_error {
-        return Err(format!("environment metadata was rejected: {}", result.text));
+        return Err(format!(
+            "environment metadata was rejected: {}",
+            result.text
+        ));
     }
     Ok(result.text)
 }
@@ -2014,8 +2081,7 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
                 Err(error) => format!("ERR: {error}"),
             }
         );
-        let envelope_result =
-            combine_envelope_reports(v2_envelope_result, v1_envelope_result);
+        let envelope_result = combine_envelope_reports(v2_envelope_result, v1_envelope_result);
         // Raw per-message rows travel alongside the aggregates: the envelope
         // gives the website rollups, these give it the underlying detail.
         eprintln!("[SYNC] calling sync_messages_native (raw rows)…");
@@ -2063,8 +2129,7 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
             _ => {}
         }
 
-        let outcome =
-            coordinated_usage_outcome(&result, &envelope_result, &messages_result);
+        let outcome = coordinated_usage_outcome(&result, &envelope_result, &messages_result);
         let usage_error = match (&result, &envelope_result, &messages_result) {
             (_, Err(envelope), Err(messages)) => {
                 Some(format!("Aggregates: {envelope}; raw rows: {messages}"))
@@ -2372,7 +2437,11 @@ mod tests {
         Err("transport failed".to_string())
     }
 
-    fn report(accepted: usize, skipped: usize, retryable: usize) -> Result<EnvelopeSyncReport, String> {
+    fn report(
+        accepted: usize,
+        skipped: usize,
+        retryable: usize,
+    ) -> Result<EnvelopeSyncReport, String> {
         Ok(EnvelopeSyncReport {
             accepted,
             skipped,
@@ -2458,11 +2527,7 @@ mod tests {
     fn coordinated_outcome_treats_omp_as_best_effort_native_primary() {
         // Native envelope failed → overall Failed regardless of OMP.
         assert_eq!(
-            coordinated_usage_outcome(
-                &ok("OMP synced"),
-                &envelope_error(),
-                &ok("no new rows"),
-            ),
+            coordinated_usage_outcome(&ok("OMP synced"), &envelope_error(), &ok("no new rows"),),
             SyncOverallOutcome::Failed
         );
         // Native envelope accepted, OMP raw failed → still Success (OMP is
@@ -2642,7 +2707,8 @@ mod tests {
             })],
         };
         UsageV2CollectorService::persist_batch(&batch).unwrap();
-        UsageV2CollectorService::quarantine_batch(&batch, Some("invalid_row"), "bad shape").unwrap();
+        UsageV2CollectorService::quarantine_batch(&batch, Some("invalid_row"), "bad shape")
+            .unwrap();
 
         let conn = StorageService::connect().unwrap();
         let pending: i64 = conn
@@ -2815,7 +2881,10 @@ mod tests {
             rejected.iter().map(|r| &r.reason).collect::<Vec<_>>()
         );
         assert!(
-            envelope.batches.iter().any(|b| b.source == SourceKind::Native),
+            envelope
+                .batches
+                .iter()
+                .any(|b| b.source == SourceKind::Native),
             "native usage must ship alongside the harness batch"
         );
     }
@@ -3046,26 +3115,14 @@ mod tests {
         assert_eq!(spans, 1, "the seeded metric must spool as a request span");
         assert_eq!(quotas, 1, "the captured quota window must spool");
 
-        // `pending_batches` ships one batch per source, and every pass spools a
-        // fresh coverage interval, so the native span and quota batches need a
-        // pass each. Drain until the seeded rows are gone rather than assuming
-        // one pass clears them.
-        //
-        // A span batch that waits behind another native batch is re-collected
-        // under a new key (the merged coverage interval changes its digest), so
-        // a later pass can offer rows the server already holds. That comes back
-        // as `event_identity_conflict` and is discarded, not retried — a skip
-        // after the rows were accepted is correct, a pending row is not.
-        let mut accepted = 0;
-        for pass in 1..=8 {
-            let report = sync_envelope_v2().expect("v2 envelope push must reach the server");
-            eprintln!("[live v2] pass {pass}: {}", report.message);
-            assert_eq!(report.retryable, 0, "nothing may be left pending");
-            accepted += report.accepted;
-            if spooled_native_v2_rows() == (0, 0) {
-                break;
-            }
-        }
+        // One user-visible sync must drain every accepted batch already in the
+        // spool. Re-collecting between passes used to add quota/coverage batches
+        // faster than one-per-source envelopes could remove them, permanently
+        // starving request spans behind the sampling backlog.
+        let report = sync_envelope_v2().expect("v2 envelope push must reach the server");
+        eprintln!("[live v2] {}", report.message);
+        assert_eq!(report.retryable, 0, "nothing may be left pending");
+        let accepted = report.accepted;
 
         assert!(
             accepted >= 2,
@@ -3217,7 +3274,14 @@ mod tests {
     fn aggregate_rolls_up_by_group_and_stays_envelope_valid() {
         use crate::models::usage_envelope::validate_row;
         let metrics = vec![
-            metric("anthropic", "claude", Some("max"), "success", 100, Some(1000)),
+            metric(
+                "anthropic",
+                "claude",
+                Some("max"),
+                "success",
+                100,
+                Some(1000),
+            ),
             metric("anthropic", "claude", Some("max"), "error", 200, Some(3000)),
             metric("anthropic", "claude", Some("pro"), "success", 50, None),
         ];
@@ -3227,13 +3291,19 @@ mod tests {
         for row in &rows {
             validate_row(row).expect("aggregated row must be envelope-valid");
         }
-        let max_row = rows.iter().find(|r| r["subscriptionTier"] == "max").unwrap();
+        let max_row = rows
+            .iter()
+            .find(|r| r["subscriptionTier"] == "max")
+            .unwrap();
         assert_eq!(max_row["requests"], 2);
         assert_eq!(max_row["inputTokens"], 300);
         assert_eq!(max_row["errors"], 1);
         assert_eq!(max_row["durationMs"], 4000);
         assert_eq!(max_row["durationCount"], 2);
-        let pro_row = rows.iter().find(|r| r["subscriptionTier"] == "pro").unwrap();
+        let pro_row = rows
+            .iter()
+            .find(|r| r["subscriptionTier"] == "pro")
+            .unwrap();
         assert_eq!(pro_row["requests"], 1);
         assert_eq!(pro_row["durationCount"], 0);
     }

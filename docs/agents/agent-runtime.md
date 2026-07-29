@@ -395,6 +395,10 @@ coverage intervals to `usage_v2_pending_batches` before transport. Pending
 batches replay after restart and are removed only after acceptance or a
 permanent rejection. Upload still requires the independent analytics upload
 consent and uses the existing `sync_usage_envelope` MCP tool.
+Each sync collects once, prioritizes request-span batches over sampling-only
+batches, then drains multiple accepted envelopes from the durable spool.
+Account syncs may drain up to 64 envelopes per attempt. Guest syncs stop at 10
+to remain below the server's 12-request rolling quota.
 
 Native request metrics map directly to request spans. OMP's per-request
 `stats.db`, Claude Code, and Codex provide request spans through bounded local

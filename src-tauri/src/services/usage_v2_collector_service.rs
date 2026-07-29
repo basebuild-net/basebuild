@@ -148,14 +148,19 @@ impl UsageV2CollectorService {
         Ok(())
     }
 
-    /// Oldest pending batch per source, bounded to one valid envelope.
+    /// One pending batch per source, bounded to one valid envelope. Request
+    /// spans go first so frequent quota/coverage sampling cannot starve the
+    /// actual model usage that powers account analytics.
     pub fn pending_batches() -> Result<Vec<V2UsageBatch>, String> {
         let conn = StorageService::connect()?;
         let mut statement = conn
             .prepare(
                 "SELECT source, idempotency_key, window_start, window_end, rows_json
                  FROM usage_v2_pending_batches
-                 ORDER BY created_at ASC, idempotency_key ASC",
+                 ORDER BY CASE
+                    WHEN rows_json LIKE '%\"kind\":\"request_span\"%' THEN 0
+                    ELSE 1
+                 END, created_at ASC, idempotency_key ASC",
             )
             .map_err(|error| error.to_string())?;
         let rows = statement
@@ -641,9 +646,9 @@ fn quota_observations_from_payload(payload: &Value) -> Vec<QuotaObservation> {
                 fraction(amount.and_then(|amount| amount.get("remainingFraction")))
                     .or_else(|| used_fraction.map(|used| 1.0 - used));
             // A limit with neither fraction carries no drain signal at all.
-            let Some(used_fraction) = used_fraction.or_else(|| {
-                remaining_fraction.map(|remaining| (1.0 - remaining).clamp(0.0, 1.0))
-            }) else {
+            let Some(used_fraction) = used_fraction
+                .or_else(|| remaining_fraction.map(|remaining| (1.0 - remaining).clamp(0.0, 1.0)))
+            else {
                 continue;
             };
             let window_label = window
@@ -835,10 +840,7 @@ fn history_backfill_days(now_ms: i64, already: i64) -> Option<i64> {
     // Include both boundary days so an hourly reading near midnight is not
     // clipped. OMP does the filtering; a smaller payload is dramatically
     // cheaper than re-emitting all 30 days on every collection pass.
-    Some(
-        (age_ms / DAY_MS + 2)
-            .clamp(1, HISTORY_BACKFILL_DAYS),
-    )
+    Some((age_ms / DAY_MS + 2).clamp(1, HISTORY_BACKFILL_DAYS))
 }
 
 fn backfill_quota_history(now_ms: i64) -> Result<usize, String> {
@@ -1221,6 +1223,52 @@ mod tests {
     }
 
     #[test]
+    fn request_spans_replay_before_older_sampling_batches() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&dir);
+        UsageV2CollectorService::persist_batch(&coverage_batch()).unwrap();
+        let span = V2UsageBatch {
+            source: SourceKind::Native,
+            idempotency_key: "native:span:test:v2".to_string(),
+            window_start: 3,
+            window_end: 4,
+            rows: vec![V2Row::RequestSpan(
+                crate::models::usage_envelope::RequestSpanRow {
+                    event_id: "event:test".to_string(),
+                    provider: "anthropic".to_string(),
+                    account_hash: None,
+                    model: "claude-sonnet-4".to_string(),
+                    session_id: "session:test".to_string(),
+                    agent_id: None,
+                    provider_request_id: None,
+                    started_at: 3_000,
+                    completed_at: 4_000,
+                    input_tokens: Some(100),
+                    output_tokens: Some(50),
+                    cache_read_tokens: None,
+                    cache_write_tokens: None,
+                    cost_total: None,
+                    ttft_ms: None,
+                    effort: None,
+                    outcome: "success".to_string(),
+                },
+            )],
+        };
+        UsageV2CollectorService::persist_batch(&span).unwrap();
+
+        let replayed = UsageV2CollectorService::pending_batches().unwrap();
+        assert_eq!(replayed.len(), 1);
+        assert_eq!(replayed[0].idempotency_key, span.idempotency_key);
+
+        UsageV2CollectorService::delete_batch(&span.idempotency_key).unwrap();
+        let replayed = UsageV2CollectorService::pending_batches().unwrap();
+        assert_eq!(
+            replayed[0].idempotency_key,
+            coverage_batch().idempotency_key
+        );
+    }
+
+    #[test]
     fn trimming_an_under_cap_spool_keeps_every_batch() {
         // A negative LIMIT is "no limit" in SQLite, so an under-cap trim that
         // computed a negative excess silently deleted the entire spool — every
@@ -1427,8 +1475,14 @@ mod tests {
         // Nothing anywhere in the serialized row, or in what was retained
         // locally, may carry the email.
         let wire = serde_json::to_string(&rows[0]).unwrap();
-        assert!(!wire.contains("person@example.com"), "email reached the wire");
-        assert!(!wire.contains("@"), "no address-shaped value may appear: {wire}");
+        assert!(
+            !wire.contains("person@example.com"),
+            "email reached the wire"
+        );
+        assert!(
+            !wire.contains("@"),
+            "no address-shaped value may appear: {wire}"
+        );
         let retained: String = StorageService::connect()
             .unwrap()
             .query_row(
@@ -1511,7 +1565,10 @@ mod tests {
             )
             .unwrap();
         assert_eq!(count, 2);
-        assert!(!emails.contains('@'), "history email was persisted: {emails}");
+        assert!(
+            !emails.contains('@'),
+            "history email was persisted: {emails}"
+        );
         assert!(!emails.contains("acct-1"), "raw account id was persisted");
 
         // Re-running seeds nothing: readings are keyed by their instant.
