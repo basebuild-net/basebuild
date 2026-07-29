@@ -301,15 +301,17 @@ export function UsageSyncPanel() {
 
   return (
     <div className="stack">
-      <h3>Usage Sync</h3>
+      <h3>Usage &amp; plan drain</h3>
+
+      <PlanDrainRatePanel />
 
       <div className="usage-sharing-summary">
         <div className="usage-sharing-block">
           <h4>What uploads</h4>
           <p className="text-muted text-sm">
-            Aggregate counters in bounded windows: source, provider, model, effort, subscription tier
-            and source, optional plan name, request, token, error, cost, duration, time-to-first-token,
-            and plan-utilization totals with reset timing.
+            Privacy-safe request spans and quota snapshots in bounded windows: client source,
+            provider, model, token counts, cost, timing, outcome, and plan utilization with reset
+            timing.
           </p>
         </div>
         <div className="usage-sharing-block">
@@ -366,7 +368,7 @@ export function UsageSyncPanel() {
         <button
           className="btn btn-sm"
           type="button"
-          title={status ? "Sync aggregate usage now" : "Loading sync status…"}
+          title={status ? "Sync usage and quota observations now" : "Loading sync status…"}
           disabled={!status || syncing || retrying || !status.gatesPass}
           onClick={() => void syncNow()}
         >
@@ -469,7 +471,6 @@ export function UsageSyncPanel() {
       ) : null}
       {error ? <p className="text-danger text-sm">{error}</p> : null}
 
-      <PlanBurnRatePanel />
 
       {/* Account-only cards. While `projected` is in flight the card frame
           stays put so the panel does not grow by two cards on arrival. */}
@@ -575,13 +576,22 @@ function formatRequestsToEmpty(fractionPerRequest: number): string {
   return Math.round(1 / fractionPerRequest).toLocaleString();
 }
 
+function formatModelHoursPerWindow(fractionPerModelHour: number | null): string {
+  if (fractionPerModelHour == null || !Number.isFinite(fractionPerModelHour) || fractionPerModelHour <= 0) {
+    return "—";
+  }
+  const hours = 1 / fractionPerModelHour;
+  const decimals = hours >= 100 ? 0 : hours >= 10 ? 1 : 2;
+  return `${hours.toFixed(decimals)}h`;
+}
+
 /// Locally-solved plan drain. Two quota readings that bracket measured traffic
 /// give an observed "what did that traffic actually cost me" rate. The honest
 /// framing lives on the row: a low-confidence rate is labelled an estimate and
 /// prefixed with ≈, a window with no second interval shows no spread rather
 /// than a fake zero, and a window shared by several models says so — its rate
 /// is a blend, not any one model's cost.
-function PlanBurnRatePanel() {
+function PlanDrainRatePanel() {
   const [estimates, setEstimates] = useState<DrainEstimate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -604,13 +614,14 @@ function PlanBurnRatePanel() {
 
   return (
     <section className="usage-burn-section" aria-labelledby="usage-burn-heading">
-      <h4 id="usage-burn-heading">Plan burn rate</h4>
+      <h4 id="usage-burn-heading">Plan drain rate</h4>
       <p className="text-muted text-sm">
-        Solved on this machine by pairing two readings of a provider quota window against the
-        traffic measured between them. Rates are observed, not published by the provider.
+        Observed locally by pairing provider quota readings with traffic from Basebuild, Oh My Pi,
+        and supported Claude Code, Codex, and OpenCode sessions. Shows what requests actually cost
+        against a plan window; providers do not publish this conversion.
       </p>
       {loading && estimates.length === 0 && !error ? (
-        <SkeletonRows rows={2} label="Loading plan burn rates…" />
+        <SkeletonRows rows={2} label="Loading plan drain rates…" />
       ) : null}
       {error ? <p className="text-danger text-sm">{error}</p> : null}
       {!loading && !error && estimates.length === 0 ? (
@@ -674,6 +685,16 @@ function PlanBurnRatePanel() {
                     <span className="usage-burn-stat-value">
                       {approx}
                       {formatWindowPercentPerMillionTokens(estimate.fractionPer1kTokens)}
+                    </span>
+                  </span>
+                  <span
+                    className="usage-burn-stat"
+                    title="Estimated provider runtime the full window pays for; concurrent requests count separately as model-hours"
+                  >
+                    <span className="usage-burn-stat-label">Model hours / window</span>
+                    <span className="usage-burn-stat-value">
+                      {approx}
+                      {formatModelHoursPerWindow(estimate.fractionPerModelHour)}
                     </span>
                   </span>
                   <span

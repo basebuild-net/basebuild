@@ -664,6 +664,55 @@ pub(crate) fn omp_ingestion_horizon() -> Option<i64> {
     .flatten()
 }
 
+/// Retain per-request traffic from a harness batch so a past window can be
+/// re-queried after the batch itself is shipped and deleted.
+///
+/// Keyed on `event_id`, so re-offering the same span is a no-op. Only spans are
+/// retained: quota and coverage rows carry no traffic.
+pub(crate) fn retain_span_traffic(source: SourceKind, rows: &[V2Row]) -> Result<(), String> {
+    let mut conn = StorageService::connect()?;
+    let transaction = conn.transaction().map_err(|error| error.to_string())?;
+    for row in rows {
+        let V2Row::RequestSpan(span) = row else {
+            continue;
+        };
+        transaction
+            .execute(
+                "INSERT OR IGNORE INTO usage_span_traffic
+                    (event_id, source, provider, model, started_at,
+                     input_tokens, output_tokens, cache_read_tokens,
+                     cache_write_tokens, duration_ms)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                params![
+                    span.event_id,
+                    source.as_str(),
+                    span.provider,
+                    span.model,
+                    span.started_at,
+                    span.input_tokens.unwrap_or_default().max(0),
+                    span.output_tokens.unwrap_or_default().max(0),
+                    span.cache_read_tokens.unwrap_or_default().max(0),
+                    span.cache_write_tokens.unwrap_or_default().max(0),
+                    span.completed_at.saturating_sub(span.started_at).max(0),
+                ],
+            )
+            .map_err(|error| error.to_string())?;
+    }
+    transaction.commit().map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+/// Drop retained traffic older than `cutoff`. Kept in step with the quota
+/// sample horizon: traffic with no reading to pair against is dead weight.
+pub(crate) fn prune_span_traffic(cutoff_ms: i64) -> Result<usize, String> {
+    StorageService::connect()?
+        .execute(
+            "DELETE FROM usage_span_traffic WHERE started_at < ?1",
+            params![cutoff_ms],
+        )
+        .map_err(|error| error.to_string())
+}
+
 const OMP_V2_CURSOR: &str = "omp:v2";
 /// Cursor namespace for the native ledger's version 2 collection.
 pub(crate) const NATIVE_V2_CURSOR: &str = "native:v2";

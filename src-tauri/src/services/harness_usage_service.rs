@@ -466,6 +466,10 @@ impl crate::services::usage_source_service::UsageSource for HarnessSource {
             &idempotency_key,
             entry_high_water,
         )?;
+        // Retain traffic before shipping. A retention failure must leave this
+        // batch uncollected: advancing the file cursor would permanently lose
+        // the denominator needed to solve provider drain rates.
+        crate::services::usage_source_service::retain_span_traffic(self.kind(), &rows)?;
         Ok(Some(V2UsageBatch {
             source: self.kind(),
             idempotency_key,
@@ -1409,5 +1413,36 @@ mod tests {
         for forbidden in ["message", "content", "text", "prompt", "response"] {
             assert!(value.get(forbidden).is_none());
         }
+        let conn =
+            crate::services::storage_service::StorageService::connect().unwrap();
+        let retained: (String, String, i64, i64, i64, i64) = conn
+            .query_row(
+                "SELECT source, model, input_tokens, output_tokens,
+                        cache_read_tokens, cache_write_tokens
+                 FROM usage_span_traffic",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            retained,
+            (
+                "claude-code".to_string(),
+                "claude-sonnet-4".to_string(),
+                120,
+                30,
+                40,
+                5,
+            )
+        );
     }
 }

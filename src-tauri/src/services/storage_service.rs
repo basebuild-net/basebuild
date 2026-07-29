@@ -13,7 +13,7 @@ pub struct StorageService;
 // Increment whenever `initialize` gains a schema-changing migration. Existing
 // databases run the idempotent initializer once per version; current databases
 // skip its ~50 table/column probes entirely on normal launches.
-const CURRENT_SCHEMA_VERSION: i64 = 13;
+const CURRENT_SCHEMA_VERSION: i64 = 14;
 
 impl StorageService {
     pub fn state_db_path() -> Result<PathBuf, String> {
@@ -601,6 +601,30 @@ impl StorageService {
                     account_hash TEXT,
                     PRIMARY KEY (provider, limit_id, observed_at)
                 );
+
+                -- Retained per-request traffic from the file-based harnesses
+                -- (Claude Code, Codex, OpenCode, and any added later). Their
+                -- source files are read through a forward cursor, so once a
+                -- span is collected there is no way to ask what happened in a
+                -- past window. Basebuild's own ledger and OMP's stats.db are
+                -- persistent and queried directly instead of duplicated here.
+                --
+                -- A provider quota window is drained by every client on the
+                -- machine, so the drain solver has to see all of them.
+                CREATE TABLE IF NOT EXISTS usage_span_traffic (
+                    event_id TEXT PRIMARY KEY NOT NULL,
+                    source TEXT NOT NULL,
+                    provider TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    started_at INTEGER NOT NULL,
+                    input_tokens INTEGER NOT NULL DEFAULT 0,
+                    output_tokens INTEGER NOT NULL DEFAULT 0,
+                    cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+                    cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+                    duration_ms INTEGER NOT NULL DEFAULT 0
+                );
+                CREATE INDEX IF NOT EXISTS idx_usage_span_traffic_window
+                    ON usage_span_traffic(provider, started_at);
                 CREATE INDEX IF NOT EXISTS idx_usage_quota_samples_window
                     ON usage_quota_samples(provider, limit_id, resets_at, observed_at);
 
@@ -1035,6 +1059,23 @@ impl StorageService {
                 "ALTER TABLE native_request_metrics ADD COLUMN provider_request_id TEXT",
                 [],
             );
+        }
+
+        // Retained harness traffic predates duration-based drain estimates in
+        // development builds. Keep that local pre-release database readable.
+        if connection
+            .prepare("SELECT duration_ms FROM usage_span_traffic LIMIT 0")
+            .is_err()
+        {
+            connection
+                .execute(
+                    "ALTER TABLE usage_span_traffic
+                     ADD COLUMN duration_ms INTEGER NOT NULL DEFAULT 0",
+                    [],
+                )
+                .map_err(|error| {
+                    format!("Failed to add usage_span_traffic.duration_ms: {error}")
+                })?;
         }
 
         // Migration: add chat_session_id to existing tab rows for structured native chat.

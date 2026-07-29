@@ -63,6 +63,9 @@ pub struct DrainInterval {
     pub output_tokens: i64,
     pub cache_read_tokens: i64,
     pub cache_write_tokens: i64,
+    /// Sum of provider request runtimes. Concurrent requests intentionally add:
+    /// this is model-hours consumed, not wall-clock time.
+    pub duration_ms: i64,
     pub requests: i64,
     /// Models that served traffic in the interval. A single entry means the
     /// drain is attributable; several means the rate is a blend.
@@ -92,9 +95,13 @@ pub struct DrainEstimate {
     pub intervals: usize,
     pub requests: i64,
     pub total_tokens: i64,
+    /// Total provider runtime represented by the solved intervals.
+    pub duration_ms: i64,
     /// Window fraction consumed per 1000 tokens of observed traffic.
     pub fraction_per_1k_tokens: f64,
     pub fraction_per_request: f64,
+    /// Window fraction consumed per hour of provider runtime.
+    pub fraction_per_model_hour: Option<f64>,
     /// Spread of the per-interval rates, as a fraction of the mean. Low means
     /// the relationship is stable; high means the window is being shared or the
     /// provider meters something this does not measure.
@@ -137,6 +144,7 @@ struct Traffic {
     output: i64,
     cache_read: i64,
     cache_write: i64,
+    duration_ms: i64,
     requests: i64,
     models: BTreeMap<String, i64>,
 }
@@ -244,16 +252,15 @@ fn solve_intervals(
             deferred += 1;
             continue;
         }
-        let traffic = match stats_db {
-            Some(path) => traffic_between(
-                path,
-                provider,
-                later.model_id.as_deref(),
-                earlier.observed_at,
-                later.observed_at,
-            )?,
-            None => Traffic::default(),
-        };
+        // Not conditional on OMP: a machine with no OMP install still drains its
+        // quota through Basebuild's own chat and the file-based harnesses.
+        let traffic = traffic_between(
+            stats_db,
+            provider,
+            later.model_id.as_deref(),
+            earlier.observed_at,
+            later.observed_at,
+        )?;
         if traffic.requests < 1 {
             continue;
         }
@@ -267,6 +274,7 @@ fn solve_intervals(
             output_tokens: traffic.output,
             cache_read_tokens: traffic.cache_read,
             cache_write_tokens: traffic.cache_write,
+            duration_ms: traffic.duration_ms,
             requests: traffic.requests,
             models: models.into_iter().map(|(model, _)| model).collect(),
         };
@@ -292,10 +300,162 @@ fn open_stats_db(path: &std::path::Path) -> Result<rusqlite::Connection, String>
         .map_err(|error| format!("could not open OMP stats.db: {error}"))
 }
 
-/// Sum OMP's per-request rows over `(after, until]`.
+impl Traffic {
+    /// Fold one request's counters in.
+    fn add(
+        &mut self,
+        model: String,
+        input: i64,
+        output: i64,
+        cache_read: i64,
+        cache_write: i64,
+        duration_ms: i64,
+    ) {
+        self.input = self.input.saturating_add(input.max(0));
+        self.output = self.output.saturating_add(output.max(0));
+        self.cache_read = self.cache_read.saturating_add(cache_read.max(0));
+        self.cache_write = self.cache_write.saturating_add(cache_write.max(0));
+        self.duration_ms = self.duration_ms.saturating_add(duration_ms.max(0));
+        self.requests = self.requests.saturating_add(1);
+        *self.models.entry(model).or_insert(0) += 1;
+    }
+
+    fn merge(&mut self, other: Traffic) {
+        self.input = self.input.saturating_add(other.input);
+        self.output = self.output.saturating_add(other.output);
+        self.cache_read = self.cache_read.saturating_add(other.cache_read);
+        self.cache_write = self.cache_write.saturating_add(other.cache_write);
+        self.duration_ms = self.duration_ms.saturating_add(other.duration_ms);
+        self.requests = self.requests.saturating_add(other.requests);
+        for (model, count) in other.models {
+            *self.models.entry(model).or_insert(0) += count;
+        }
+    }
+}
+
+/// Total traffic that hit `provider` over `(after, until]`, across every local
+/// store that records requests.
 ///
-/// Read-only: OMP owns this database and may be writing to it.
+/// A provider quota window is drained by every client on the machine, not by
+/// one. Counting a single harness understates the denominator and so
+/// overstates the rate — the projection then claims the plan runs out sooner
+/// than it will. Basebuild's own chat and OMP are both first-class here; the
+/// file-based harnesses contribute through the retained span table because
+/// their JSONL is consumed by a cursor and cannot be re-queried by time.
 fn traffic_between(
+    stats_db: Option<&std::path::Path>,
+    provider: &str,
+    model_id: Option<&str>,
+    after: i64,
+    until: i64,
+) -> Result<Traffic, String> {
+    let mut traffic = native_traffic_between(provider, model_id, after, until)?;
+    traffic.merge(retained_span_traffic_between(provider, model_id, after, until)?);
+    if let Some(path) = stats_db {
+        traffic.merge(omp_traffic_between(path, provider, model_id, after, until)?);
+    }
+    Ok(traffic)
+}
+
+/// Whether a row's model belongs to the window being solved. A per-model window
+/// is drained only by its own model; an account-wide one by everything.
+fn model_matches(model: &str, wanted: Option<&str>) -> bool {
+    wanted.is_none_or(|wanted| model == wanted)
+}
+
+/// Basebuild's own chat ledger. Persistent and authoritative, so it is queried
+/// directly rather than duplicated into the span table.
+fn native_traffic_between(
+    provider: &str,
+    model_id: Option<&str>,
+    after: i64,
+    until: i64,
+) -> Result<Traffic, String> {
+    let conn = StorageService::connect()?;
+    let mut statement = conn
+        .prepare(
+            "SELECT model_id, input_tokens, output_tokens, cache_read_tokens,
+                    cache_write_tokens, duration_ms
+             FROM native_request_metrics
+             WHERE provider_id = ?1 AND started_at > ?2 AND started_at <= ?3",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = statement
+        .query_map(params![provider, after, until], |row| {
+            Ok((
+                row.get::<_, Option<String>>(0)?,
+                row.get::<_, Option<i64>>(1)?,
+                row.get::<_, Option<i64>>(2)?,
+                row.get::<_, Option<i64>>(3)?,
+                row.get::<_, Option<i64>>(4)?,
+                row.get::<_, Option<i64>>(5)?,
+            ))
+        })
+        .map_err(|error| error.to_string())?;
+    let mut traffic = Traffic::default();
+    for row in rows {
+        let (model, input, output, cache_read, cache_write, duration_ms) =
+            row.map_err(|error| error.to_string())?;
+        let model = model.unwrap_or_else(|| "unknown".to_string());
+        if !model_matches(&model, model_id) {
+            continue;
+        }
+        traffic.add(
+            model,
+            input.unwrap_or_default(),
+            output.unwrap_or_default(),
+            cache_read.unwrap_or_default(),
+            cache_write.unwrap_or_default(),
+            duration_ms.unwrap_or_default(),
+        );
+    }
+    Ok(traffic)
+}
+
+/// Spans retained from the file-based harnesses (Claude Code, Codex, OpenCode,
+/// and anything added later). Their source files are read through a forward
+/// cursor, so this table is the only way to ask what happened in a past window.
+fn retained_span_traffic_between(
+    provider: &str,
+    model_id: Option<&str>,
+    after: i64,
+    until: i64,
+) -> Result<Traffic, String> {
+    let conn = StorageService::connect()?;
+    let mut statement = conn
+        .prepare(
+            "SELECT model, input_tokens, output_tokens, cache_read_tokens,
+                    cache_write_tokens, duration_ms
+             FROM usage_span_traffic
+             WHERE provider = ?1 AND started_at > ?2 AND started_at <= ?3",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = statement
+        .query_map(params![provider, after, until], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, i64>(5)?,
+            ))
+        })
+        .map_err(|error| error.to_string())?;
+    let mut traffic = Traffic::default();
+    for row in rows {
+        let (model, input, output, cache_read, cache_write, duration_ms) =
+            row.map_err(|error| error.to_string())?;
+        if !model_matches(&model, model_id) {
+            continue;
+        }
+        traffic.add(model, input, output, cache_read, cache_write, duration_ms);
+    }
+    Ok(traffic)
+}
+
+/// OMP's per-request store. Read-only: OMP owns it and may be writing.
+fn omp_traffic_between(
     path: &std::path::Path,
     provider: &str,
     model_id: Option<&str>,
@@ -303,10 +463,10 @@ fn traffic_between(
     until: i64,
 ) -> Result<Traffic, String> {
     let conn = open_stats_db(path)?;
-    let mut traffic = Traffic::default();
     let mut statement = conn
         .prepare(
-            "SELECT model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens
+            "SELECT model, input_tokens, output_tokens, cache_read_tokens,
+                    cache_write_tokens, duration
              FROM messages
              WHERE provider = ?1 AND timestamp > ?2 AND timestamp <= ?3",
         )
@@ -319,32 +479,26 @@ fn traffic_between(
                 row.get::<_, Option<i64>>(2)?,
                 row.get::<_, Option<i64>>(3)?,
                 row.get::<_, Option<i64>>(4)?,
+                row.get::<_, Option<f64>>(5)?,
             ))
         })
         .map_err(|error| error.to_string())?;
+    let mut traffic = Traffic::default();
     for row in rows {
-        let (model, input, output, cache_read, cache_write) =
+        let (model, input, output, cache_read, cache_write, duration_ms) =
             row.map_err(|error| error.to_string())?;
         let model = model.unwrap_or_else(|| "unknown".to_string());
-        // A per-model window is only drained by that model; an account-wide one
-        // is drained by everything.
-        if let Some(wanted) = model_id {
-            if model != wanted {
-                continue;
-            }
+        if !model_matches(&model, model_id) {
+            continue;
         }
-        traffic.input = traffic.input.saturating_add(input.unwrap_or_default().max(0));
-        traffic.output = traffic
-            .output
-            .saturating_add(output.unwrap_or_default().max(0));
-        traffic.cache_read = traffic
-            .cache_read
-            .saturating_add(cache_read.unwrap_or_default().max(0));
-        traffic.cache_write = traffic
-            .cache_write
-            .saturating_add(cache_write.unwrap_or_default().max(0));
-        traffic.requests = traffic.requests.saturating_add(1);
-        *traffic.models.entry(model).or_insert(0) += 1;
+        traffic.add(
+            model,
+            input.unwrap_or_default(),
+            output.unwrap_or_default(),
+            cache_read.unwrap_or_default(),
+            cache_write.unwrap_or_default(),
+            duration_ms.unwrap_or_default().max(0.0).round() as i64,
+        );
     }
     Ok(traffic)
 }
@@ -359,12 +513,15 @@ fn summarize(
     let latest = samples.last()?;
     let total_tokens: i64 = intervals.iter().map(DrainInterval::total_tokens).sum();
     let requests: i64 = intervals.iter().map(|interval| interval.requests).sum();
+    let duration_ms: i64 = intervals.iter().map(|interval| interval.duration_ms).sum();
     let used_total: f64 = intervals.iter().map(|interval| interval.used_delta).sum();
     if total_tokens <= 0 || requests <= 0 || used_total <= 0.0 {
         return None;
     }
     let fraction_per_1k_tokens = used_total / (total_tokens as f64 / 1000.0);
     let fraction_per_request = used_total / requests as f64;
+    let fraction_per_model_hour = (duration_ms > 0)
+        .then(|| used_total / (duration_ms as f64 / 3_600_000.0));
 
     // Spread of the per-interval rates. A stable relationship gives a tight
     // cluster; a shared or mismetered window gives a wide one.
@@ -442,8 +599,10 @@ fn summarize(
         intervals: intervals.len(),
         requests,
         total_tokens,
+        duration_ms,
         fraction_per_1k_tokens,
         fraction_per_request,
+        fraction_per_model_hour,
         relative_spread,
         confidence: confidence.to_string(),
         models: models
@@ -473,15 +632,16 @@ mod tests {
             "CREATE TABLE messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, provider TEXT, model TEXT,
                 timestamp INTEGER, input_tokens INTEGER, output_tokens INTEGER,
-                cache_read_tokens INTEGER, cache_write_tokens INTEGER)",
+                cache_read_tokens INTEGER, cache_write_tokens INTEGER,
+                duration INTEGER)",
         )
         .unwrap();
         for (provider, model, timestamp, tokens) in rows {
             conn.execute(
                 "INSERT INTO messages
                     (provider, model, timestamp, input_tokens, output_tokens,
-                     cache_read_tokens, cache_write_tokens)
-                 VALUES (?1, ?2, ?3, ?4, 0, 0, 0)",
+                     cache_read_tokens, cache_write_tokens, duration)
+                 VALUES (?1, ?2, ?3, ?4, 0, 0, 0, 1000)",
                 params![provider, model, timestamp, tokens],
             )
             .unwrap();
@@ -603,6 +763,7 @@ mod tests {
     #[test]
     fn drain_rate_is_solved_from_traffic_between_two_readings() {
         let dir = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&dir);
         let db = dir.path().join("stats.db");
         seed_stats_db(
             &db,
@@ -647,11 +808,67 @@ mod tests {
         }
     }
 
+    /// A provider window drains across every client on the machine. Native,
+    /// retained file-harness, and OMP rows must contribute once each.
+    #[test]
+    fn traffic_is_summed_across_native_harness_and_omp_stores() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&dir);
+        let omp_db = dir.path().join("stats.db");
+        seed_stats_db(
+            &omp_db,
+            &[("anthropic", "claude-opus-5", 1_000, 1_000)],
+        );
+
+        let conn = StorageService::connect().unwrap();
+        conn.execute(
+            "INSERT INTO native_chat_sessions
+                (id, project_path, title, profile_id, provider_id, model_id,
+                 effort_level, status, run_state, created_at, updated_at)
+             VALUES ('native-session', '/test', 'Test', 'default', 'anthropic',
+                     'claude-opus-5', 'medium', 'ready', 'idle', 0, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO native_request_metrics
+                (id, session_id, provider_id, model_id, effort_level, started_at,
+                 input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+                 duration_ms, outcome, created_at)
+             VALUES ('native-request', 'native-session', 'anthropic',
+                     'claude-opus-5', 'medium', 1500, 2000, 100, 0, 0,
+                     2000, 'success', 1500)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO usage_span_traffic
+                (event_id, source, provider, model, started_at, input_tokens,
+                 output_tokens, cache_read_tokens, cache_write_tokens, duration_ms)
+             VALUES ('harness-request', 'claude-code', 'anthropic',
+                     'claude-opus-5', 2000, 3000, 200, 0, 0, 3000)",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+
+        let traffic =
+            traffic_between(Some(&omp_db), "anthropic", None, 0, 3_000).unwrap();
+        assert_eq!(traffic.requests, 3);
+        assert_eq!(traffic.total_tokens(), 6_300);
+        assert_eq!(traffic.duration_ms, 6_000);
+        assert_eq!(
+            traffic.models,
+            BTreeMap::from([("claude-opus-5".to_string(), 3)])
+        );
+    }
+
     /// A reset between readings is not a drain of zero — it is a different
     /// window, and pairing across it would invent a negative rate.
     #[test]
     fn pairs_spanning_a_window_reset_are_discarded() {
         let dir = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&dir);
         let db = dir.path().join("stats.db");
         seed_stats_db(&db, &[("anthropic", "claude-opus-5", 1_500, 9_000)]);
         let samples = vec![
@@ -671,6 +888,7 @@ mod tests {
     #[test]
     fn per_model_windows_only_count_their_own_traffic() {
         let dir = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&dir);
         let db = dir.path().join("stats.db");
         seed_stats_db(
             &db,
@@ -699,6 +917,7 @@ mod tests {
     #[test]
     fn unusable_pairs_are_dropped_and_mixed_windows_stay_low_confidence() {
         let dir = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&dir);
         let db = dir.path().join("stats.db");
         seed_stats_db(
             &db,
@@ -770,6 +989,7 @@ mod tests {
     #[test]
     fn pairs_beyond_the_ingestion_horizon_are_deferred_not_discarded() {
         let dir = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&dir);
         let db = dir.path().join("stats.db");
         seed_stats_db(&db, &[("anthropic", "claude-opus-5", 3_000, 8_000)]);
 
@@ -822,6 +1042,7 @@ mod tests {
     #[test]
     fn reset_identity_tolerates_jitter_but_not_a_rollover() {
         let dir = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&dir);
         let db = dir.path().join("stats.db");
         seed_stats_db(&db, &[("anthropic", "claude-opus-5", 1_500, 10_000)]);
 

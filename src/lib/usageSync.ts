@@ -188,9 +188,13 @@ export type DrainEstimate = {
   intervals: number;
   requests: number;
   totalTokens: number;
+  /** Sum of provider request runtimes. Concurrent requests add as model-hours. */
+  durationMs: number;
   /** Window fraction consumed per 1000 tokens. */
   fractionPer1kTokens: number;
   fractionPerRequest: number;
+  /** Window fraction consumed per model-hour, when request duration is known. */
+  fractionPerModelHour: number | null;
   /** Null below two intervals. */
   relativeSpread: number | null;
   confidence: "high" | "medium" | "low";

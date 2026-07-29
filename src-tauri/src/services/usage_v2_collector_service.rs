@@ -31,6 +31,8 @@ const STATE_LAST_SPANS: &str = "last_span_count";
 const STATE_HISTORY_BACKFILL: &str = "quota_history_backfilled_through";
 /// How far back to pull OMP's recorded quota history on first run.
 const HISTORY_BACKFILL_DAYS: i64 = 30;
+const HISTORY_REFRESH_MIN_MS: i64 = 2 * 3_600_000;
+const DAY_MS: i64 = 86_400_000;
 
 static COLLECTOR_RUNNING: AtomicBool = AtomicBool::new(false);
 
@@ -39,6 +41,17 @@ pub struct UsageV2CollectorService;
 impl UsageV2CollectorService {
     /// Persist every collected batch before any transport attempt.
     pub fn collect_and_spool() -> Result<usize, String> {
+        // Startup, focus-loss sync, and the background loop can arrive
+        // together. OMP history collection is expensive and cursor-based;
+        // concurrent passes duplicate minutes of work and race the same
+        // checkpoints. One pass owns collection, later callers replay whatever
+        // is already durable in the spool.
+        static COLLECTING: std::sync::LazyLock<parking_lot::Mutex<()>> =
+            std::sync::LazyLock::new(|| parking_lot::Mutex::new(()));
+        let Some(_collecting) = COLLECTING.try_lock() else {
+            eprintln!("[SYNC V2] collector: collection already running — coalesced");
+            return Ok(0);
+        };
         eprintln!("[SYNC V2] collector: collecting local sources");
         if !AnalyticsService::get_consent()?.collection_enabled {
             eprintln!("[SYNC V2] collector: collection consent disabled");
@@ -88,8 +101,15 @@ impl UsageV2CollectorService {
         }
         let dropped = Self::trim_spool()?;
         let pruned = prune_quota_samples(now_ms)?;
-        if pruned > 0 {
-            eprintln!("[SYNC V2] collector: pruned {pruned} expired quota samples");
+        // Retained traffic ages out on the same horizon: with no reading left to
+        // pair against, it can no longer contribute to a rate.
+        let pruned_traffic = crate::services::usage_source_service::prune_span_traffic(
+            now_ms.saturating_sub(QUOTA_SAMPLE_RETENTION_MS),
+        )?;
+        if pruned > 0 || pruned_traffic > 0 {
+            eprintln!(
+                "[SYNC V2] collector: pruned {pruned} quota samples, {pruned_traffic} retained spans"
+            );
         }
         if let Some((started_at, ended_at)) = dropped {
             set_state(STATE_SPOOL_GAP, &format!("{started_at}:{ended_at}"), now_ms)?;
@@ -801,9 +821,26 @@ impl UsageV2CollectorService {
 /// starts blind and cannot report a rate until it has watched two windows go by;
 /// with it, a first run has hundreds of intervals immediately.
 ///
-/// Idempotent: readings are keyed by their observation instant, so re-running
-/// inserts nothing new. Runs once per app start, and only forward of whatever
-/// was already backfilled.
+/// Idempotent: readings are keyed by observation instant. A recent checkpoint
+/// skips the CLI entirely; older checkpoints request only the missing boundary
+/// days instead of re-emitting 30 days on every collection pass.
+fn history_backfill_days(now_ms: i64, already: i64) -> Option<i64> {
+    if already <= 0 {
+        return Some(HISTORY_BACKFILL_DAYS);
+    }
+    let age_ms = now_ms.saturating_sub(already);
+    if age_ms < HISTORY_REFRESH_MIN_MS {
+        return None;
+    }
+    // Include both boundary days so an hourly reading near midnight is not
+    // clipped. OMP does the filtering; a smaller payload is dramatically
+    // cheaper than re-emitting all 30 days on every collection pass.
+    Some(
+        (age_ms / DAY_MS + 2)
+            .clamp(1, HISTORY_BACKFILL_DAYS),
+    )
+}
+
 fn backfill_quota_history(now_ms: i64) -> Result<usize, String> {
     if !crate::services::omp_service::OmpService::is_installed_cached() {
         return Ok(0);
@@ -811,7 +848,10 @@ fn backfill_quota_history(now_ms: i64) -> Result<usize, String> {
     let already = get_state(STATE_HISTORY_BACKFILL)?
         .and_then(|value| value.parse::<i64>().ok())
         .unwrap_or(0);
-    let days = HISTORY_BACKFILL_DAYS.to_string();
+    let Some(days) = history_backfill_days(now_ms, already) else {
+        return Ok(0);
+    };
+    let days = days.to_string();
     let output = match crate::services::omp_service::OmpService::run_json(&[
         "usage",
         "--history",
@@ -1399,6 +1439,27 @@ mod tests {
             )
             .unwrap();
         assert!(!retained.contains('@'), "email was persisted: {retained}");
+    }
+
+    #[test]
+    fn history_backfill_skips_recent_checkpoints_and_bounds_catch_up() {
+        let now = 2_000_000_000_000i64;
+        assert_eq!(history_backfill_days(now, 0), Some(30));
+        assert_eq!(
+            history_backfill_days(now, now - 3_600_000),
+            None,
+            "an hourly checkpoint is already current"
+        );
+        assert_eq!(
+            history_backfill_days(now, now - 25 * 3_600_000),
+            Some(3),
+            "catch-up includes both calendar-day boundaries"
+        );
+        assert_eq!(
+            history_backfill_days(now, now - 90 * DAY_MS),
+            Some(30),
+            "catch-up never asks OMP for more than retention keeps"
+        );
     }
 
     /// OMP already records hourly quota snapshots. Seeding from them is what
