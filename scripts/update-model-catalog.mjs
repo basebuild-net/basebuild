@@ -7,7 +7,11 @@
 //      so models that launched upstream of OhMyPi — or that only basebuild
 //      tracks — are present in the bundled file with enough information to
 //      connect (provider slug, model API id, wire kind, base URL).
-//   3. Writes a deterministic serialization and stamps a content-hash VERSION
+//   3. Overlays Basebuild's first-party voice facts (catalog/voice-overlay.json)
+//      so realtime/TTS routes keep their `voice` block and audio modalities
+//      when upstream drops them. Upstream carried this data until it did not,
+//      and a silent loss turns a working voice route into a text-only model.
+//   4. Writes a deterministic serialization and stamps a content-hash VERSION
 //      used by the cache-invalidation logic in provider_model_catalog_service.
 //
 // The basebuild overlay is fail-soft: if basebuild.net is unreachable the
@@ -18,7 +22,7 @@
 // Env:   BASEBUILD_CATALOG_URL overrides https://basebuild.net (dev/testing).
 
 import { createHash } from "node:crypto";
-import { writeFile, mkdir } from "node:fs/promises";
+import { writeFile, readFile, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -131,6 +135,36 @@ function overlayBasebuildCatalog(catalog, desktop) {
   return stats;
 }
 
+/**
+ * Overlay Basebuild's first-party voice facts onto the catalog. `voice` is
+ * authoritative — these blocks are curated against each provider's published
+ * realtime contract and back invariant tests in `models/model_catalog.rs` —
+ * while `input`/`output` modalities are unioned so an upstream modality we do
+ * not track is never dropped. Entries for models absent from the catalog are
+ * skipped, not injected: an overlay row alone does not make a route reachable.
+ *
+ * Mutates `catalog`; returns { applied, missing }.
+ */
+function applyVoiceOverlay(catalog, overlay) {
+  const stats = { applied: 0, missing: [] };
+  for (const [slug, models] of Object.entries(overlay)) {
+    for (const [id, patch] of Object.entries(models)) {
+      const model = catalog[slug]?.[id];
+      if (!model || typeof model !== "object") {
+        stats.missing.push(`${slug}/${id}`);
+        continue;
+      }
+      for (const field of ["input", "output"]) {
+        const merged = new Set([...(model[field] ?? []), ...(patch[field] ?? [])]);
+        if (merged.size > 0) model[field] = [...merged];
+      }
+      model.voice = patch.voice;
+      stats.applied += 1;
+    }
+  }
+  return stats;
+}
+
 async function main() {
   console.log("Fetching OhMyPi catalog from upstream...");
   const catalog = await fetchJson(OHMYPI_CATALOG_URL);
@@ -160,6 +194,18 @@ async function main() {
   } catch (err) {
     // Fail-soft: the OhMyPi baseline update must still land.
     console.warn(`  warning: basebuild overlay skipped (${err.message})`);
+  }
+
+  console.log("Applying first-party voice overlay...");
+  const voiceOverlay = JSON.parse(
+    await readFile(resolve(CATALOG_DIR, "voice-overlay.json"), "utf8"),
+  );
+  const voiceStats = applyVoiceOverlay(catalog, voiceOverlay);
+  console.log(`  voice: ${voiceStats.applied} models patched`);
+  if (voiceStats.missing.length > 0) {
+    // Not fatal — a model can legitimately leave the catalog — but the stale
+    // overlay row should be pruned rather than left to rot.
+    console.warn(`  warning: overlay rows with no catalog model: ${voiceStats.missing.join(", ")}`);
   }
 
   // Deterministic serialization (stable key order from source objects, tab

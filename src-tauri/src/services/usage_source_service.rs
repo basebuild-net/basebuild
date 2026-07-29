@@ -308,12 +308,7 @@ fn parse_omp_counters(stats: &Value) -> BTreeMap<String, OmpCounter> {
         ) else {
             continue;
         };
-        let requests = row
-            .get("requests")
-            .or_else(|| row.get("requestCount"))
-            .and_then(Value::as_i64)
-            .unwrap_or(0)
-            .max(0);
+        let requests = nonnegative_i64(row, &["requests", "requestCount", "totalRequests"]);
         if requests == 0 {
             continue;
         }
@@ -321,12 +316,13 @@ fn parse_omp_counters(stats: &Value) -> BTreeMap<String, OmpCounter> {
             provider: provider.clone(),
             model: model.clone(),
             requests,
-            input_tokens: nonnegative_i64(row, "inputTokens"),
-            output_tokens: nonnegative_i64(row, "outputTokens"),
-            cache_read_tokens: nonnegative_i64(row, "cacheReadTokens"),
-            cache_write_tokens: nonnegative_i64(row, "cacheWriteTokens"),
+            input_tokens: nonnegative_i64(row, &["inputTokens", "totalInputTokens"]),
+            output_tokens: nonnegative_i64(row, &["outputTokens", "totalOutputTokens"]),
+            cache_read_tokens: nonnegative_i64(row, &["cacheReadTokens", "totalCacheReadTokens"]),
+            cache_write_tokens: nonnegative_i64(row, &["cacheWriteTokens", "totalCacheWriteTokens"]),
             cost_total: row
                 .get("costTotal")
+                .or_else(|| row.get("totalCost"))
                 .and_then(Value::as_f64)
                 .filter(|value| value.is_finite() && *value >= 0.0)
                 .unwrap_or(0.0),
@@ -381,8 +377,11 @@ fn omp_delta_rows(
         .collect()
 }
 
-fn nonnegative_i64(row: &Value, key: &str) -> i64 {
-    row.get(key).and_then(Value::as_i64).unwrap_or(0).max(0)
+fn nonnegative_i64(row: &Value, keys: &[&str]) -> i64 {
+    keys.iter()
+        .find_map(|key| row.get(*key).and_then(Value::as_i64))
+        .unwrap_or(0)
+        .max(0)
 }
 
 fn now_seconds() -> i64 {
@@ -452,16 +451,13 @@ pub fn registered_sources() -> Vec<Box<dyn UsageSource>> {
     ]
 }
 
-/// Collect from available sources independently. Signed-in accounts keep OMP
-/// on the richer raw-usage path; private installations include OMP in the
-/// closed aggregate envelope. A failure in one source does not block others.
-pub fn collect_all_sources(include_omp: bool) -> Vec<SourceCollection> {
+/// Collect from every available source independently. Aggregate envelope
+/// publication and the richer authenticated raw-usage stream are separate
+/// server projections, so signed-in accounts must not omit OMP here.
+pub fn collect_all_sources() -> Vec<SourceCollection> {
     let sources = registered_sources();
     let mut results = Vec::new();
     for source in &sources {
-        if source.kind() == SourceKind::Omp && !include_omp {
-            continue;
-        }
         let kind = source.kind();
         if !source.available() {
             results.push(SourceCollection {
@@ -507,6 +503,15 @@ mod tests {
     }
 
     #[test]
+    fn source_collection_never_filters_omp() {
+        let collections = collect_all_sources();
+        assert!(
+            collections.iter().any(|collection| collection.source == SourceKind::Omp),
+            "OMP must be offered to the public-cohort envelope for every auth mode"
+        );
+    }
+
+    #[test]
     fn registered_sources_contains_omp_and_native() {
         let sources = registered_sources();
         let kinds: Vec<SourceKind> = sources.iter().map(|s| s.kind()).collect();
@@ -546,6 +551,33 @@ mod tests {
         let serialized = serde_json::to_string(counter).unwrap();
         assert!(!serialized.contains("prompt"));
         assert!(!serialized.contains("content"));
+    }
+
+    #[test]
+    fn omp_stats_preserve_raw_opus_5_identity_for_server_normalization() {
+        let counters = parse_omp_counters(&json!({
+            "byModel": [{
+                "provider": "anthropic",
+                "model": "claude-opus-5",
+                "totalRequests": 1032,
+                "totalInputTokens": 117622,
+                "totalOutputTokens": 772282,
+                "totalCacheReadTokens": 313831811,
+                "totalCacheWriteTokens": 2556036,
+                "totalCost": 192.7862905,
+            }]
+        }));
+        let counter = counters
+            .get("anthropic\u{1f}claude-opus-5")
+            .expect("Opus 5 aggregate must retain its source identity");
+        assert_eq!(counter.provider, "anthropic");
+        assert_eq!(counter.model, "claude-opus-5");
+        assert_eq!(counter.requests, 1032);
+        assert_eq!(counter.input_tokens, 117622);
+        assert_eq!(counter.output_tokens, 772282);
+        assert_eq!(counter.cache_read_tokens, 313831811);
+        assert_eq!(counter.cache_write_tokens, 2556036);
+        assert_eq!(counter.cost_total, 192.7862905);
     }
 
     #[test]

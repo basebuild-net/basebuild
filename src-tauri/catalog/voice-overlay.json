@@ -1,0 +1,525 @@
+{
+	"aimlapi": {
+		"microsoft/mai-voice-2": {
+			"input": [
+				"text",
+				"audio"
+			],
+			"output": [],
+			"voice": {
+				"level": "tts",
+				"billing": "api_key",
+				"transports": [],
+				"turnDetection": [],
+				"bargeIn": false,
+				"voices": [],
+				"sampleRateIn": 0,
+				"sampleRateOut": 24000
+			}
+		},
+		"qwen3.5-omni-flash": {
+			"input": [
+				"text",
+				"audio"
+			],
+			"output": [
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [],
+				"bargeIn": true,
+				"voices": [],
+				"sampleRateIn": 16000,
+				"sampleRateOut": 24000
+			}
+		},
+		"qwen3.5-omni-plus": {
+			"input": [
+				"text",
+				"audio"
+			],
+			"output": [
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [],
+				"bargeIn": true,
+				"voices": [],
+				"sampleRateIn": 16000,
+				"sampleRateOut": 24000
+			}
+		},
+		"vibevoice": {
+			"input": [
+				"text",
+				"audio"
+			],
+			"output": [],
+			"voice": {
+				"level": "tts",
+				"billing": "api_key",
+				"transports": [],
+				"turnDetection": [],
+				"bargeIn": false,
+				"voices": [],
+				"sampleRateIn": 0,
+				"sampleRateOut": 24000
+			}
+		},
+		"vibevoice/7b": {
+			"input": [
+				"text",
+				"audio"
+			],
+			"output": [],
+			"voice": {
+				"level": "tts",
+				"billing": "api_key",
+				"transports": [],
+				"turnDetection": [],
+				"bargeIn": false,
+				"voices": [],
+				"sampleRateIn": 0,
+				"sampleRateOut": 24000
+			}
+		}
+	},
+	"cloudflare-ai-gateway": {
+		"workers-ai/@cf/myshell-ai/melotts": {
+			"input": [
+				"text",
+				"audio"
+			],
+			"output": [],
+			"voice": {
+				"level": "tts",
+				"billing": "api_key",
+				"transports": [],
+				"turnDetection": [],
+				"bargeIn": false,
+				"voices": [],
+				"sampleRateIn": 0,
+				"sampleRateOut": 24000
+			}
+		}
+	},
+	"google": {
+		"gemini-3.1-flash-live-preview": {
+			"input": [
+				"text",
+				"image",
+				"video",
+				"audio"
+			],
+			"output": [
+				"text",
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [],
+				"bargeIn": true,
+				"voices": [],
+				"sampleRateIn": 16000,
+				"sampleRateOut": 24000
+			}
+		},
+		"gemini-3.5-live-translate-preview": {
+			"input": [
+				"audio"
+			],
+			"output": [
+				"text",
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [],
+				"bargeIn": true,
+				"voices": [],
+				"sampleRateIn": 16000,
+				"sampleRateOut": 24000
+			}
+		},
+		"gemini-live-2.5-flash": {
+			"input": [
+				"text",
+				"image",
+				"audio"
+			],
+			"output": [
+				"text",
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [],
+				"bargeIn": true,
+				"voices": [],
+				"sampleRateIn": 16000,
+				"sampleRateOut": 24000
+			}
+		},
+		"gemini-live-2.5-flash-preview-native-audio": {
+			"input": [
+				"text",
+				"audio"
+			],
+			"output": [
+				"text",
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [],
+				"bargeIn": true,
+				"voices": [],
+				"sampleRateIn": 16000,
+				"sampleRateOut": 24000
+			}
+		}
+	},
+	"kilo": {
+		"openai/gpt-4o-audio-preview": {
+			"input": [
+				"text",
+				"audio"
+			],
+			"output": [
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [
+					"server_vad"
+				],
+				"bargeIn": true,
+				"voices": [
+					"alloy",
+					"cedar",
+					"marin"
+				],
+				"sampleRateIn": 24000,
+				"sampleRateOut": 24000
+			}
+		},
+		"openai/gpt-audio": {
+			"input": [
+				"text",
+				"audio"
+			],
+			"output": [
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [
+					"server_vad"
+				],
+				"bargeIn": true,
+				"voices": [
+					"alloy",
+					"cedar",
+					"marin"
+				],
+				"sampleRateIn": 24000,
+				"sampleRateOut": 24000
+			}
+		},
+		"openai/gpt-audio-mini": {
+			"input": [
+				"text",
+				"audio"
+			],
+			"output": [
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [
+					"server_vad"
+				],
+				"bargeIn": true,
+				"voices": [
+					"alloy",
+					"cedar",
+					"marin"
+				],
+				"sampleRateIn": 24000,
+				"sampleRateOut": 24000
+			}
+		}
+	},
+	"nanogpt": {
+		"qwen3.5-omni-flash": {
+			"input": [
+				"text",
+				"audio"
+			],
+			"output": [
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [],
+				"bargeIn": true,
+				"voices": [],
+				"sampleRateIn": 16000,
+				"sampleRateOut": 24000
+			}
+		},
+		"qwen3.5-omni-plus": {
+			"input": [
+				"text",
+				"audio"
+			],
+			"output": [
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [],
+				"bargeIn": true,
+				"voices": [],
+				"sampleRateIn": 16000,
+				"sampleRateOut": 24000
+			}
+		}
+	},
+	"nvidia": {
+		"nvidia/nemotron-voicechat": {
+			"input": [
+				"text",
+				"audio"
+			],
+			"output": [
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [
+					"server_vad"
+				],
+				"bargeIn": true,
+				"voices": [],
+				"sampleRateIn": 16000,
+				"sampleRateOut": 24000
+			}
+		},
+		"nvidia/studiovoice": {
+			"input": [
+				"text",
+				"audio"
+			],
+			"output": [
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [
+					"server_vad"
+				],
+				"bargeIn": true,
+				"voices": [],
+				"sampleRateIn": 16000,
+				"sampleRateOut": 24000
+			}
+		}
+	},
+	"openai": {
+		"gpt-realtime-2.1": {
+			"input": [
+				"text",
+				"audio",
+				"image"
+			],
+			"output": [
+				"text",
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"webrtc",
+					"websocket",
+					"sip"
+				],
+				"turnDetection": [
+					"server_vad",
+					"semantic_vad",
+					"none"
+				],
+				"bargeIn": true,
+				"voices": [
+					"alloy",
+					"cedar",
+					"marin"
+				],
+				"sampleRateIn": 24000,
+				"sampleRateOut": 24000
+			}
+		}
+	},
+	"openrouter": {
+		"openai/gpt-4o-audio-preview": {
+			"input": [
+				"text",
+				"audio"
+			],
+			"output": [
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [
+					"server_vad"
+				],
+				"bargeIn": true,
+				"voices": [
+					"alloy",
+					"cedar",
+					"marin"
+				],
+				"sampleRateIn": 24000,
+				"sampleRateOut": 24000
+			}
+		},
+		"openai/gpt-audio": {
+			"input": [
+				"text",
+				"audio"
+			],
+			"output": [
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [
+					"server_vad"
+				],
+				"bargeIn": true,
+				"voices": [
+					"alloy",
+					"cedar",
+					"marin"
+				],
+				"sampleRateIn": 24000,
+				"sampleRateOut": 24000
+			}
+		},
+		"openai/gpt-audio-mini": {
+			"input": [
+				"text",
+				"audio"
+			],
+			"output": [
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [
+					"server_vad"
+				],
+				"bargeIn": true,
+				"voices": [
+					"alloy",
+					"cedar",
+					"marin"
+				],
+				"sampleRateIn": 24000,
+				"sampleRateOut": 24000
+			}
+		}
+	},
+	"xiaomi": {
+		"mimo-v2-omni": {
+			"input": [
+				"text",
+				"image",
+				"audio"
+			],
+			"output": [
+				"audio"
+			],
+			"voice": {
+				"level": "realtime",
+				"billing": "api_key",
+				"transports": [
+					"websocket"
+				],
+				"turnDetection": [],
+				"bargeIn": true,
+				"voices": [],
+				"sampleRateIn": 16000,
+				"sampleRateOut": 24000
+			}
+		}
+	}
+}
