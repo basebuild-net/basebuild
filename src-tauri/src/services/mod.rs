@@ -54,6 +54,7 @@ pub mod terminal_service;
 pub mod tool_runtime_service;
 pub mod tool_download_service;
 pub mod updater_service;
+pub mod usage_correlation_service;
 pub mod usage_source_service;
 pub mod usage_v2_collector_service;
 pub mod voice_service;

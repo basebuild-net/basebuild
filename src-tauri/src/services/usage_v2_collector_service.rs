@@ -13,7 +13,12 @@ use crate::models::usage_envelope::{
 use crate::services::analytics_service::AnalyticsService;
 use crate::services::storage_service::StorageService;
 
+/// Collect cadence while the machine is idle.
 const COLLECT_INTERVAL_SECS: u64 = 300;
+/// Collect cadence while spans are still arriving. Matches the quota debounce
+/// so an active window is re-read every pass: two readings that bracket a burst
+/// are what turn a quota bar into a drain rate.
+const ACTIVE_COLLECT_INTERVAL_SECS: u64 = 60;
 const QUOTA_DEBOUNCE_MS: i64 = 60_000;
 const MAX_PENDING_BATCHES: i64 = 1_000;
 /// How long retained quota readings stay useful for solving a drain rate.
@@ -22,6 +27,7 @@ const QUOTA_SAMPLE_RETENTION_MS: i64 = 30 * 86_400_000;
 const STATE_HEARTBEAT_MS: &str = "coverage_heartbeat_ms";
 const STATE_RUNNING: &str = "coverage_running";
 const STATE_SPOOL_GAP: &str = "spool_gap";
+const STATE_LAST_SPANS: &str = "last_span_count";
 
 static COLLECTOR_RUNNING: AtomicBool = AtomicBool::new(false);
 
@@ -79,7 +85,16 @@ impl UsageV2CollectorService {
             set_state(STATE_SPOOL_GAP, &format!("{started_at}:{ended_at}"), now_ms)?;
             eprintln!("[SYNC V2] collector: spool cap dropped oldest batches");
         }
-        eprintln!("[SYNC V2] collector: persisted {persisted} batches");
+        // Remember whether this pass saw traffic. A quota window only yields a
+        // drain rate when two readings bracket real requests, so the loop
+        // samples fast while spans are arriving and backs off when idle.
+        let spans = batches
+            .iter()
+            .flat_map(|batch| batch.rows.iter())
+            .filter(|row| matches!(row, V2Row::RequestSpan(_)))
+            .count();
+        set_state(STATE_LAST_SPANS, &spans.to_string(), now_ms)?;
+        eprintln!("[SYNC V2] collector: persisted {persisted} batches, {spans} spans");
         Ok(persisted)
     }
 
@@ -230,6 +245,26 @@ impl UsageV2CollectorService {
         Ok(rows)
     }
 
+    /// How long to wait before the next collect pass.
+    ///
+    /// Idle machines do not need a tight loop, but an active one does: a quota
+    /// reading is only useful next to another reading of the same window with
+    /// known traffic between them. Sampling every five minutes through a burst
+    /// yields one coarse interval; sampling every minute yields several, and
+    /// the drain rate is solved from their spread.
+    fn next_interval_secs() -> u64 {
+        let active = get_state(STATE_LAST_SPANS)
+            .ok()
+            .flatten()
+            .and_then(|value| value.parse::<usize>().ok())
+            .is_some_and(|spans| spans > 0);
+        if active {
+            ACTIVE_COLLECT_INTERVAL_SECS
+        } else {
+            COLLECT_INTERVAL_SECS
+        }
+    }
+
     pub fn start_background_loop() {
         if COLLECTOR_RUNNING.swap(true, Ordering::SeqCst) {
             eprintln!("[SYNC V2] collector: start skipped, already running");
@@ -244,7 +279,7 @@ impl UsageV2CollectorService {
                 let _ = tauri::async_runtime::spawn_blocking(Self::collect_and_spool).await;
             }
             while COLLECTOR_RUNNING.load(Ordering::SeqCst) {
-                tokio::time::sleep(Duration::from_secs(COLLECT_INTERVAL_SECS)).await;
+                tokio::time::sleep(Duration::from_secs(Self::next_interval_secs())).await;
                 if !COLLECTOR_RUNNING.load(Ordering::SeqCst) {
                     break;
                 }

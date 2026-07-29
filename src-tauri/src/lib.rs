@@ -162,7 +162,7 @@ use commands::{
     },
     sync::{
         sync_raw_usage_native, usage_declare_provider_plans, usage_detect_provider_plans,
-        usage_list_provider_plans, usage_sync_projected_usage, usage_sync_retry,
+        usage_drain_rates, usage_list_provider_plans, usage_sync_projected_usage, usage_sync_retry,
         usage_sync_set_enabled, usage_sync_set_mode, usage_sync_status, usage_sync_trigger,
     },
     terminal::{
@@ -664,6 +664,7 @@ pub fn run() {
             usage_detect_provider_plans,
             usage_list_provider_plans,
             usage_declare_provider_plans,
+            usage_drain_rates,
             get_workspace_restore_state,
             save_workspace_restore_state,
             workspace_create,
