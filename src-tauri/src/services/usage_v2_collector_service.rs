@@ -181,6 +181,60 @@ impl UsageV2CollectorService {
         Ok(())
     }
 
+    /// Move a batch out of the retry loop without destroying it.
+    ///
+    /// Used when the server says it stored nothing and never will for this
+    /// payload. Deleting would be data loss — these rows exist nowhere else —
+    /// and leaving it pending would wedge the source, re-offering the same
+    /// refused bytes forever.
+    pub fn quarantine_batch(
+        batch: &V2UsageBatch,
+        code: Option<&str>,
+        message: &str,
+    ) -> Result<(), String> {
+        let rows_json = serde_json::to_string(&batch.rows).map_err(|error| error.to_string())?;
+        let conn = StorageService::connect()?;
+        conn.execute(
+            "INSERT OR REPLACE INTO usage_v2_quarantined_batches
+                (idempotency_key, source, window_start, window_end, rows_json, code, message,
+                 quarantined_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                batch.idempotency_key,
+                batch.source.as_str(),
+                batch.window_start,
+                batch.window_end,
+                rows_json,
+                code,
+                message,
+                now_millis()
+            ],
+        )
+        .map_err(|error| error.to_string())?;
+        conn.execute(
+            "DELETE FROM usage_v2_pending_batches WHERE idempotency_key = ?1",
+            params![batch.idempotency_key],
+        )
+        .map_err(|error| error.to_string())?;
+        eprintln!(
+            "[SYNC V2] source {}: quarantined batch ({}) — rows retained locally, not retried",
+            batch.source.as_str(),
+            code.unwrap_or("unknown")
+        );
+        Ok(())
+    }
+
+    /// How many batches are held in quarantine, for status reporting.
+    pub fn quarantined_count() -> Result<i64, String> {
+        StorageService::connect()?
+            .query_row(
+                "SELECT COUNT(*) FROM usage_v2_quarantined_batches",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|error| error.to_string())
+    }
+
     pub fn start(now_ms: i64) -> Result<Vec<V2Row>, String> {
         eprintln!("[SYNC V2] collector: start at {now_ms}");
         let heartbeat = get_state(STATE_HEARTBEAT_MS)?.and_then(|value| value.parse().ok());
@@ -651,13 +705,23 @@ fn fraction(value: Option<&Value>) -> Option<f64> {
 ///
 /// Readings are immutable and keyed by their observation instant, so a repeated
 /// sample of an unchanged window is a no-op rather than an update.
-fn record_quota_sample(observation: &QuotaObservation, observed_at: i64) -> Result<(), String> {
+///
+/// `ingested_through` is captured with the reading, not inferred later: it is
+/// the only way to tell a genuinely idle stretch from traffic the collector had
+/// not yet read off disk, and that distinction decides whether the newest
+/// interval is usable or garbage.
+fn record_quota_sample(
+    observation: &QuotaObservation,
+    observed_at: i64,
+    ingested_through: Option<i64>,
+) -> Result<(), String> {
     StorageService::connect()?
         .execute(
             "INSERT OR IGNORE INTO usage_quota_samples
                 (provider, limit_id, observed_at, model_id, window_label, plan_type,
-                 used_fraction, remaining_fraction, resets_at, window_duration_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                 used_fraction, remaining_fraction, resets_at, window_duration_ms,
+                 ingested_through)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 observation.provider,
                 observation.limit_id,
@@ -669,6 +733,7 @@ fn record_quota_sample(observation: &QuotaObservation, observed_at: i64) -> Resu
                 observation.remaining_fraction,
                 observation.resets_at,
                 observation.window_duration_ms,
+                ingested_through,
             ],
         )
         .map_err(|error| error.to_string())?;
@@ -692,6 +757,9 @@ fn quota_rows_from_payload(payload: &Value, now_ms: i64) -> Result<Vec<V2Row>, S
         eprintln!("[SYNC V2] quota: payload carried no readable quota windows");
         return Ok(Vec::new());
     }
+    // Read once per pass: how far the traffic store has been tailed. Captured
+    // with the readings so a later solve can tell idleness from ingestion lag.
+    let ingested_through = crate::services::usage_source_service::omp_ingestion_horizon();
     let mut rows = Vec::new();
     let mut sampled_providers = HashSet::new();
     for observation in &observations {
@@ -708,7 +776,7 @@ fn quota_rows_from_payload(payload: &Value, now_ms: i64) -> Result<Vec<V2Row>, S
         // Retain the reading locally before it is spooled. The wire row is
         // deleted once the server accepts it, so without this the drain rate
         // could only ever be solved server-side.
-        record_quota_sample(observation, now_ms)?;
+        record_quota_sample(observation, now_ms, ingested_through)?;
         let identity = format!("{}:{}:{now_ms}", observation.provider, observation.limit_id);
         let digest = Sha256::digest(identity.as_bytes());
         rows.push(V2Row::QuotaSnapshot(QuotaSnapshotRow {

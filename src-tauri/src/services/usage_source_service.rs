@@ -247,7 +247,16 @@ impl UsageSource for OmpSource {
         if !path.exists() {
             return Ok(None);
         }
-        let since = v2_rowid_cursor()?;
+        // OMP tails its session files lazily, so `stats.db` routinely lags the
+        // wall clock by minutes. Asking it for stats first flushes that backlog,
+        // which is what keeps spans and quota readings describing the same
+        // stretch of time — without it, every fresh interval looks like traffic
+        // that never happened.
+        if let Err(error) = crate::services::omp_service::OmpService::run_json(&["stats", "--json"])
+        {
+            eprintln!("[SYNC V2] omp: could not flush stats before reading spans: {error}");
+        }
+        let since = v2_cursor(OMP_V2_CURSOR)?;
         let (rows, max_rowid) = read_omp_spans(&path, since, MAX_ROWS_PER_BATCH)?;
         if rows.is_empty() {
             return Ok(None);
@@ -256,12 +265,12 @@ impl UsageSource for OmpSource {
         let Some((rows, window_start, window_end)) = clamp_v2_rows(rows, now) else {
             // Everything readable is older than the retention horizon. Bank the
             // rowid so the dead tail is not re-read on every pass.
-            set_v2_rowid_cursor(max_rowid)?;
+            set_v2_cursor(OMP_V2_CURSOR, max_rowid)?;
             return Ok(None);
         };
         let digest = Sha256::digest(serde_json::to_vec(&rows).map_err(|e| e.to_string())?);
         let idempotency_key = format!("omp:v2:{digest:x}");
-        bank_v2_rowid(&idempotency_key, max_rowid)?;
+        bank_v2_cursor(OMP_V2_CURSOR, &idempotency_key, max_rowid)?;
         Ok(Some(V2UsageBatch {
             source: SourceKind::Omp,
             idempotency_key,
@@ -273,8 +282,8 @@ impl UsageSource for OmpSource {
 
     /// Adopt the banked rowid for the batch the server just accepted.
     fn advance_v2_checkpoint(&self, batch: &V2UsageBatch) -> Result<(), String> {
-        if let Some(rowid) = take_banked_v2_rowid(&batch.idempotency_key)? {
-            set_v2_rowid_cursor(rowid)?;
+        if let Some(rowid) = take_banked_v2_cursor(OMP_V2_CURSOR, &batch.idempotency_key)? {
+            set_v2_cursor(OMP_V2_CURSOR, rowid)?;
         }
         Ok(())
     }
@@ -498,17 +507,24 @@ impl UsageSource for NativeSource {
         }
     }
 
+    /// Adopt the banked `created_at` high-water mark for the accepted batch.
+    ///
+    /// Never `batch.window_end`: that is derived from span timestamps, while the
+    /// collect query filters on `created_at`. They are separate clocks read at
+    /// separate instants, and advancing one by the other silently skips every
+    /// metric that landed in the gap.
     fn advance_v2_checkpoint(&self, batch: &V2UsageBatch) -> Result<(), String> {
-        if !batch
-            .rows
-            .iter()
-            .any(|row| matches!(row, V2Row::RequestSpan(_)))
-        {
+        let Some(high_water) = take_banked_v2_cursor(NATIVE_V2_CURSOR, &batch.idempotency_key)?
+        else {
             return Ok(());
-        }
+        };
         use crate::services::settings_service::SettingsService;
         let mut settings = SettingsService::get_usage_sync_settings()?;
-        settings.last_envelope_v2_sync_at = Some(batch.window_end);
+        // Monotonic: a late-arriving acceptance must never rewind the cursor.
+        if settings.last_envelope_v2_sync_at.unwrap_or(0) >= high_water {
+            return Ok(());
+        }
+        settings.last_envelope_v2_sync_at = Some(high_water);
         SettingsService::set_usage_sync_settings(&settings)
     }
 
@@ -625,13 +641,39 @@ fn omp_stats_db_path() -> Option<PathBuf> {
         .map(|home| PathBuf::from(home).join(".omp").join("stats.db"))
 }
 
-const OMP_V2_CURSOR: &str = "omp:v2";
+/// Newest request timestamp OMP has ingested into `stats.db`.
+///
+/// `None` when the store is missing, empty, or unreadable. Callers use it to
+/// tell "no requests happened" apart from "the requests have not been tailed off
+/// disk yet" — two states that are otherwise identical from the outside.
+pub(crate) fn omp_ingestion_horizon() -> Option<i64> {
+    let path = omp_stats_db_path()?;
+    if !path.exists() {
+        return None;
+    }
+    let flags = rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+        | rusqlite::OpenFlags::SQLITE_OPEN_URI
+        | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    let conn =
+        rusqlite::Connection::open_with_flags(format!("file:{}", path.to_string_lossy()), flags)
+            .ok()?;
+    conn.query_row("SELECT MAX(timestamp) FROM messages", [], |row| {
+        row.get::<_, Option<i64>>(0)
+    })
+    .ok()
+    .flatten()
+}
 
-fn v2_rowid_cursor() -> Result<i64, String> {
+const OMP_V2_CURSOR: &str = "omp:v2";
+/// Cursor namespace for the native ledger's version 2 collection.
+pub(crate) const NATIVE_V2_CURSOR: &str = "native:v2";
+
+/// Read a persisted v2 cursor, or 0 when the source has never synced.
+fn v2_cursor(namespace: &str) -> Result<i64, String> {
     let value: Option<i64> = StorageService::connect()?
         .query_row(
             "SELECT last_ts FROM harness_sync_checkpoints WHERE source = ?1",
-            params![OMP_V2_CURSOR],
+            params![namespace],
             |row| row.get(0),
         )
         .optional()
@@ -639,31 +681,36 @@ fn v2_rowid_cursor() -> Result<i64, String> {
     Ok(value.unwrap_or(0))
 }
 
-fn set_v2_rowid_cursor(rowid: i64) -> Result<(), String> {
+fn set_v2_cursor(namespace: &str, value: i64) -> Result<(), String> {
     StorageService::connect()?
         .execute(
             "INSERT INTO harness_sync_checkpoints (source, last_ts) VALUES (?1, ?2)
              ON CONFLICT(source) DO UPDATE SET last_ts = excluded.last_ts",
-            params![OMP_V2_CURSOR, rowid],
+            params![namespace, value],
         )
         .map_err(|error| error.to_string())?;
     Ok(())
 }
 
-/// Remember which rowid a batch would advance the cursor to, without moving it.
-fn bank_v2_rowid(idempotency_key: &str, rowid: i64) -> Result<(), String> {
-    StorageService::connect()?
-        .execute(
-            "INSERT INTO harness_sync_checkpoints (source, last_ts) VALUES (?1, ?2)
-             ON CONFLICT(source) DO UPDATE SET last_ts = excluded.last_ts",
-            params![format!("{OMP_V2_CURSOR}:pending:{idempotency_key}"), rowid],
-        )
-        .map_err(|error| error.to_string())?;
-    Ok(())
+/// Remember where a batch would advance its cursor to, without moving it.
+///
+/// The cursor is only adopted once the server accepts the batch, so a crash in
+/// between re-offers those rows rather than stepping over them. Duplicates are
+/// recoverable; a skipped row is gone.
+pub(crate) fn bank_v2_cursor(
+    namespace: &str,
+    idempotency_key: &str,
+    value: i64,
+) -> Result<(), String> {
+    set_v2_cursor(&format!("{namespace}:pending:{idempotency_key}"), value)
 }
 
-fn take_banked_v2_rowid(idempotency_key: &str) -> Result<Option<i64>, String> {
-    let key = format!("{OMP_V2_CURSOR}:pending:{idempotency_key}");
+/// Take and clear a banked cursor. `None` means this batch never banked one.
+pub(crate) fn take_banked_v2_cursor(
+    namespace: &str,
+    idempotency_key: &str,
+) -> Result<Option<i64>, String> {
+    let key = format!("{namespace}:pending:{idempotency_key}");
     let conn = StorageService::connect()?;
     let value: Option<i64> = conn
         .query_row(

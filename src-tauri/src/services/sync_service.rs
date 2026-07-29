@@ -304,6 +304,12 @@ pub fn collect_native_v2_batch() -> Result<V2UsageBatch, String> {
     let settings = SettingsService::get_usage_sync_settings()?;
     let since = settings.last_envelope_v2_sync_at.unwrap_or(0);
     let metrics = NativeChatService::metrics_since(since, 498)?;
+    // The cursor must stay on the clock `metrics_since` filters. `created_at` is
+    // the ledger's insert stamp; the batch window is derived from span
+    // timestamps, which is a different instant read from a different clock.
+    // Advancing the cursor to the window would skip any metric whose
+    // `created_at` fell below it but was never in the batch.
+    let high_water = metrics.iter().map(|m| m.created_at).max().unwrap_or(since);
     let now = now_seconds();
     let mut rows = metrics
         .iter()
@@ -390,9 +396,27 @@ pub fn collect_native_v2_batch() -> Result<V2UsageBatch, String> {
         });
     };
     let digest = Sha256::digest(serde_json::to_vec(&rows).map_err(|error| error.to_string())?);
+    let idempotency_key = format!("native:v2:{digest:x}");
+    // Bank the `created_at` high-water mark, not the derived window. Rows the
+    // clamp dropped are older than the retention horizon and genuinely
+    // unreportable, so stepping past them is right — but it is logged rather
+    // than silent, because the alternative is usage vanishing without a trace.
+    if high_water > since {
+        crate::services::usage_source_service::bank_v2_cursor(
+            crate::services::usage_source_service::NATIVE_V2_CURSOR,
+            &idempotency_key,
+            high_water,
+        )?;
+    }
+    let dropped = metrics.len() - rows.len();
+    if dropped > 0 {
+        eprintln!(
+            "[SYNC V2] native: {dropped} metrics fell outside the reportable window and were skipped"
+        );
+    }
     Ok(V2UsageBatch {
         source: SourceKind::Native,
-        idempotency_key: format!("native:v2:{digest:x}"),
+        idempotency_key,
         window_start,
         window_end,
         rows,
@@ -555,30 +579,54 @@ fn combine_envelope_reports(
     }
 }
 
-/// Server rejection codes that a byte-identical retry can never clear. The
-/// batch is abandoned and its cursor advanced; anything else stays queued.
-/// Kept deliberately explicit — an unrecognized code is treated as transient
-/// so a server-side change never silently discards a user's usage.
+/// What to do with a batch the server refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RejectionDisposition {
+    /// A byte-identical retry may still succeed. Keep the batch queued.
+    Retry,
+    /// The server already holds these rows. Drop the batch and advance the
+    /// cursor: nothing is lost, and retrying can only conflict again.
+    AlreadyStored,
+    /// The server stored nothing and never will for this payload. Stop
+    /// retrying, but do NOT advance the cursor — these rows have not been
+    /// recorded anywhere and advancing past them destroys them.
+    Unrepresentable,
+}
+
+/// Classify a server rejection code.
 ///
-/// `event_identity_conflict` is version 2 only: the server already holds those
-/// event identities under an earlier idempotency key, which happens whenever a
-/// batch is re-spooled after a partial acceptance. Retrying can only conflict
-/// again, and the usage is already recorded server-side, so the batch is
-/// dropped rather than left to wedge its source forever.
+/// An unrecognized code is `Retry` so a server-side change never silently
+/// discards a user's usage.
+///
+/// The split between `AlreadyStored` and `Unrepresentable` is the important
+/// part. Both are permanent — a retry of the same bytes cannot clear either —
+/// but only the first means the usage is safe. `idempotency_conflict` and
+/// `event_identity_conflict` say "I already have this", so dropping is
+/// lossless. The `invalid_*` family says "I stored nothing", so dropping the
+/// batch *and* advancing the cursor would delete usage that exists nowhere
+/// else. One server-side schema tightening would otherwise wipe usage on every
+/// client at once, which is exactly what treating unknown codes as transient is
+/// meant to prevent.
+fn classify_rejection(code: Option<&str>) -> RejectionDisposition {
+    match code {
+        Some("idempotency_conflict") | Some("event_identity_conflict") => {
+            RejectionDisposition::AlreadyStored
+        }
+        Some("invalid_window") | Some("invalid_rows") | Some("invalid_row")
+        | Some("invalid_batch") | Some("invalid_idempotency_key") | Some("source_not_allowed") => {
+            RejectionDisposition::Unrepresentable
+        }
+        _ => RejectionDisposition::Retry,
+    }
+}
+
+/// Whether a code is permanent in the version 1 sense: stop retrying.
+///
+/// v1 has no quarantine, so it still collapses both permanent dispositions into
+/// one. Its rows are aggregates it can recompute from the ledger, so a discard
+/// costs a window rather than the underlying data.
 fn rejection_is_permanent(code: Option<&str>) -> bool {
-    matches!(
-        code,
-        Some(
-            "invalid_window"
-                | "invalid_rows"
-                | "invalid_row"
-                | "invalid_batch"
-                | "invalid_idempotency_key"
-                | "source_not_allowed"
-                | "idempotency_conflict"
-                | "event_identity_conflict"
-        )
-    )
+    !matches!(classify_rejection(code), RejectionDisposition::Retry)
 }
 
 /// Sync every available closed-envelope source.
@@ -817,6 +865,20 @@ pub fn sync_envelope_v2() -> Result<EnvelopeSyncReport, String> {
             advance(batch);
         }
     };
+    // Permanent-but-not-stored: hold the rows, stop retrying, and leave the
+    // cursor where it is. Advancing would step over usage the server never took.
+    let quarantine = |batch: &V2UsageBatch, code: Option<&str>, message: &str| {
+        if let Err(error) =
+            crate::services::usage_v2_collector_service::UsageV2CollectorService::quarantine_batch(
+                batch, code, message,
+            )
+        {
+            eprintln!(
+                "[SYNC V2] source {} quarantine failed: {error}",
+                batch.source.as_str()
+            );
+        }
+    };
 
     let mut report = EnvelopeSyncReport::default();
     let (envelope, rejected) = assemble_v2_envelope(batches, now_seconds());
@@ -864,15 +926,30 @@ pub fn sync_envelope_v2() -> Result<EnvelopeSyncReport, String> {
             .get("message")
             .and_then(Value::as_str)
             .unwrap_or("the server did not accept the v2 envelope");
-        if rejection_is_permanent(Some(code)) {
-            for batch in &envelope.batches {
-                discard(batch);
-                report.skipped += 1;
+        match classify_rejection(Some(code)) {
+            RejectionDisposition::AlreadyStored => {
+                for batch in &envelope.batches {
+                    discard(batch);
+                    report.skipped += 1;
+                }
+                report.message =
+                    format!("v2 envelope already stored server-side ({code}): {message}");
+                return Ok(report);
             }
-            report.message = format!("v2 envelope permanently rejected ({code}): {message}");
-            return Ok(report);
+            RejectionDisposition::Unrepresentable => {
+                // The whole envelope was refused, so no batch in it was stored.
+                for batch in &envelope.batches {
+                    quarantine(batch, Some(code), message);
+                    report.skipped += 1;
+                }
+                report.message =
+                    format!("v2 envelope refused ({code}): {message} — rows quarantined");
+                return Ok(report);
+            }
+            RejectionDisposition::Retry => {
+                return Err(format!("v2 usage envelope rejected ({code}): {message}"));
+            }
         }
-        return Err(format!("v2 usage envelope rejected ({code}): {message}"));
     }
     let receipts = acknowledgment
         .get("receipts")
@@ -908,23 +985,44 @@ pub fn sync_envelope_v2() -> Result<EnvelopeSyncReport, String> {
             );
             record_source_error(batch.source, "No server receipt; retry is pending");
             report.retryable += 1;
-        } else if rejection_is_permanent(code) {
-            eprintln!(
-                "[SYNC V2] source {}: permanently rejected ({}): {message} — skipping window",
-                batch.source.as_str(),
-                code.unwrap_or("unknown")
-            );
-            discard(batch);
-            record_source_error(batch.source, "Server rejected this usage; window skipped");
-            report.skipped += 1;
         } else {
-            eprintln!(
-                "[SYNC V2] source {}: deferred ({}): {message}",
-                batch.source.as_str(),
-                code.unwrap_or("unknown")
-            );
-            record_source_error(batch.source, "Server deferred this usage; retry is pending");
-            report.retryable += 1;
+            match classify_rejection(code) {
+                RejectionDisposition::AlreadyStored => {
+                    eprintln!(
+                        "[SYNC V2] source {}: already stored server-side ({}): {message} — dropping duplicate",
+                        batch.source.as_str(),
+                        code.unwrap_or("unknown")
+                    );
+                    discard(batch);
+                    record_source_success(batch.source, now_seconds(), None);
+                    report.skipped += 1;
+                }
+                RejectionDisposition::Unrepresentable => {
+                    eprintln!(
+                        "[SYNC V2] source {}: refused ({}): {message} — quarantining rows",
+                        batch.source.as_str(),
+                        code.unwrap_or("unknown")
+                    );
+                    quarantine(batch, code, message);
+                    record_source_error(
+                        batch.source,
+                        "Server could not accept this usage; it is held locally",
+                    );
+                    report.skipped += 1;
+                }
+                RejectionDisposition::Retry => {
+                    eprintln!(
+                        "[SYNC V2] source {}: deferred ({}): {message}",
+                        batch.source.as_str(),
+                        code.unwrap_or("unknown")
+                    );
+                    record_source_error(
+                        batch.source,
+                        "Server deferred this usage; retry is pending",
+                    );
+                    report.retryable += 1;
+                }
+            }
         }
     }
     report.message = format!(
@@ -2440,6 +2538,177 @@ mod tests {
         ] {
             assert!(!rejection_is_permanent(code), "{code:?} must retry");
         }
+    }
+
+    /// The distinction that decides whether a refusal costs a round trip or a
+    /// user's usage. Both families are permanent, but only one means the server
+    /// already holds the rows — dropping the other destroys data that exists
+    /// nowhere else.
+    #[test]
+    fn only_already_stored_rejections_may_drop_rows() {
+        for code in ["idempotency_conflict", "event_identity_conflict"] {
+            assert_eq!(
+                classify_rejection(Some(code)),
+                RejectionDisposition::AlreadyStored,
+                "{code} means the server holds these rows, so dropping is lossless"
+            );
+        }
+        // The server stored nothing for these. Stop retrying, but never advance
+        // the cursor past them: one server-side schema tightening would
+        // otherwise wipe usage on every client at once.
+        for code in [
+            "invalid_window",
+            "invalid_rows",
+            "invalid_row",
+            "invalid_batch",
+            "invalid_idempotency_key",
+            "source_not_allowed",
+        ] {
+            assert_eq!(
+                classify_rejection(Some(code)),
+                RejectionDisposition::Unrepresentable,
+                "{code} stored nothing, so the rows must be held rather than dropped"
+            );
+        }
+        for code in [Some("quota_exceeded"), Some("something_new"), None] {
+            assert_eq!(
+                classify_rejection(code),
+                RejectionDisposition::Retry,
+                "{code:?} must stay queued"
+            );
+        }
+    }
+
+    /// A quarantined batch leaves the retry loop but keeps its rows, and does
+    /// not touch the cursor.
+    #[test]
+    fn quarantine_holds_the_rows_and_clears_the_pending_spool() {
+        use crate::models::usage_envelope::{RequestSpanRow, V2Row, V2UsageBatch};
+        use crate::services::usage_v2_collector_service::UsageV2CollectorService;
+        let dir = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&dir);
+        let batch = V2UsageBatch {
+            source: SourceKind::Native,
+            idempotency_key: "native:v2:quarantine-me".to_string(),
+            window_start: 1_800_000_000,
+            window_end: 1_800_000_060,
+            rows: vec![V2Row::RequestSpan(RequestSpanRow {
+                event_id: "native:abc".to_string(),
+                provider: "anthropic".to_string(),
+                account_hash: None,
+                model: "claude-opus-5".to_string(),
+                session_id: "s1".to_string(),
+                agent_id: None,
+                provider_request_id: None,
+                started_at: 1_800_000_000_000,
+                completed_at: 1_800_000_001_000,
+                input_tokens: Some(10),
+                output_tokens: Some(20),
+                cache_read_tokens: Some(0),
+                cache_write_tokens: Some(0),
+                cost_total: Some(0.5),
+                ttft_ms: None,
+                effort: None,
+                outcome: "success".to_string(),
+            })],
+        };
+        UsageV2CollectorService::persist_batch(&batch).unwrap();
+        UsageV2CollectorService::quarantine_batch(&batch, Some("invalid_row"), "bad shape").unwrap();
+
+        let conn = StorageService::connect().unwrap();
+        let pending: i64 = conn
+            .query_row("SELECT COUNT(*) FROM usage_v2_pending_batches", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(pending, 0, "a quarantined batch stops being retried");
+        assert_eq!(
+            UsageV2CollectorService::quarantined_count().unwrap(),
+            1,
+            "its rows must still exist locally"
+        );
+        let stored: String = conn
+            .query_row(
+                "SELECT rows_json FROM usage_v2_quarantined_batches WHERE idempotency_key = ?1",
+                rusqlite::params![batch.idempotency_key],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(
+            stored.contains("native:abc"),
+            "the refused rows must be recoverable: {stored}"
+        );
+    }
+
+    /// The cursor must move on the clock the collect query filters, not on the
+    /// span-derived window. These are separate clocks read at separate instants:
+    /// `created_at` is the ledger insert stamp, while the window comes from
+    /// `started_at`/`completed_at`. Advancing one by the other skips every metric
+    /// whose `created_at` fell below the window but was never in the batch.
+    #[test]
+    fn native_v2_cursor_tracks_created_at_not_the_span_window() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&dir);
+        let conn = StorageService::connect().unwrap();
+        // The metric references a session by foreign key.
+        conn.execute(
+            "INSERT INTO native_chat_sessions
+                (id, project_path, title, profile_id, provider_id, model_id, effort_level,
+                 status, created_at, updated_at)
+             VALUES ('s1', '/tmp/p', 'test', 'p1', 'anthropic', 'claude-opus-5', 'medium',
+                     'ready', 1, 1)",
+            [],
+        )
+        .unwrap();
+        // Timestamps must sit inside the server's accepted window, so they are
+        // anchored to now. `created_at` deliberately lags the span, as it does
+        // in production: the span uses `now_millis()` and the ledger stamp a
+        // separate `now_seconds()`, and any queued request widens the gap.
+        let now = now_seconds();
+        let span_start_ms = (now - 120) * 1000;
+        let span_end_ms = (now - 110) * 1000;
+        let created_at = now - 130;
+        conn.execute(
+            "INSERT INTO native_request_metrics
+                (id, session_id, provider_id, model_id, effort_level, started_at, completed_at,
+                 duration_ms, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+                 outcome, created_at)
+             VALUES ('nreq-1', 's1', 'anthropic', 'claude-opus-5', 'medium',
+                     ?1, ?2, 10000, 10, 20, 0, 0, 'success', ?3)",
+            rusqlite::params![span_start_ms, span_end_ms, created_at],
+        )
+        .unwrap();
+
+        let batch = collect_native_v2_batch().unwrap();
+        assert_eq!(batch.rows.len(), 1);
+        // The window follows the span, which is what the server validates.
+        assert_eq!(batch.window_end, now - 110);
+
+        let source = crate::services::usage_source_service::NativeSource;
+        crate::services::usage_source_service::UsageSource::advance_v2_checkpoint(&source, &batch)
+            .unwrap();
+        let cursor = SettingsService::get_usage_sync_settings()
+            .unwrap()
+            .last_envelope_v2_sync_at
+            .unwrap();
+        assert_eq!(
+            cursor, created_at,
+            "the cursor must be the created_at high-water mark, not window_end \
+             ({}) — otherwise every metric inserted in between is skipped forever",
+            batch.window_end
+        );
+        assert!(
+            cursor < batch.window_end,
+            "this test is only meaningful while the two clocks disagree"
+        );
+
+        // Re-collecting must not re-offer the accepted row, and must not have
+        // stepped over anything.
+        let again = collect_native_v2_batch().unwrap();
+        assert!(
+            again.rows.is_empty(),
+            "the accepted metric must not be re-collected"
+        );
     }
 
     /// End-to-end local proof of the outage: a Claude Code history containing

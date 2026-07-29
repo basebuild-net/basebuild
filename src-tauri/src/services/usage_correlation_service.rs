@@ -27,6 +27,29 @@ const MIN_USED_DELTA: f64 = 0.0005;
 const MAX_PAIR_GAP_MS: i64 = 3 * 3_600_000;
 /// A pair with no measured traffic cannot explain a drain.
 const MIN_PAIR_TOKENS: i64 = 1;
+/// How far two `resetsAt` values may differ and still name the same window.
+///
+/// Providers recompute the reset instant per response, so it jitters by
+/// milliseconds between reads — observed live as 1785310200000 then
+/// 1785310200199. Exact equality would reject almost every real pair. Genuinely
+/// different windows are a whole window duration apart (hours), so a minute of
+/// slack separates jitter from a rollover without ambiguity.
+const RESET_IDENTITY_TOLERANCE_MS: i64 = 60_000;
+
+/// Whether two readings describe the same quota window.
+fn same_window(earlier: Option<i64>, later: Option<i64>) -> bool {
+    match (earlier, later) {
+        (Some(earlier), Some(later)) => {
+            (earlier - later).abs() <= RESET_IDENTITY_TOLERANCE_MS
+        }
+        // No reset identity on either side: fall back to treating them as one
+        // window. The alternative is discarding every pair from a provider that
+        // does not publish a reset instant.
+        (None, None) => true,
+        // One side knows its window and the other does not: not comparable.
+        _ => false,
+    }
+}
 
 /// One solved interval between two readings of the same quota window.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,6 +126,8 @@ struct Sample {
     model_id: Option<String>,
     plan_type: Option<String>,
     window_label: Option<String>,
+    /// Traffic-store horizon when this reading was taken.
+    ingested_through: Option<i64>,
 }
 
 /// Traffic totals over one time range.
@@ -152,7 +177,7 @@ fn load_samples() -> Result<BTreeMap<(String, String), Vec<Sample>>, String> {
     let mut statement = conn
         .prepare(
             "SELECT provider, limit_id, observed_at, used_fraction, remaining_fraction,
-                    resets_at, model_id, plan_type, window_label
+                    resets_at, model_id, plan_type, window_label, ingested_through
              FROM usage_quota_samples
              ORDER BY provider ASC, limit_id ASC, observed_at ASC",
         )
@@ -170,6 +195,7 @@ fn load_samples() -> Result<BTreeMap<(String, String), Vec<Sample>>, String> {
                     model_id: row.get(6)?,
                     plan_type: row.get(7)?,
                     window_label: row.get(8)?,
+                    ingested_through: row.get(9)?,
                 },
             ))
         })
@@ -194,9 +220,10 @@ fn solve_intervals(
     stats_db: Option<&std::path::Path>,
 ) -> Result<Vec<DrainInterval>, String> {
     let mut intervals = Vec::new();
+    let mut deferred = 0usize;
     for pair in samples.windows(2) {
         let (earlier, later) = (&pair[0], &pair[1]);
-        if earlier.resets_at != later.resets_at {
+        if !same_window(earlier.resets_at, later.resets_at) {
             continue;
         }
         let used_delta = later.used_fraction - earlier.used_fraction;
@@ -204,6 +231,17 @@ fn solve_intervals(
             continue;
         }
         if later.observed_at - earlier.observed_at > MAX_PAIR_GAP_MS {
+            continue;
+        }
+        // The traffic store had not caught up to this reading when it was taken,
+        // so its window contains requests that were not on disk yet. Defer the
+        // pair rather than scoring it as a drain with no cause: the readings are
+        // retained, so it solves on a later pass once ingestion lands.
+        if later
+            .ingested_through
+            .is_some_and(|horizon| horizon < later.observed_at)
+        {
+            deferred += 1;
             continue;
         }
         let traffic = match stats_db {
@@ -237,7 +275,21 @@ fn solve_intervals(
         }
         intervals.push(interval);
     }
+    if deferred > 0 {
+        eprintln!(
+            "[USAGE] correlation: {deferred} pair(s) awaiting traffic ingestion for {provider}"
+        );
+    }
     Ok(intervals)
+}
+
+/// Open OMP's statistics database read-only: OMP owns it and may be writing.
+fn open_stats_db(path: &std::path::Path) -> Result<rusqlite::Connection, String> {
+    let flags = rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+        | rusqlite::OpenFlags::SQLITE_OPEN_URI
+        | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    rusqlite::Connection::open_with_flags(format!("file:{}", path.to_string_lossy()), flags)
+        .map_err(|error| format!("could not open OMP stats.db: {error}"))
 }
 
 /// Sum OMP's per-request rows over `(after, until]`.
@@ -250,14 +302,7 @@ fn traffic_between(
     after: i64,
     until: i64,
 ) -> Result<Traffic, String> {
-    let flags = rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
-        | rusqlite::OpenFlags::SQLITE_OPEN_URI
-        | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX;
-    let conn = rusqlite::Connection::open_with_flags(
-        format!("file:{}", path.to_string_lossy()),
-        flags,
-    )
-    .map_err(|error| format!("could not open OMP stats.db: {error}"))?;
+    let conn = open_stats_db(path)?;
     let mut traffic = Traffic::default();
     let mut statement = conn
         .prepare(
@@ -435,6 +480,7 @@ mod tests {
         }
     }
 
+    /// A reading whose traffic had already landed when it was taken.
     fn sample(observed_at: i64, used: f64, resets_at: Option<i64>, model: Option<&str>) -> Sample {
         Sample {
             observed_at,
@@ -444,6 +490,15 @@ mod tests {
             model_id: model.map(str::to_string),
             plan_type: None,
             window_label: None,
+            ingested_through: Some(observed_at),
+        }
+    }
+
+    /// A reading taken while the traffic store was still behind.
+    fn lagging_sample(observed_at: i64, used: f64, resets_at: Option<i64>, horizon: i64) -> Sample {
+        Sample {
+            ingested_through: Some(horizon),
+            ..sample(observed_at, used, resets_at, None)
         }
     }
 
@@ -465,9 +520,19 @@ mod tests {
         let provider = std::env::var("BB_DRAIN_PROVIDER").unwrap();
         let model = std::env::var("BB_DRAIN_MODEL").ok();
 
-        // Two readings of one window, 10% apart, bracketing the burst.
+        // Real observed fractions when supplied, so the rate below is measured
+        // rather than assumed. Defaults keep the harness usable without them.
+        let used_from: f64 = std::env::var("BB_DRAIN_USED_FROM")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(0.20);
+        let used_to: f64 = std::env::var("BB_DRAIN_USED_TO")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(0.30);
+        let observed_delta = used_to - used_from;
         let conn = StorageService::connect().unwrap();
-        for (observed_at, used) in [(from, 0.20_f64), (to, 0.30_f64)] {
+        for (observed_at, used) in [(from, used_from), (to, used_to)] {
             conn.execute(
                 "INSERT INTO usage_quota_samples
                     (provider, limit_id, observed_at, model_id, window_label, plan_type,
@@ -501,15 +566,26 @@ mod tests {
             estimate.requests > 0 && estimate.total_tokens > 0,
             "real traffic must be found in the bracket"
         );
-        // 10% of the window over the measured traffic, by construction.
-        let expected = 0.10 / (estimate.total_tokens as f64 / 1000.0);
+        // The measured delta over the measured traffic.
+        let expected = observed_delta / (estimate.total_tokens as f64 / 1000.0);
         assert!(
             (estimate.fraction_per_1k_tokens - expected).abs() < 1e-12,
             "rate must equal used delta over measured tokens"
         );
         assert!(
-            (estimate.fraction_per_request - 0.10 / estimate.requests as f64).abs() < 1e-12
+            (estimate.fraction_per_request - observed_delta / estimate.requests as f64).abs()
+                < 1e-12
         );
+        // Extrapolate the measured rate to the whole window, which is the number
+        // a user actually cares about.
+        if estimate.fraction_per_1k_tokens > 0.0 {
+            let tokens_per_window = 1000.0 / estimate.fraction_per_1k_tokens;
+            let requests_per_window = 1.0 / estimate.fraction_per_request;
+            println!(
+                "extrapolated: ~{:.0} tokens or ~{:.0} requests would consume the whole window",
+                tokens_per_window, requests_per_window
+            );
+        }
     }
 
 
@@ -644,5 +720,97 @@ mod tests {
         assert_eq!(intervals[0].models.len(), 2);
         let estimate = summarize("anthropic", "limit", &mixed, &intervals).unwrap();
         assert_eq!(estimate.confidence, "low");
+    }
+
+    /// OMP ingests its session files lazily, so a fresh pair routinely lands
+    /// before the traffic that explains it. Such a pair must be deferred, not
+    /// counted as zero traffic — otherwise the most recent interval, the one a
+    /// user is actually asking about, is silently thrown away every time.
+    ///
+    /// Found by running the solver against a real machine: the quota bar had
+    /// moved 0.31 -> 0.37 while `stats.db` was still an hour behind.
+    #[test]
+    fn pairs_beyond_the_ingestion_horizon_are_deferred_not_discarded() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let db = dir.path().join("stats.db");
+        seed_stats_db(&db, &[("anthropic", "claude-opus-5", 3_000, 8_000)]);
+
+        // The reading was taken while the store had only reached t=1000, so the
+        // request at t=3000 was not on disk yet. Zero traffic here would be a
+        // measurement artefact, not a fact about usage.
+        let lagging = vec![
+            sample(2_000, 0.31, Some(5), None),
+            lagging_sample(9_000, 0.37, Some(5), 1_000),
+        ];
+        assert!(
+            solve_intervals("anthropic", &lagging, Some(&db))
+                .unwrap()
+                .is_empty(),
+            "a reading taken before its traffic landed must be deferred"
+        );
+
+        // The same readings, recorded once ingestion had caught up, solve — and
+        // pick up the traffic that was always there. Deferral costs a pass, not
+        // the data.
+        let caught_up = vec![
+            sample(2_000, 0.31, Some(5), None),
+            lagging_sample(9_000, 0.37, Some(5), 9_000),
+        ];
+        let intervals = solve_intervals("anthropic", &caught_up, Some(&db)).unwrap();
+        assert_eq!(intervals.len(), 1, "an ingested pair must solve");
+        assert_eq!(intervals[0].total_tokens(), 8_000);
+        assert!((intervals[0].used_delta - 0.06).abs() < 1e-9);
+
+        // A reading with no recorded horizon predates this column; it must still
+        // be usable rather than deferred forever.
+        let unknown = vec![
+            sample(2_000, 0.31, Some(5), None),
+            Sample {
+                ingested_through: None,
+                ..sample(9_000, 0.37, Some(5), None)
+            },
+        ];
+        assert_eq!(
+            solve_intervals("anthropic", &unknown, Some(&db)).unwrap().len(),
+            1,
+            "an unknown horizon must not strand the pair"
+        );
+    }
+
+    /// Providers recompute `resetsAt` per response, so it drifts by
+    /// milliseconds between reads. Observed live: 1785310200000 then
+    /// 1785310200199 — the same 5h window, two different numbers. Exact
+    /// equality here rejected essentially every real pair.
+    #[test]
+    fn reset_identity_tolerates_jitter_but_not_a_rollover() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let db = dir.path().join("stats.db");
+        seed_stats_db(&db, &[("anthropic", "claude-opus-5", 1_500, 10_000)]);
+
+        // Millisecond drift is the same window.
+        let jittered = vec![
+            sample(1_000, 0.31, Some(1_785_310_200_000), None),
+            sample(2_000, 0.37, Some(1_785_310_200_199), None),
+        ];
+        assert_eq!(
+            solve_intervals("anthropic", &jittered, Some(&db)).unwrap().len(),
+            1,
+            "millisecond jitter in resetsAt must not discard the pair"
+        );
+
+        // A real rollover is a whole window away and must still be rejected.
+        let rolled = vec![
+            sample(1_000, 0.90, Some(1_785_310_200_000), None),
+            sample(2_000, 0.05, Some(1_785_328_200_000), None),
+        ];
+        assert!(
+            solve_intervals("anthropic", &rolled, Some(&db))
+                .unwrap()
+                .is_empty(),
+            "a window rollover carries no drain signal"
+        );
+
+        assert!(same_window(None, None), "providers without a reset instant");
+        assert!(!same_window(Some(1), None), "half-known identity is not comparable");
     }
 }

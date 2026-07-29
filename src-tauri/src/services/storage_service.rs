@@ -590,10 +590,31 @@ impl StorageService {
                     remaining_fraction REAL NOT NULL,
                     resets_at INTEGER,
                     window_duration_ms INTEGER,
+                    -- How far the traffic store had ingested when this reading
+                    -- was taken. Without it, an idle stretch and traffic that
+                    -- has not been tailed off disk yet are the same observation,
+                    -- and the newest interval is the one that suffers.
+                    ingested_through INTEGER,
                     PRIMARY KEY (provider, limit_id, observed_at)
                 );
                 CREATE INDEX IF NOT EXISTS idx_usage_quota_samples_window
                     ON usage_quota_samples(provider, limit_id, resets_at, observed_at);
+
+                -- Batches the server refused as unrepresentable. Held, not
+                -- deleted: the server stored nothing, so these rows exist only
+                -- here. They stop being retried (a byte-identical retry cannot
+                -- clear the refusal) but stay recoverable once a client or
+                -- server fix lands.
+                CREATE TABLE IF NOT EXISTS usage_v2_quarantined_batches (
+                    idempotency_key TEXT PRIMARY KEY NOT NULL,
+                    source TEXT NOT NULL,
+                    window_start INTEGER NOT NULL,
+                    window_end INTEGER NOT NULL,
+                    rows_json TEXT NOT NULL,
+                    code TEXT,
+                    message TEXT,
+                    quarantined_at INTEGER NOT NULL
+                );
 
                 CREATE TABLE IF NOT EXISTS plans (
                     id TEXT PRIMARY KEY NOT NULL,

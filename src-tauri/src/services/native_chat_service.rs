@@ -1307,7 +1307,14 @@ impl NativeChatService {
                 cache_read_tokens: 0,
                 cache_write_tokens: 0,
                 tokens_per_second: None,
-                cost_total: Some(0.0),
+                cost_total: crate::models::model_catalog::cost_for(
+                    &provider_id,
+                    &model_id,
+                    0,
+                    estimate_tokens(&run_result.content),
+                    0,
+                    0,
+                ),
                 outcome: if run_result.cancelled {
                     "cancelled"
                 } else {
@@ -1454,6 +1461,9 @@ impl NativeChatService {
                         cache_read_tokens: 0,
                         cache_write_tokens: 0,
                         tokens_per_second: None,
+                        // A request that failed before billing any tokens
+                        // genuinely cost nothing, so zero is a measurement here
+                        // rather than an assumption.
                         cost_total: Some(0.0),
                         outcome: "error".to_string(),
                         error_class: Some(pacct::provider_error_class(&e).to_string()),
@@ -1508,7 +1518,21 @@ impl NativeChatService {
             cache_read_tokens: 0,
             cache_write_tokens: 0,
             tokens_per_second,
-            cost_total: Some(0.0),
+            // Metered cost from the catalog's published rates, or `None` when
+            // the model has none — subscription and passthrough routes report
+            // no rate, and `Some(0.0)` there would assert the request was free.
+            //
+            // Covers input and output only: the native client does not yet read
+            // cache-token counters off provider responses, so cache-heavy
+            // traffic is understated rather than wrong in sign.
+            cost_total: crate::models::model_catalog::cost_for(
+                &provider_id,
+                &model_id,
+                input_tokens,
+                output_tokens,
+                0,
+                0,
+            ),
             outcome: "success".to_string(),
             error_class: None,
             subscription_tier: subscription.0.clone(),

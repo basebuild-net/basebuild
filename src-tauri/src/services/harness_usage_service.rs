@@ -439,7 +439,10 @@ impl crate::services::usage_source_service::UsageSource for HarnessSource {
         let since = self.get_v2_checkpoint();
         let entries = self.reader.read_entries(since);
         let now = now_seconds();
-        let (rows, _, window_end) = request_span_entries(self.kind(), &entries, since, now);
+        // `entry_high_water` is the newest entry actually emitted, on the same
+        // clock `read_entries` filters by. It stops short of entries dropped by
+        // the row cap, so the next pass picks them up.
+        let (rows, _, entry_high_water) = request_span_entries(self.kind(), &entries, since, now);
         if rows.is_empty() {
             let horizon = now - MAX_WINDOW_AGE_SECS + 60;
             if horizon > since {
@@ -449,24 +452,43 @@ impl crate::services::usage_source_service::UsageSource for HarnessSource {
         }
         // The window is derived from the spans themselves so every row falls
         // inside the window its batch declares — the server rejects the batch
-        // otherwise.
+        // otherwise. It is deliberately NOT reused as the cursor: that is a
+        // different clock, and the two only agree by accident today.
         let Some((rows, window_start, window_end)) = clamp_v2_rows(rows, now) else {
-            self.set_v2_checkpoint(window_end)?;
+            self.set_v2_checkpoint(entry_high_water)?;
             return Ok(None);
         };
         let digest =
             Sha256::digest(serde_json::to_vec(&rows).map_err(|error| error.to_string())?);
+        let idempotency_key = format!("harness:{}:v2:{digest:x}", self.kind().as_str());
+        crate::services::usage_source_service::bank_v2_cursor(
+            &self.v2_checkpoint_key(),
+            &idempotency_key,
+            entry_high_water,
+        )?;
         Ok(Some(V2UsageBatch {
             source: self.kind(),
-            idempotency_key: format!("harness:{}:v2:{digest:x}", self.kind().as_str()),
+            idempotency_key,
             window_start,
             window_end,
             rows,
         }))
     }
 
+    /// Adopt the banked entry high-water mark, never the span-derived window.
     fn advance_v2_checkpoint(&self, batch: &V2UsageBatch) -> Result<(), String> {
-        self.set_v2_checkpoint(batch.window_end)
+        let Some(high_water) = crate::services::usage_source_service::take_banked_v2_cursor(
+            &self.v2_checkpoint_key(),
+            &batch.idempotency_key,
+        )?
+        else {
+            return Ok(());
+        };
+        // Monotonic: a late acceptance must not rewind past newer progress.
+        if self.get_v2_checkpoint() >= high_water {
+            return Ok(());
+        }
+        self.set_v2_checkpoint(high_water)
     }
 
     fn advance_checkpoint(&self, batch: &UsageBatch) -> Result<(), String> {
