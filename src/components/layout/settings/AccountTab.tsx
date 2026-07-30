@@ -12,6 +12,7 @@ import {
 import type {
   AutoSyncStatus,
   DetectedProviderPlan,
+  DrainEstimate,
   ProviderPlanOption,
   SourceSyncStatus,
   SyncOverallOutcome,
@@ -251,10 +252,66 @@ function formatUsageWindowLabel(window: string): string {
   return window;
 }
 
+/// Drain per request is a window fraction, and the interesting values are
+/// small: 0.12% of a weekly window per request reads as "0%" at one decimal.
+function formatDrainPercent(fraction: number): string {
+  const percent = fraction * 100;
+  if (percent <= 0) return "0%";
+  if (percent < 0.01) return "<0.01%";
+  if (percent < 1) return `${percent.toFixed(2)}%`;
+  return `${percent.toFixed(1)}%`;
+}
+
+function formatRequestCount(requests: number): string {
+  if (!Number.isFinite(requests) || requests <= 0) return "0";
+  if (requests < 1000) return String(Math.round(requests));
+  return `${(requests / 1000).toFixed(1)}k`;
+}
+
+/// Model-hours consumed. Concurrent requests add, so this is not wall clock
+/// and can exceed the window's own length.
+function formatModelHours(hours: number): string {
+  if (!Number.isFinite(hours) || hours <= 0) return "0m";
+  if (hours < 1) return `${Math.round(hours * 60)}m`;
+  return `${hours.toFixed(1)}h`;
+}
+
+/// "in 3 hours" answers the question the row is asking. An absolute timestamp
+/// makes the reader do the subtraction.
+function formatCountdown(epochMs: number): string {
+  const seconds = Math.round((epochMs - Date.now()) / 1000);
+  if (seconds <= 0) return "now";
+  if (seconds < 3600) return `in ${Math.max(1, Math.round(seconds / 60))}m`;
+  if (seconds < 86400) return `in ${(seconds / 3600).toFixed(1)}h`;
+  return `in ${Math.round(seconds / 86400)}d`;
+}
+
+function formatDrainTooltip(row: DrainEstimate): string {
+  const parts = [
+    `${row.intervals} solved interval${row.intervals === 1 ? "" : "s"}`,
+    `${row.requests} request${row.requests === 1 ? "" : "s"} measured`,
+    `${formatRequestCount(row.requestsPerWindow)} requests per full window`,
+  ];
+  if (row.hoursUsedThisWindow != null) {
+    parts.push(
+      `${formatModelHours(row.hoursUsedThisWindow)} of model time spent since this window opened`,
+    );
+  }
+  if (row.hoursPerWeek != null) {
+    parts.push(`${row.hoursPerWeek.toFixed(1)}h of model runtime per week`);
+  } else {
+    parts.push("weekly allowance unknown: the provider does not name this window's length");
+  }
+  if (row.models.length > 0) parts.push(`models: ${row.models.join(", ")}`);
+  if (row.resetsAt) parts.push(`resets ${new Date(row.resetsAt).toLocaleString()}`);
+  return parts.join(" · ");
+}
+
 export function UsageSyncPanel() {
   const {
     status,
     projected,
+    drain,
     loading,
     error,
     lastSyncResult,
@@ -351,6 +408,61 @@ export function UsageSyncPanel() {
               </div>
             );
           })}
+        </div>
+      ) : null}
+
+      {drain.length > 0 ? (
+        <div className="card">
+          <h4>Plan drain rate</h4>
+          <p className="text-muted text-sm">
+            Solved on this machine by pairing consecutive quota readings against the
+            traffic measured between them. No provider publishes what a request costs
+            against a subscription, how much of the window you have already spent, or
+            how much is left; all three are measured here.
+          </p>
+          <table className="usage-table usage-drain-table">
+            <thead>
+              <tr>
+                <th>Window</th>
+                <th>Left</th>
+                <th>Used this window</th>
+                <th>Requests left</th>
+                <th>Per request</th>
+                <th>Runs out</th>
+                <th>Confidence</th>
+              </tr>
+            </thead>
+            <tbody>
+              {drain.map((row) => (
+                <tr
+                  key={`${row.provider}-${row.limitId}`}
+                  title={formatDrainTooltip(row)}
+                >
+                  <td>
+                    {row.provider}
+                    {row.windowLabel ? ` · ${row.windowLabel}` : ""}
+                    {row.modelId ? ` · ${row.modelId}` : ""}
+                  </td>
+                  <td>{Math.round(row.remainingFraction * 100)}%</td>
+                  <td>
+                    {row.hoursUsedThisWindow == null
+                      ? "—"
+                      : `${formatModelHours(row.hoursUsedThisWindow)} · ${formatRequestCount(row.requestsUsedThisWindow)} req`}
+                  </td>
+                  <td>{formatRequestCount(row.requestsRemaining)}</td>
+                  <td>{formatDrainPercent(row.fractionPerRequest)}</td>
+                  <td>
+                    {row.projectedExhaustionAt
+                      ? formatCountdown(row.projectedExhaustionAt)
+                      : "not draining"}
+                  </td>
+                  <td className={`usage-drain-confidence is-${row.confidence}`}>
+                    {row.confidence}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       ) : null}
 

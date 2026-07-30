@@ -2580,6 +2580,13 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
             remainingFraction: 0.23,
             resetsAt: nowMs + 95 * 60_000,
             projectedExhaustionAt: nowMs + 38 * 60_000,
+            windowDurationMs: 18_000_000,
+            requestsPerWindow: 526,
+            requestsRemaining: 121,
+            modelHoursPerWindow: 4.1,
+            hoursPerWeek: 137.8,
+            requestsUsedThisWindow: 405,
+            hoursUsedThisWindow: 3.2,
           },
           {
             provider: "openai",
@@ -2601,6 +2608,13 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
             remainingFraction: 0.71,
             resetsAt: nowMs + 3 * 24 * 60 * 60_000,
             projectedExhaustionAt: null,
+            windowDurationMs: 604_800_000,
+            requestsPerWindow: 3225,
+            requestsRemaining: 2290,
+            modelHoursPerWindow: 134.4,
+            hoursPerWeek: 134.4,
+            requestsUsedThisWindow: 24,
+            hoursUsedThisWindow: 1.0,
           },
           {
             provider: "google",
@@ -2622,6 +2636,17 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
             remainingFraction: 0.62,
             resetsAt: nowMs + 7 * 60 * 60_000,
             projectedExhaustionAt: nowMs + 19 * 60 * 60_000,
+            // A window whose length the provider never names: the weekly
+            // allowance stays unknown instead of being invented.
+            windowDurationMs: null,
+            requestsPerWindow: 357,
+            requestsRemaining: 221,
+            modelHoursPerWindow: 12.3,
+            hoursPerWeek: null,
+            // No window length, so the window's start is unknowable and no
+            // used figure can be measured for it.
+            requestsUsedThisWindow: 0,
+            hoursUsedThisWindow: null,
           },
         ] as T;
       }

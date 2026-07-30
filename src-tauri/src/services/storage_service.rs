@@ -13,7 +13,11 @@ pub struct StorageService;
 // Increment whenever `initialize` gains a schema-changing migration. Existing
 // databases run the idempotent initializer once per version; current databases
 // skip its ~50 table/column probes entirely on normal launches.
-const CURRENT_SCHEMA_VERSION: i64 = 14;
+// 14 -> 15: recover quota-window lengths from retained labels the collector's
+// old parser could not read. Existing installs sit at the current version and
+// skip the initializer entirely, so a data repair only reaches them behind a
+// bump.
+const CURRENT_SCHEMA_VERSION: i64 = 15;
 
 impl StorageService {
     pub fn state_db_path() -> Result<PathBuf, String> {
@@ -1078,6 +1082,37 @@ impl StorageService {
                 })?;
         }
 
+        // Retained quota readings kept whatever window length the collector
+        // could derive when they were taken, and its label parser matched a
+        // fixed list of five spellings. "7 Day" and "7 days" were not among
+        // them, so on a real install the majority of readings — every weekly
+        // Anthropic and Codex window — carry no duration, and a reading with
+        // no window length cannot be turned into an allowance. The label is
+        // retained in the same row, so the length is recoverable in place
+        // rather than waiting days for fresh readings to accumulate.
+        connection
+            .execute(
+                "UPDATE usage_quota_samples
+                    SET window_duration_ms = CASE
+                        WHEN lower(trim(window_label)) IN
+                             ('7 day', '7 days', '7d', 'weekly', '1 week', '1w')
+                            THEN 604800000
+                        WHEN lower(trim(window_label)) IN
+                             ('24h', '1 day', '1d', 'daily')
+                            THEN 86400000
+                        WHEN lower(trim(window_label)) IN
+                             ('30d', '30 days', 'monthly')
+                            THEN 2592000000
+                        ELSE window_duration_ms
+                    END
+                  WHERE window_duration_ms IS NULL
+                    AND window_label IS NOT NULL",
+                [],
+            )
+            .map_err(|error| {
+                format!("Failed to backfill usage_quota_samples.window_duration_ms: {error}")
+            })?;
+
         // Migration: add chat_session_id to existing tab rows for structured native chat.
         let has_chat_session_column = connection
             .prepare("SELECT chat_session_id FROM session_tabs LIMIT 0")
@@ -2078,6 +2113,83 @@ mod tests {
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
         assert_eq!(schema_version, CURRENT_SCHEMA_VERSION);
+    }
+
+    /// A retained quota reading with no window length cannot become an
+    /// allowance. On a real install the majority of readings — every weekly
+    /// Anthropic and Codex window — were stored with a null duration because
+    /// the collector's label parser did not know "7 Day". The label is in the
+    /// same row, so the length is recoverable without waiting for new
+    /// readings.
+    #[test]
+    fn connect_recovers_window_length_from_retained_quota_labels() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        // A shipped install: schema at the version before the repair, holding
+        // readings the old collector stored with no window length. Seeded
+        // directly so the initializer runs for the first time on it, exactly
+        // as it will on a user's database after this upgrade.
+        let db_path = StorageService::state_db_path().unwrap();
+        let seeded = Connection::open(&db_path).unwrap();
+        seeded
+            .execute_batch(
+                "CREATE TABLE usage_quota_samples (
+                    provider TEXT NOT NULL,
+                    limit_id TEXT NOT NULL,
+                    observed_at INTEGER NOT NULL,
+                    model_id TEXT,
+                    window_label TEXT,
+                    plan_type TEXT,
+                    used_fraction REAL NOT NULL,
+                    remaining_fraction REAL NOT NULL,
+                    resets_at INTEGER,
+                    window_duration_ms INTEGER,
+                    ingested_through INTEGER,
+                    account_hash TEXT,
+                    PRIMARY KEY (provider, limit_id, observed_at)
+                );",
+            )
+            .unwrap();
+        for (index, label) in ["7 Day", "7 days", "Quota window"].iter().enumerate() {
+            seeded
+                .execute(
+                    "INSERT INTO usage_quota_samples
+                        (provider, limit_id, observed_at, used_fraction,
+                         remaining_fraction, window_label, window_duration_ms)
+                     VALUES ('anthropic', ?1, ?2, 0.1, 0.9, ?3, NULL)",
+                    params![format!("limit-{index}"), 1_000 + index as i64, label],
+                )
+                .unwrap();
+        }
+        seeded
+            .pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION - 1)
+            .unwrap();
+        drop(seeded);
+
+        let upgraded = StorageService::connect().unwrap();
+        let mut statement = upgraded
+            .prepare(
+                "SELECT window_label, window_duration_ms FROM usage_quota_samples
+                 ORDER BY observed_at",
+            )
+            .unwrap();
+        let rows: Vec<(String, Option<i64>)> = statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+
+        assert_eq!(
+            rows,
+            vec![
+                ("7 Day".to_string(), Some(604_800_000)),
+                ("7 days".to_string(), Some(604_800_000)),
+                // A label that names the window without describing it stays
+                // unknown. Guessing a length here is what turns a five-hour
+                // limit into a weekly allowance 33 times too small.
+                ("Quota window".to_string(), None),
+            ],
+        );
     }
 
     #[test]

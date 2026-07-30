@@ -50,9 +50,10 @@ test.describe("OMP <-> Basebuild IDE sync", () => {
     // Wait for the lazy-loaded settings modal.
     await expect(page.locator(".settings-modal")).toBeVisible({ timeout: 15_000 });
     await page.getByRole("button", { name: "Analytics", exact: true }).click();
-    // Usage stays focused on provider windows and per-model daily averages.
+    // Usage covers provider windows, the locally solved drain rate, and
+    // per-model daily averages.
     await expect(page.getByRole("heading", { name: "Usage", exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Plan drain rate" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Plan drain rate" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Session and weekly usage" })).toBeVisible();
     await expect(page.getByText("Session (5h)", { exact: true })).toBeVisible();
     await expect(page.getByText("Weekly (7d)", { exact: true })).toBeVisible();
@@ -60,6 +61,18 @@ test.describe("OMP <-> Basebuild IDE sync", () => {
     await expect(usageBars).toHaveCount(2);
     await expect(usageBars.first()).toHaveAttribute("value", "42");
     await expect(page.getByRole("heading", { name: "Per-model usage" })).toBeVisible();
+    // The drain card answers both halves no provider publishes: how much of
+    // this window is already spent, and how many requests remain.
+    const drainRows = page.locator(".usage-drain-confidence");
+    await expect(drainRows).toHaveCount(3);
+    await expect(page.getByText("anthropic · 5h", { exact: true })).toBeVisible();
+    await expect(page.getByText("3.2h · 405 req", { exact: true })).toBeVisible();
+    await expect(page.getByText("121", { exact: true })).toBeVisible();
+    await expect(page.getByText("0.19%", { exact: true })).toBeVisible();
+    await expect(page.getByText("2.3k", { exact: true })).toBeVisible();
+    await expect(page.getByText("not draining", { exact: true })).toBeVisible();
+    // A window with no knowable start reports no used figure rather than zero.
+    await expect(page.getByText("—", { exact: true })).toBeVisible();
     await expect(page.getByText(/Privacy-safe request spans and quota snapshots/)).toBeVisible();
     await expect(page.getByRole("heading", { name: "What never uploads" })).toBeVisible();
     await expect(page.getByText(/Prompts, responses, reasoning, tool arguments/)).toBeVisible();
@@ -98,7 +111,8 @@ test.describe("OMP <-> Basebuild IDE sync", () => {
     // Projected usage keeps the usage bars and per-model table visible.
     await expect(page.locator("progress.usage-window-bar").first()).toBeVisible();
     await expect(page.getByRole("heading", { name: "Per-model usage" })).toBeVisible();
-    await expect(page.locator(".usage-table")).toContainText("claude-sonnet-4");
+    await expect(page.locator(".usage-table:not(.usage-drain-table)"))
+      .toContainText("claude-sonnet-4");
 
     // "Sync now" still triggers without error.
     await page.getByTitle("Sync usage and quota observations now").click();

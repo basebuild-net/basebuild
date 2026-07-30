@@ -63,6 +63,19 @@ pub trait UsageSource: Send + Sync {
         Ok(None)
     }
 
+    /// Drain all available version 2 batches in one call. The default makes
+    /// one `collect_v2` pass; sources with a large backlog (OMP) override this
+    /// to loop, committing the cursor after each batch so every pass reads new
+    /// rows. The spool is durable, so committing before the server accepts is
+    /// safe: a crash re-offers the persisted batch, and the idempotency key
+    /// absorbs the duplicate.
+    fn collect_v2_drain(&self) -> Result<Vec<V2UsageBatch>, String> {
+        match self.collect_v2()? {
+            Some(batch) => Ok(vec![batch]),
+            None => Ok(Vec::new()),
+        }
+    }
+
     /// Advance the checkpoint after the server acknowledged the batch.
     /// Only called after a successful push.
     fn advance_checkpoint(&self, batch: &UsageBatch) -> Result<(), String>;
@@ -237,9 +250,11 @@ impl UsageSource for OmpSource {
     /// The cursor is `messages.rowid`, not a timestamp. Rows are only ever
     /// appended, so a monotonic rowid cannot skip a row that was inserted while
     /// a batch was in flight — which is exactly the failure a wall-clock cursor
-    /// invites. It is banked against the batch key and only adopted once the
-    /// server accepts, so a crash mid-flight re-offers rows instead of losing
-    /// them.
+    /// invites. The cursor is committed immediately when the batch is produced,
+    /// not deferred until the server accepts: the spool is durable, so a crash
+    /// re-offers the persisted batch and the idempotency key absorbs the
+    /// duplicate. This lets `collect_v2_drain` loop and read new rows every
+    /// pass instead of stalling on the same un-acknowledged cursor.
     fn collect_v2(&self) -> Result<Option<V2UsageBatch>, String> {
         let Some(path) = omp_stats_db_path() else {
             return Ok(None);
@@ -263,13 +278,17 @@ impl UsageSource for OmpSource {
         }
         let now = now_seconds();
         let Some((rows, window_start, window_end)) = clamp_v2_rows(rows, now) else {
-            // Everything readable is older than the retention horizon. Bank the
-            // rowid so the dead tail is not re-read on every pass.
+            // Everything readable is older than the retention horizon. Advance
+            // past the dead tail so it is not re-read on every pass.
             set_v2_cursor(OMP_V2_CURSOR, max_rowid)?;
             return Ok(None);
         };
         let digest = Sha256::digest(serde_json::to_vec(&rows).map_err(|e| e.to_string())?);
         let idempotency_key = format!("omp:v2:{digest:x}");
+        // Commit the cursor immediately so the next call reads new rows. The
+        // banked cursor is kept for advance_v2_checkpoint compatibility — it
+        // is a no-op when the committed cursor has already moved past it.
+        set_v2_cursor(OMP_V2_CURSOR, max_rowid)?;
         bank_v2_cursor(OMP_V2_CURSOR, &idempotency_key, max_rowid)?;
         Ok(Some(V2UsageBatch {
             source: SourceKind::Omp,
@@ -280,10 +299,31 @@ impl UsageSource for OmpSource {
         }))
     }
 
+    /// Drain the OMP backlog in one call. Each `collect_v2` pass commits the
+    /// cursor, so the next pass reads the next 500-row chunk. Capped at 200
+    /// batches (100,000 rows) to bound the collection window — the remaining
+    /// backlog drains on the next collect cycle.
+    fn collect_v2_drain(&self) -> Result<Vec<V2UsageBatch>, String> {
+        let mut batches = Vec::new();
+        const MAX_DRAIN_BATCHES: usize = 200;
+        for _ in 0..MAX_DRAIN_BATCHES {
+            match self.collect_v2()? {
+                Some(batch) => batches.push(batch),
+                None => break,
+            }
+        }
+        Ok(batches)
+    }
+
     /// Adopt the banked rowid for the batch the server just accepted.
+    /// Monotonic: never regress the committed cursor, since `collect_v2_drain`
+    /// may have already advanced past this batch's banked position.
     fn advance_v2_checkpoint(&self, batch: &V2UsageBatch) -> Result<(), String> {
         if let Some(rowid) = take_banked_v2_cursor(OMP_V2_CURSOR, &batch.idempotency_key)? {
-            set_v2_cursor(OMP_V2_CURSOR, rowid)?;
+            let current = v2_cursor(OMP_V2_CURSOR)?;
+            if rowid > current {
+                set_v2_cursor(OMP_V2_CURSOR, rowid)?;
+            }
         }
         Ok(())
     }
@@ -603,6 +643,8 @@ pub fn collect_all_sources() -> Vec<SourceCollection> {
 /// Collect typed version 2 rows from capable sources. Native metrics, OMP's
 /// per-request stats database, Claude Code, and Codex emit request spans.
 /// OpenCode stays on version 1 until it exposes a stable request identity.
+/// Sources with a large backlog (OMP) may produce multiple batches per call
+/// via `collect_v2_drain`; each batch becomes its own `SourceCollectionV2`.
 pub fn collect_all_sources_v2() -> Vec<SourceCollectionV2> {
     let sources = registered_sources();
     let mut results = Vec::new();
@@ -617,13 +659,26 @@ pub fn collect_all_sources_v2() -> Vec<SourceCollectionV2> {
             });
             continue;
         }
-        match source.collect_v2() {
-            Ok(batch) => results.push(SourceCollectionV2 {
-                source: kind,
-                batch,
-                diagnostic: source.diagnostic(),
-                error: None,
-            }),
+        match source.collect_v2_drain() {
+            Ok(batches) => {
+                if batches.is_empty() {
+                    results.push(SourceCollectionV2 {
+                        source: kind,
+                        batch: None,
+                        diagnostic: source.diagnostic(),
+                        error: None,
+                    });
+                } else {
+                    for batch in batches {
+                        results.push(SourceCollectionV2 {
+                            source: kind,
+                            batch: Some(batch),
+                            diagnostic: source.diagnostic(),
+                            error: None,
+                        });
+                    }
+                }
+            }
             Err(error) => results.push(SourceCollectionV2 {
                 source: kind,
                 batch: None,
@@ -1170,5 +1225,82 @@ mod tests {
         assert!(!diag.contains("token"));
         assert!(!diag.contains("key"));
         assert!(!diag.contains("secret"));
+    }
+
+    /// When OMP has a backlog larger than `MAX_ROWS_PER_BATCH`, the drain loop
+    /// must read multiple consecutive chunks by advancing the cursor after each
+    /// batch. This is the core mechanic that `collect_v2_drain` relies on:
+    /// each pass's `max_rowid` becomes the next pass's `since_rowid`, so the
+    /// full backlog is consumed in one collection cycle instead of one batch
+    /// per sync.
+    #[test]
+    fn omp_drain_reads_full_backlog_in_multiple_batches() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let db = dir.path().join("stats.db");
+        // Seed 1,200 rows — more than two full batches (500 + 500 + 200).
+        let rows: Vec<(&str, &str, i64, i64, Option<f64>)> = (0..1200)
+            .map(|i| {
+                ("anthropic", "claude-opus-5", 1_800_000_000_000 + i * 1000, 500, Some(0.01))
+            })
+            .collect();
+        seed_omp_stats(&db, &rows);
+
+        let mut cursor = 0i64;
+        let mut total_rows = 0usize;
+        let mut batch_sizes = Vec::new();
+
+        // Simulate collect_v2_drain: loop read_omp_spans, advancing the cursor
+        // after each batch, until an empty read signals the backlog is drained.
+        for _ in 0..200 {
+            let (rows, max_rowid) = read_omp_spans(&db, cursor, MAX_ROWS_PER_BATCH).unwrap();
+            if rows.is_empty() {
+                break;
+            }
+            batch_sizes.push(rows.len());
+            total_rows += rows.len();
+            cursor = max_rowid;
+        }
+
+        assert_eq!(
+            batch_sizes,
+            vec![500, 500, 200],
+            "three batches: two full 500-row chunks then the 200-row tail"
+        );
+        assert_eq!(total_rows, 1200, "every row must be drained");
+        assert_eq!(cursor, 1200, "cursor ends at the last rowid");
+    }
+
+    /// `advance_v2_checkpoint` must never regress the committed cursor. When
+    /// `collect_v2_drain` produces batches B1 (cursor 500), B2 (cursor 1000),
+    /// B3 (cursor 1200), the server may acknowledge them out of order. If B1
+    /// arrives after B3, its banked cursor (500) must not overwrite the
+    /// already-committed 1200.
+    #[test]
+    fn omp_advance_v2_checkpoint_is_monotonic() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&dir);
+
+        // Set the committed cursor ahead, simulating B3 already being accepted.
+        set_v2_cursor(OMP_V2_CURSOR, 1200).unwrap();
+
+        // Bank a cursor for a batch with a lower rowid (B1, accepted late).
+        let batch_key = "omp:v2:test_monotonic_advance";
+        bank_v2_cursor(OMP_V2_CURSOR, batch_key, 500).unwrap();
+
+        let batch = V2UsageBatch {
+            source: SourceKind::Omp,
+            idempotency_key: batch_key.to_string(),
+            window_start: 1_800_000_000,
+            window_end: 1_800_000_060,
+            rows: Vec::new(),
+        };
+
+        OmpSource.advance_v2_checkpoint(&batch).unwrap();
+
+        let after = v2_cursor(OMP_V2_CURSOR).unwrap();
+        assert_eq!(
+            after, 1200,
+            "cursor must not regress to the banked 500"
+        );
     }
 }

@@ -674,10 +674,18 @@ fn quota_observations_from_payload(payload: &Value) -> Vec<QuotaObservation> {
                     .unwrap_or(1.0 - used_fraction)
                     .clamp(0.0, 1.0),
                 resets_at: timestamp_millis(window.and_then(|window| window.get("resetsAt"))),
-                window_duration_ms: window
-                    .and_then(|window| window.get("windowDurationMs"))
-                    .and_then(Value::as_i64)
-                    .or_else(|| window_label.as_deref().and_then(duration_from_label)),
+                // The provider's own label for the window beats a reported
+                // duration: clients have shipped a five-hour session length on
+                // a limit the provider labels "7 days", which compresses a
+                // week of entitlement into an afternoon downstream.
+                window_duration_ms: window_label
+                    .as_deref()
+                    .and_then(duration_from_label)
+                    .or_else(|| {
+                        window
+                            .and_then(|window| window.get("windowDurationMs"))
+                            .and_then(Value::as_i64)
+                    }),
                 window_label,
                 account_hash: hashed_account,
                 provider,
@@ -737,10 +745,10 @@ fn quota_observations_from_payload(payload: &Value) -> Vec<QuotaObservation> {
                 .unwrap_or(1.0 - used_fraction)
                 .clamp(0.0, 1.0),
             resets_at: timestamp_millis(window.get("resetsAt")),
-            window_duration_ms: window
-                .get("windowDurationMs")
-                .and_then(Value::as_i64)
-                .or_else(|| window_label.as_deref().and_then(duration_from_label)),
+            window_duration_ms: window_label
+                .as_deref()
+                .and_then(duration_from_label)
+                .or_else(|| window.get("windowDurationMs").and_then(Value::as_i64)),
             window_label,
             // The normalized header shape carries no account identity.
             account_hash: None,
@@ -1164,14 +1172,40 @@ fn timestamp_millis(value: Option<&Value>) -> Option<i64> {
     .filter(|timestamp| *timestamp >= 0)
 }
 
+/// Length of a quota window named by its provider label.
+///
+/// Providers write the same window a dozen ways — "5h", "5 Hour", "7 days",
+/// "7 Day", "weekly". A fixed match list silently returned `None` for most of
+/// them, and a window with no known length is dropped by every downstream
+/// entitlement calculation, so the whole limit went unreported. Parse the
+/// shape instead: an optional count followed by a unit.
 fn duration_from_label(label: &str) -> Option<i64> {
-    match label.trim().to_ascii_lowercase().as_str() {
-        "5h" | "5 hour" | "5 hours" => Some(18_000_000),
-        "daily" | "24h" => Some(86_400_000),
-        "weekly" | "7d" => Some(604_800_000),
-        "monthly" | "30d" => Some(2_592_000_000),
-        _ => None,
+    let normalized = label.trim().to_ascii_lowercase();
+    let normalized = normalized.split_whitespace().collect::<Vec<_>>().join(" ");
+    match normalized.as_str() {
+        "hourly" => return Some(3_600_000),
+        "daily" => return Some(86_400_000),
+        "weekly" => return Some(604_800_000),
+        "monthly" => return Some(2_592_000_000),
+        _ => {}
     }
+    let split = normalized
+        .find(|c: char| !c.is_ascii_digit() && c != '.')
+        .unwrap_or(normalized.len());
+    let (count, unit) = normalized.split_at(split);
+    let count: f64 = if count.is_empty() { 1.0 } else { count.parse().ok()? };
+    let unit_ms: i64 = match unit.trim() {
+        "m" | "min" | "mins" | "minute" | "minutes" => 60_000,
+        "h" | "hr" | "hrs" | "hour" | "hours" => 3_600_000,
+        "d" | "day" | "days" => 86_400_000,
+        "w" | "wk" | "week" | "weeks" => 604_800_000,
+        "mo" | "month" | "months" => 2_592_000_000,
+        _ => return None,
+    };
+    let total = count * unit_ms as f64;
+    // Bound to the range a real provider window falls in; anything else is a
+    // label this parser misread rather than a window.
+    (total.is_finite() && (60_000.0..=2_678_400_000.0).contains(&total)).then_some(total as i64)
 }
 
 fn parse_gap(value: &str) -> Option<(i64, i64)> {
@@ -1401,6 +1435,63 @@ mod tests {
             .unwrap();
         assert_eq!(model.as_deref(), Some("claude-opus-5"));
         assert_eq!(used, 0.4);
+    }
+
+    /// A window whose length is unknown is dropped by every downstream
+    /// entitlement calculation, so a label the parser cannot read silently
+    /// removes the whole limit from the public estimate. Providers spell the
+    /// same window many ways.
+    #[test]
+    fn window_labels_parse_in_every_shape_providers_publish() {
+        assert_eq!(duration_from_label("5h"), Some(18_000_000));
+        assert_eq!(duration_from_label("5 Hour"), Some(18_000_000));
+        assert_eq!(duration_from_label("5 hours"), Some(18_000_000));
+        assert_eq!(duration_from_label("7 days"), Some(604_800_000));
+        assert_eq!(duration_from_label("7 Day"), Some(604_800_000));
+        assert_eq!(duration_from_label("7d"), Some(604_800_000));
+        assert_eq!(duration_from_label("weekly"), Some(604_800_000));
+        assert_eq!(duration_from_label("1 week"), Some(604_800_000));
+        assert_eq!(duration_from_label("24h"), Some(86_400_000));
+        assert_eq!(duration_from_label("daily"), Some(86_400_000));
+        assert_eq!(duration_from_label("30d"), Some(2_592_000_000));
+
+        // Labels that name a window without describing it, and lengths no
+        // provider window has, stay unknown rather than being guessed.
+        assert_eq!(duration_from_label("Frontier"), None);
+        assert_eq!(duration_from_label("Quota window"), None);
+        assert_eq!(duration_from_label("primary"), None);
+        assert_eq!(duration_from_label("tokens"), None);
+        assert_eq!(duration_from_label("1s"), None);
+        assert_eq!(duration_from_label("400d"), None);
+    }
+
+    /// OMP has shipped a five-hour session length against the codex limit the
+    /// provider itself labels "7 days". Believing the client number compresses
+    /// a week of entitlement into an afternoon, so the label wins.
+    #[test]
+    fn a_provider_label_overrides_a_contradicting_reported_duration() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&dir);
+        let payload = json!({
+            "reports": [{
+                "provider": "openai",
+                "limits": [{
+                    "id": "openai-codex:primary",
+                    "scope": { "provider": "openai" },
+                    "window": {
+                        "label": "7 days",
+                        "windowDurationMs": 18_000_000,
+                        "resetsAt": 1_800_018_000_000i64
+                    },
+                    "amount": { "usedFraction": 0.4, "remainingFraction": 0.6 }
+                }]
+            }]
+        });
+        let rows = quota_rows_from_payload(&payload, 1_800_000_000_000).unwrap();
+        let V2Row::QuotaSnapshot(snapshot) = &rows[0] else {
+            panic!("expected quota snapshot")
+        };
+        assert_eq!(snapshot.window_duration_ms, Some(604_800_000));
     }
 
     #[test]

@@ -35,6 +35,11 @@ const MIN_PAIR_TOKENS: i64 = 1;
 /// different windows are a whole window duration apart (hours), so a minute of
 /// slack separates jitter from a rollover without ambiguity.
 const RESET_IDENTITY_TOLERANCE_MS: i64 = 60_000;
+/// How late the first retained reading may be and still count as having
+/// watched the window from its start. One sampling cadence.
+const WINDOW_START_SLACK_MS: i64 = 120_000;
+/// Below this, a whole-window rate is one burst rather than a measurement.
+const MIN_WHOLE_WINDOW_REQUESTS: i64 = 20;
 
 /// Whether two readings describe the same quota window.
 fn same_window(earlier: Option<i64>, later: Option<i64>) -> bool {
@@ -122,6 +127,34 @@ pub struct DrainEstimate {
     /// When the window would empty at the recent observed pace, if it is
     /// draining at all.
     pub projected_exhaustion_at: Option<i64>,
+
+    // ── Entitlement, derived by scaling the measured rate by the window ──
+    /// Length of one quota window, when the provider named it.
+    pub window_duration_ms: Option<i64>,
+    /// Requests one full window affords at the observed rate.
+    pub requests_per_window: f64,
+    /// Requests still affordable in the window as it stands right now. This is
+    /// the number a user acts on, and no provider publishes it.
+    pub requests_remaining: f64,
+    /// Hours of model runtime one full window affords, at the observed average
+    /// request duration. `None` when no request duration was measured.
+    pub model_hours_per_window: Option<f64>,
+    /// The same allowance across a week of window resets. `None` unless the
+    /// window length is known — a rate per unknown window cannot be placed on
+    /// a calendar, and guessing one is how a five-hour limit gets reported as
+    /// a weekly allowance 33 times too small.
+    pub hours_per_week: Option<f64>,
+
+    // ── What has actually been spent inside the window as it stands ──
+    /// Requests issued since this window opened, across every local store.
+    pub requests_used_this_window: i64,
+    /// Model-hours spent in the same stretch. `None` when the window's start
+    /// is unknowable, which needs both a reset instant and a window length.
+    pub hours_used_this_window: Option<f64>,
+    /// `paired_intervals` | `whole_window` — which measurement the rate above
+    /// came from. The whole window is the stronger evidence and is preferred
+    /// whenever this machine watched the window from the moment it opened.
+    pub rate_basis: String,
 }
 
 /// A quota reading, as retained locally.
@@ -133,6 +166,8 @@ struct Sample {
     model_id: Option<String>,
     plan_type: Option<String>,
     window_label: Option<String>,
+    /// Window length as retained with the reading, when the provider named it.
+    window_duration_ms: Option<i64>,
     /// Traffic-store horizon when this reading was taken.
     ingested_through: Option<i64>,
 }
@@ -165,7 +200,8 @@ impl UsageCorrelationService {
             if intervals.is_empty() {
                 continue;
             }
-            if let Some(estimate) = summarize(&provider, &limit_id, &samples, &intervals) {
+            if let Some(mut estimate) = summarize(&provider, &limit_id, &samples, &intervals) {
+                attach_current_window_usage(&mut estimate, &samples, stats_db.as_deref())?;
                 estimates.push(estimate);
             }
         }
@@ -179,13 +215,76 @@ impl UsageCorrelationService {
     }
 }
 
+/// Measure what has actually been spent inside the window as it stands now.
+///
+/// The drain rate says what a request costs and how many the window affords.
+/// It cannot say how much of this window has already gone into model time,
+/// because that is traffic, not quota. The window opened at its reset instant
+/// minus its length, so the local stores can be asked directly. Without both
+/// instants the question has no answer and none is invented.
+fn attach_current_window_usage(
+    estimate: &mut DrainEstimate,
+    samples: &[Sample],
+    stats_db: Option<&std::path::Path>,
+) -> Result<(), String> {
+    let (Some(resets_at), Some(duration)) = (estimate.resets_at, estimate.window_duration_ms)
+    else {
+        return Ok(());
+    };
+    let window_start = resets_at.saturating_sub(duration);
+    if window_start >= estimate.observed_at {
+        return Ok(());
+    }
+    let traffic = traffic_between(
+        stats_db,
+        &estimate.provider,
+        estimate.model_id.as_deref(),
+        window_start,
+        estimate.observed_at,
+    )?;
+    estimate.requests_used_this_window = traffic.requests;
+    estimate.hours_used_this_window = Some(traffic.duration_ms as f64 / 3_600_000.0);
+
+    // The paired-interval rate is measured only over pairs where the bar
+    // visibly moved. Requests that ran while it did not move are dropped from
+    // the denominator but not from the numerator, so the rate comes out high —
+    // observed live at 2.7x, which then under-reports what is left by the same
+    // factor. When this window has been watched since it opened, the whole
+    // window is one complete pair: everything used against every request that
+    // used it. That is the same measurement with nothing missing, so it wins.
+    let watched_from_open = samples
+        .first()
+        .is_some_and(|first| first.observed_at <= window_start + WINDOW_START_SLACK_MS);
+    if !watched_from_open || traffic.requests < MIN_WHOLE_WINDOW_REQUESTS {
+        return Ok(());
+    }
+    let used_fraction = 1.0 - estimate.remaining_fraction;
+    if used_fraction <= MIN_USED_DELTA {
+        return Ok(());
+    }
+    let fraction_per_request = used_fraction / traffic.requests as f64;
+    estimate.fraction_per_request = fraction_per_request;
+    estimate.requests_per_window = 1.0 / fraction_per_request;
+    estimate.requests_remaining = estimate.remaining_fraction / fraction_per_request;
+    if traffic.duration_ms > 0 {
+        let avg_request_ms = traffic.duration_ms as f64 / traffic.requests as f64;
+        let per_window = estimate.requests_per_window * avg_request_ms / 3_600_000.0;
+        estimate.model_hours_per_window = Some(per_window);
+        estimate.hours_per_week =
+            Some((per_window * 604_800_000.0 / duration as f64).min(168.0));
+    }
+    estimate.rate_basis = "whole_window".to_string();
+    Ok(())
+}
+
 /// Retained readings grouped by window, oldest first.
 fn load_samples() -> Result<BTreeMap<(String, String), Vec<Sample>>, String> {
     let conn = StorageService::connect()?;
     let mut statement = conn
         .prepare(
             "SELECT provider, limit_id, observed_at, used_fraction, remaining_fraction,
-                    resets_at, model_id, plan_type, window_label, ingested_through
+                    resets_at, model_id, plan_type, window_label, ingested_through,
+                    window_duration_ms
              FROM usage_quota_samples
              ORDER BY provider ASC, limit_id ASC, observed_at ASC",
         )
@@ -204,6 +303,7 @@ fn load_samples() -> Result<BTreeMap<(String, String), Vec<Sample>>, String> {
                     plan_type: row.get(7)?,
                     window_label: row.get(8)?,
                     ingested_through: row.get(9)?,
+                    window_duration_ms: row.get(10)?,
                 },
             ))
         })
@@ -598,6 +698,30 @@ fn summarize(
     let mut models: Vec<(&str, usize)> = model_totals.into_iter().collect();
     models.sort_by(|left, right| right.1.cmp(&left.1));
 
+    // Scale the measured rate by the window it was measured against. The rate
+    // alone answers "what does a request cost"; only the window turns that
+    // into "how much is left" and "how much does a week hold". A window whose
+    // length the provider never named stays uncalendared rather than guessed.
+    let window_duration_ms = samples
+        .iter()
+        .rev()
+        .find_map(|sample| sample.window_duration_ms)
+        .filter(|duration| (60_000..=2_678_400_000).contains(duration));
+    let requests_per_window = 1.0 / fraction_per_request;
+    let requests_remaining = latest.remaining_fraction / fraction_per_request;
+    let avg_request_ms = (requests > 0 && duration_ms > 0)
+        .then(|| duration_ms as f64 / requests as f64);
+    let model_hours_per_window =
+        avg_request_ms.map(|avg| requests_per_window * avg / 3_600_000.0);
+    let hours_per_week = model_hours_per_window.zip(window_duration_ms).map(
+        |(hours, window)| {
+            let windows_per_week = 604_800_000.0 / window as f64;
+            // A sequential agent cannot spend more than a week of wall clock,
+            // so report that as the ceiling rather than an impossible figure.
+            (hours * windows_per_week).min(168.0)
+        },
+    );
+
     Some(DrainEstimate {
         provider: provider.to_string(),
         limit_id: limit_id.to_string(),
@@ -621,6 +745,16 @@ fn summarize(
         remaining_fraction: latest.remaining_fraction,
         resets_at: latest.resets_at,
         projected_exhaustion_at,
+        window_duration_ms,
+        requests_per_window,
+        requests_remaining,
+        model_hours_per_window,
+        hours_per_week,
+        // Filled by `attach_current_window_usage`: it needs the local traffic
+        // stores, which `summarize` deliberately does not touch.
+        requests_used_this_window: 0,
+        hours_used_this_window: None,
+        rate_basis: "paired_intervals".to_string(),
     })
 }
 
@@ -665,7 +799,8 @@ mod tests {
             resets_at,
             model_id: model.map(str::to_string),
             plan_type: None,
-            window_label: None,
+            window_label: Some("5h".to_string()),
+            window_duration_ms: Some(18_000_000),
             ingested_through: Some(observed_at),
         }
     }
@@ -814,6 +949,72 @@ mod tests {
         ] {
             assert!(value.is_finite(), "rates must be JSON-representable");
         }
+    }
+
+    /// The rate alone is not actionable. What a user needs is how many more
+    /// requests this window affords and what a week of resets is worth, and
+    /// both need the window's length: the same 0.5%-per-request rate is a
+    /// wildly different weekly allowance on a 5-hour window than a 7-day one.
+    #[test]
+    fn entitlement_is_scaled_by_the_window_the_rate_was_measured_against() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&dir);
+        let db = dir.path().join("stats.db");
+        seed_stats_db(
+            &db,
+            &[
+                ("anthropic", "claude-opus-5", 1_000, 5_000),
+                ("anthropic", "claude-opus-5", 2_000, 5_000),
+            ],
+        );
+        let samples = vec![
+            sample(0, 0.10, Some(99), None),
+            sample(3_000, 0.11, Some(99), None),
+        ];
+        let intervals = solve_intervals("anthropic", &samples, Some(&db)).unwrap();
+
+        // 0.5% of the window per request: 200 requests a window, and 89% of
+        // the window is still unspent, so 178 remain.
+        let session = summarize("anthropic", "limit", &samples, &intervals).unwrap();
+        assert_eq!(session.window_duration_ms, Some(18_000_000));
+        assert!((session.requests_per_window - 200.0).abs() < 1e-9);
+        assert!((session.requests_remaining - 178.0).abs() < 1e-9);
+        // Each seeded request ran one second, so a window is 200s of runtime
+        // and a week holds 33.6 windows.
+        let per_window = session.model_hours_per_window.unwrap();
+        assert!((per_window - 200.0 / 3_600.0).abs() < 1e-9);
+        let weekly = session.hours_per_week.unwrap();
+        assert!((weekly - per_window * 604_800_000.0 / 18_000_000.0).abs() < 1e-9);
+
+        // The identical rate on a weekly window is worth 33.6x less per week.
+        let weekly_samples: Vec<Sample> = samples
+            .iter()
+            .map(|reading| Sample {
+                window_label: Some("7 days".to_string()),
+                window_duration_ms: Some(604_800_000),
+                model_id: reading.model_id.clone(),
+                plan_type: None,
+                ..*reading
+            })
+            .collect();
+        let weekly_window =
+            summarize("anthropic", "limit", &weekly_samples, &intervals).unwrap();
+        assert!((weekly_window.hours_per_week.unwrap() - per_window).abs() < 1e-9);
+
+        // A window the provider never named cannot be placed on a calendar.
+        let unlabelled: Vec<Sample> = samples
+            .iter()
+            .map(|reading| Sample {
+                window_label: None,
+                window_duration_ms: None,
+                model_id: reading.model_id.clone(),
+                plan_type: None,
+                ..*reading
+            })
+            .collect();
+        let unknown = summarize("anthropic", "limit", &unlabelled, &intervals).unwrap();
+        assert_eq!(unknown.hours_per_week, None);
+        assert!((unknown.requests_remaining - 178.0).abs() < 1e-9);
     }
 
     /// A provider window drains across every client on the machine. Native,
@@ -1130,6 +1331,31 @@ mod tests {
                     .unwrap_or_else(|| "—".to_string()),
                 estimate.confidence,
             );
+            println!(
+                "{:22} {:28} window={:>8}  {:>8.0} req/window  {:>8.0} req left  {}",
+                "",
+                "",
+                estimate
+                    .window_duration_ms
+                    .map(|ms| format!("{:.0}h", ms as f64 / 3_600_000.0))
+                    .unwrap_or_else(|| "unknown".to_string()),
+                estimate.requests_per_window,
+                estimate.requests_remaining,
+                estimate
+                    .hours_per_week
+                    .map(|hours| format!("{hours:.1}h/wk"))
+                    .unwrap_or_else(|| "no weekly figure".to_string()),
+            );
+            println!(
+                "{:22} {:28} used this window: {} over {} request(s)",
+                "",
+                "",
+                estimate
+                    .hours_used_this_window
+                    .map(|hours| format!("{hours:.2}h"))
+                    .unwrap_or_else(|| "unknown (no window start)".to_string()),
+                estimate.requests_used_this_window,
+            );
             // Every reported number must be finite and in range, or the UI will
             // render nonsense.
             assert!(estimate.fraction_per_1k_tokens.is_finite());
@@ -1139,6 +1365,16 @@ mod tests {
             assert!(
                 estimate.models.len() <= 1 || estimate.confidence != "high",
                 "a window shared by several models must never claim high confidence"
+            );
+            assert!(estimate.requests_per_window.is_finite());
+            assert!(estimate.requests_remaining.is_finite());
+            assert!(
+                estimate.requests_remaining <= estimate.requests_per_window + 1e-6,
+                "what is left cannot exceed what a full window affords"
+            );
+            assert!(
+                estimate.hours_per_week.is_none_or(|hours| hours > 0.0 && hours <= 168.0),
+                "a weekly allowance must fit inside a week of wall clock"
             );
         }
     }
