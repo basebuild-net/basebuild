@@ -18008,48 +18008,6 @@
 			"contextWindow": null,
 			"maxTokens": null
 		},
-		"claude-sonnet-4-thinking": {
-			"id": "claude-sonnet-4-thinking",
-			"name": "Claude 4 Sonnet Thinking",
-			"api": "devin-agent",
-			"provider": "devin",
-			"baseUrl": "https://server.codeium.com",
-			"reasoning": true,
-			"input": [
-				"text",
-				"image",
-				"pdf"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1000000,
-			"maxTokens": 64000
-		},
-		"claude-opus-4-1-thinking": {
-			"id": "claude-opus-4-1-thinking",
-			"name": "Claude 4.1 Opus Thinking",
-			"api": "devin-agent",
-			"provider": "devin",
-			"baseUrl": "https://server.codeium.com",
-			"reasoning": true,
-			"input": [
-				"text",
-				"image",
-				"pdf"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 32000
-		},
 		"claude-fable-5-high": {
 			"id": "claude-fable-5-high",
 			"name": "Claude Fable 5 High",
@@ -18147,15 +18105,13 @@
 		},
 		"claude-haiku-4-5": {
 			"id": "claude-haiku-4-5",
-			"name": "Claude Haiku 4.5 (latest)",
+			"name": "Claude Haiku 4.5",
 			"api": "devin-agent",
 			"provider": "devin",
 			"baseUrl": "https://server.codeium.com",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -18163,8 +18119,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 200000,
-			"maxTokens": 16384
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"claude-opus-4-1": {
 			"id": "claude-opus-4-1",
@@ -18174,9 +18130,7 @@
 			"baseUrl": "https://server.codeium.com",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -18184,8 +18138,27 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 200000,
-			"maxTokens": 32000
+			"contextWindow": null,
+			"maxTokens": null
+		},
+		"claude-opus-4-1-thinking": {
+			"id": "claude-opus-4-1-thinking",
+			"name": "Claude Opus 4.1 Thinking",
+			"api": "devin-agent",
+			"provider": "devin",
+			"baseUrl": "https://server.codeium.com",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"claude-opus-4-5": {
 			"id": "claude-opus-4-5",
@@ -18195,9 +18168,7 @@
 			"baseUrl": "https://server.codeium.com",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -18205,8 +18176,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 200000,
-			"maxTokens": 64000
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"claude-opus-4-5-thinking": {
 			"id": "claude-opus-4-5-thinking",
@@ -18712,9 +18683,7 @@
 			"baseUrl": "https://server.codeium.com",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -18722,20 +18691,18 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1000000,
-			"maxTokens": 64000
+			"contextWindow": null,
+			"maxTokens": null
 		},
-		"claude-sonnet-4-5": {
-			"id": "claude-sonnet-4-5",
-			"name": "Claude Sonnet 4.5 (latest)",
+		"claude-sonnet-4-thinking": {
+			"id": "claude-sonnet-4-thinking",
+			"name": "Claude Sonnet 4 Thinking",
 			"api": "devin-agent",
 			"provider": "devin",
 			"baseUrl": "https://server.codeium.com",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -18743,8 +18710,27 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 200000,
-			"maxTokens": 16384
+			"contextWindow": null,
+			"maxTokens": null
+		},
+		"claude-sonnet-4-5": {
+			"id": "claude-sonnet-4-5",
+			"name": "Claude Sonnet 4.5",
+			"api": "devin-agent",
+			"provider": "devin",
+			"baseUrl": "https://server.codeium.com",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"claude-sonnet-4-5-thinking": {
 			"id": "claude-sonnet-4-5-thinking",
@@ -19060,9 +19046,7 @@
 			"baseUrl": "https://server.codeium.com",
 			"reasoning": false,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -19070,28 +19054,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 128000,
-			"maxTokens": 16384
-		},
-		"gpt-5-codex": {
-			"id": "gpt-5-codex",
-			"name": "GPT-5 Codex",
-			"api": "devin-agent",
-			"provider": "devin",
-			"baseUrl": "https://server.codeium.com",
-			"reasoning": true,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 400000,
-			"maxTokens": 128000
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"gpt-5-high-thinking": {
 			"id": "gpt-5-high-thinking",
@@ -19150,16 +19114,15 @@
 			"contextWindow": null,
 			"maxTokens": null
 		},
-		"gpt-5-1-codex-mini": {
-			"id": "gpt-5-1-codex-mini",
-			"name": "GPT-5.1 Codex mini",
+		"gpt-5-codex": {
+			"id": "gpt-5-codex",
+			"name": "GPT-5-Codex",
 			"api": "devin-agent",
 			"provider": "devin",
 			"baseUrl": "https://server.codeium.com",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -19167,8 +19130,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 400000,
-			"maxTokens": 128000
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"gpt-5-1-high-thinking": {
 			"id": "gpt-5-1-high-thinking",
@@ -19405,6 +19368,25 @@
 			"provider": "devin",
 			"baseUrl": "https://server.codeium.com",
 			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": null,
+			"maxTokens": null
+		},
+		"gpt-5-1-codex-mini": {
+			"id": "gpt-5-1-codex-mini",
+			"name": "GPT-5.1-Codex-Mini",
+			"api": "devin-agent",
+			"provider": "devin",
+			"baseUrl": "https://server.codeium.com",
+			"reasoning": true,
 			"input": [
 				"text"
 			],
@@ -20717,11 +20699,7 @@
 			"baseUrl": "https://server.codeium.com",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"audio",
-				"video",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -20729,8 +20707,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1048576,
-			"maxTokens": 65536
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"gemini-3-flash-high": {
 			"id": "gemini-3-flash-high",
@@ -20906,6 +20884,25 @@
 		"gemini-3-5-flash-minimal": {
 			"id": "gemini-3-5-flash-minimal",
 			"name": "Gemini 3.5 Flash Minimal",
+			"api": "devin-agent",
+			"provider": "devin",
+			"baseUrl": "https://server.codeium.com",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": null,
+			"maxTokens": null
+		},
+		"grok-code-fast-1": {
+			"id": "grok-code-fast-1",
+			"name": "Grok Code Fast 1",
 			"api": "devin-agent",
 			"provider": "devin",
 			"baseUrl": "https://server.codeium.com",
@@ -21222,9 +21219,7 @@
 			"baseUrl": "https://server.codeium.com",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -21232,8 +21227,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 200000,
-			"maxTokens": 100000
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"o3-high-reasoning": {
 			"id": "o3-high-reasoning",
@@ -21253,25 +21248,6 @@
 			},
 			"contextWindow": null,
 			"maxTokens": null
-		},
-		"grok-code-fast-1": {
-			"id": "grok-code-fast-1",
-			"name": "xAI Grok Code Fast 1",
-			"api": "devin-agent",
-			"provider": "devin",
-			"baseUrl": "https://server.codeium.com",
-			"reasoning": false,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 256000,
-			"maxTokens": 10000
 		},
 		"xai-grok-3": {
 			"id": "xai-grok-3",
@@ -72408,15 +72384,13 @@
 		},
 		"claude-haiku-4-5": {
 			"id": "claude-haiku-4-5",
-			"name": "Claude Haiku 4.5 (latest)",
+			"name": "Claude Haiku 4.5",
 			"api": "openai-completions",
 			"provider": "opencode",
 			"baseUrl": "https://opencode.ai/zen/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -72424,8 +72398,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 200000,
-			"maxTokens": 16384
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"claude-opus-4-1": {
 			"id": "claude-opus-4-1",
@@ -72435,9 +72409,7 @@
 			"baseUrl": "https://opencode.ai/zen/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -72445,8 +72417,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 200000,
-			"maxTokens": 32000
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"claude-opus-4-5": {
 			"id": "claude-opus-4-5",
@@ -72456,9 +72428,7 @@
 			"baseUrl": "https://opencode.ai/zen/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -72466,8 +72436,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 200000,
-			"maxTokens": 64000
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"claude-opus-4-6": {
 			"id": "claude-opus-4-6",
@@ -72561,9 +72531,7 @@
 			"baseUrl": "https://opencode.ai/zen/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -72571,20 +72539,18 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1000000,
-			"maxTokens": 64000
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"claude-sonnet-4-5": {
 			"id": "claude-sonnet-4-5",
-			"name": "Claude Sonnet 4.5 (latest)",
+			"name": "Claude Sonnet 4.5",
 			"api": "openai-completions",
 			"provider": "opencode",
 			"baseUrl": "https://opencode.ai/zen/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -72592,8 +72558,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 200000,
-			"maxTokens": 16384
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"claude-sonnet-4-6": {
 			"id": "claude-sonnet-4-6",
@@ -72890,26 +72856,6 @@
 			"contextWindow": 400000,
 			"maxTokens": 128000
 		},
-		"gpt-5-codex": {
-			"id": "gpt-5-codex",
-			"name": "GPT-5 Codex",
-			"api": "openai-completions",
-			"provider": "opencode",
-			"baseUrl": "https://opencode.ai/zen/v1",
-			"reasoning": true,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 400000,
-			"maxTokens": 128000
-		},
 		"gpt-5-nano": {
 			"id": "gpt-5-nano",
 			"name": "GPT-5 Nano",
@@ -72929,6 +72875,25 @@
 			},
 			"contextWindow": 400000,
 			"maxTokens": 128000
+		},
+		"gpt-5-codex": {
+			"id": "gpt-5-codex",
+			"name": "GPT-5-Codex",
+			"api": "openai-completions",
+			"provider": "opencode",
+			"baseUrl": "https://opencode.ai/zen/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"gpt-5.1": {
 			"id": "gpt-5.1",
@@ -109516,6 +109481,25 @@
 			"contextWindow": 200000,
 			"maxTokens": 32000
 		},
+		"claude-haiku-4-5": {
+			"id": "claude-haiku-4-5",
+			"name": "Claude Haiku 4.5",
+			"api": "openai-completions",
+			"provider": "302ai",
+			"baseUrl": "https://api.302.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": null,
+			"maxTokens": null
+		},
 		"claude-haiku-4-5-20251001": {
 			"id": "claude-haiku-4-5-20251001",
 			"name": "Claude Haiku 4.5",
@@ -109537,27 +109521,6 @@
 			"contextWindow": 200000,
 			"maxTokens": 64000
 		},
-		"claude-haiku-4-5": {
-			"id": "claude-haiku-4-5",
-			"name": "Claude Haiku 4.5 (latest)",
-			"api": "openai-completions",
-			"provider": "302ai",
-			"baseUrl": "https://api.302.ai/v1",
-			"reasoning": true,
-			"input": [
-				"text",
-				"image",
-				"pdf"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 16384
-		},
 		"claude-opus-4-5": {
 			"id": "claude-opus-4-5",
 			"name": "Claude Opus 4.5",
@@ -109566,9 +109529,7 @@
 			"baseUrl": "https://api.302.ai/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -109576,8 +109537,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 200000,
-			"maxTokens": 64000
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"claude-opus-4-6": {
 			"id": "claude-opus-4-6",
@@ -109621,6 +109582,25 @@
 			"contextWindow": 1000000,
 			"maxTokens": 128000
 		},
+		"claude-sonnet-4-5": {
+			"id": "claude-sonnet-4-5",
+			"name": "Claude Sonnet 4.5",
+			"api": "openai-completions",
+			"provider": "302ai",
+			"baseUrl": "https://api.302.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": null,
+			"maxTokens": null
+		},
 		"claude-sonnet-4-5-20250929": {
 			"id": "claude-sonnet-4-5-20250929",
 			"name": "Claude Sonnet 4.5",
@@ -109641,27 +109621,6 @@
 			},
 			"contextWindow": 1000000,
 			"maxTokens": 64000
-		},
-		"claude-sonnet-4-5": {
-			"id": "claude-sonnet-4-5",
-			"name": "Claude Sonnet 4.5 (latest)",
-			"api": "openai-completions",
-			"provider": "302ai",
-			"baseUrl": "https://api.302.ai/v1",
-			"reasoning": true,
-			"input": [
-				"text",
-				"image",
-				"pdf"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 16384
 		},
 		"claude-sonnet-4-5-20250929-thinking": {
 			"id": "claude-sonnet-4-5-20250929-thinking",
@@ -110125,9 +110084,7 @@
 			"baseUrl": "https://api.302.ai/v1",
 			"reasoning": false,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -110135,8 +110092,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 128000,
-			"maxTokens": 16384
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"gpt-5": {
 			"id": "gpt-5",
@@ -112305,9 +112262,7 @@
 			"baseUrl": "https://routellm.abacus.ai/v1",
 			"reasoning": false,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -112315,8 +112270,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 128000,
-			"maxTokens": 16384
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"gpt-4o-2024-11-20": {
 			"id": "gpt-4o-2024-11-20",
@@ -112380,26 +112335,6 @@
 			"contextWindow": 400000,
 			"maxTokens": 128000
 		},
-		"gpt-5-codex": {
-			"id": "gpt-5-codex",
-			"name": "GPT-5 Codex",
-			"api": "openai-completions",
-			"provider": "abacus",
-			"baseUrl": "https://routellm.abacus.ai/v1",
-			"reasoning": true,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 400000,
-			"maxTokens": 128000
-		},
 		"gpt-5-mini": {
 			"id": "gpt-5-mini",
 			"name": "GPT-5 Mini",
@@ -112439,6 +112374,25 @@
 			},
 			"contextWindow": 400000,
 			"maxTokens": 128000
+		},
+		"gpt-5-codex": {
+			"id": "gpt-5-codex",
+			"name": "GPT-5-Codex",
+			"api": "openai-completions",
+			"provider": "abacus",
+			"baseUrl": "https://routellm.abacus.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"gpt-5.1": {
 			"id": "gpt-5.1",
@@ -112966,6 +112920,25 @@
 			},
 			"contextWindow": 500000,
 			"maxTokens": 500000
+		},
+		"grok-code-fast-1": {
+			"id": "grok-code-fast-1",
+			"name": "Grok Code Fast 1",
+			"api": "openai-completions",
+			"provider": "abacus",
+			"baseUrl": "https://routellm.abacus.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"kimi-k2-turbo-preview": {
 			"id": "kimi-k2-turbo-preview",
@@ -113543,9 +113516,7 @@
 			"baseUrl": "https://routellm.abacus.ai/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -113553,8 +113524,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 200000,
-			"maxTokens": 100000
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"o3-mini": {
 			"id": "o3-mini",
@@ -113594,25 +113565,6 @@
 			},
 			"contextWindow": 200000,
 			"maxTokens": 100000
-		},
-		"grok-code-fast-1": {
-			"id": "grok-code-fast-1",
-			"name": "xAI Grok Code Fast 1",
-			"api": "openai-completions",
-			"provider": "abacus",
-			"baseUrl": "https://routellm.abacus.ai/v1",
-			"reasoning": false,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 256000,
-			"maxTokens": 10000
 		}
 	},
 	"alibaba": {
@@ -120536,15 +120488,13 @@
 		},
 		"claude-haiku-4-5": {
 			"id": "claude-haiku-4-5",
-			"name": "Claude Haiku 4.5 (latest)",
+			"name": "Claude Haiku 4.5",
 			"api": "openai-completions",
 			"provider": "cortecs",
 			"baseUrl": "https://api.cortecs.ai/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -120552,8 +120502,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 200000,
-			"maxTokens": 16384
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"claude-opus4-5": {
 			"id": "claude-opus4-5",
@@ -120647,9 +120597,7 @@
 			"baseUrl": "https://api.cortecs.ai/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -120657,8 +120605,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1000000,
-			"maxTokens": 64000
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"claude-4-6-sonnet": {
 			"id": "claude-4-6-sonnet",
@@ -127785,15 +127733,13 @@
 	"frogbot": {
 		"claude-haiku-4-5": {
 			"id": "claude-haiku-4-5",
-			"name": "Claude Haiku 4.5 (latest)",
+			"name": "Claude Haiku 4.5",
 			"api": "openai-completions",
 			"provider": "frogbot",
 			"baseUrl": "https://app.frogbot.ai/api/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -127801,8 +127747,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 200000,
-			"maxTokens": 16384
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"claude-opus-4-6": {
 			"id": "claude-opus-4-6",
@@ -127933,9 +127879,7 @@
 			"baseUrl": "https://app.frogbot.ai/api/v1",
 			"reasoning": false,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -127943,8 +127887,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 128000,
-			"maxTokens": 16384
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"gpt-5-3-codex": {
 			"id": "gpt-5-3-codex",
@@ -128181,6 +128125,25 @@
 			"contextWindow": 1000000,
 			"maxTokens": 30000
 		},
+		"grok-code-fast-1": {
+			"id": "grok-code-fast-1",
+			"name": "Grok Code Fast 1",
+			"api": "openai-completions",
+			"provider": "frogbot",
+			"baseUrl": "https://app.frogbot.ai/api/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": null,
+			"maxTokens": null
+		},
 		"kimi-k2.5": {
 			"id": "kimi-k2.5",
 			"name": "Kimi K2.5",
@@ -128300,25 +128263,6 @@
 			},
 			"contextWindow": 198000,
 			"maxTokens": 8192
-		},
-		"grok-code-fast-1": {
-			"id": "grok-code-fast-1",
-			"name": "xAI Grok Code Fast 1",
-			"api": "openai-completions",
-			"provider": "frogbot",
-			"baseUrl": "https://app.frogbot.ai/api/v1",
-			"reasoning": false,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 256000,
-			"maxTokens": 10000
 		}
 	},
 	"gmicloud": {
@@ -130573,9 +130517,7 @@
 			"baseUrl": "https://ai-gateway.helicone.ai/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -130583,8 +130525,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 200000,
-			"maxTokens": 32000
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"claude-sonnet-4": {
 			"id": "claude-sonnet-4",
@@ -130594,9 +130536,7 @@
 			"baseUrl": "https://ai-gateway.helicone.ai/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -130604,8 +130544,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1000000,
-			"maxTokens": 64000
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"claude-sonnet-4-5-20250929": {
 			"id": "claude-sonnet-4-5-20250929",
@@ -130870,9 +130810,7 @@
 			"baseUrl": "https://ai-gateway.helicone.ai/v1",
 			"reasoning": false,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -130880,8 +130818,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 128000,
-			"maxTokens": 16384
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"gpt-4o-mini": {
 			"id": "gpt-4o-mini",
@@ -130927,26 +130865,6 @@
 		"gpt-5-chat-latest": {
 			"id": "gpt-5-chat-latest",
 			"name": "GPT-5 Chat (latest)",
-			"api": "openai-completions",
-			"provider": "helicone",
-			"baseUrl": "https://ai-gateway.helicone.ai/v1",
-			"reasoning": true,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 400000,
-			"maxTokens": 128000
-		},
-		"gpt-5-codex": {
-			"id": "gpt-5-codex",
-			"name": "GPT-5 Codex",
 			"api": "openai-completions",
 			"provider": "helicone",
 			"baseUrl": "https://ai-gateway.helicone.ai/v1",
@@ -131023,6 +130941,25 @@
 			},
 			"contextWindow": 400000,
 			"maxTokens": 272000
+		},
+		"gpt-5-codex": {
+			"id": "gpt-5-codex",
+			"name": "GPT-5-Codex",
+			"api": "openai-completions",
+			"provider": "helicone",
+			"baseUrl": "https://ai-gateway.helicone.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"gpt-5.1": {
 			"id": "gpt-5.1",
@@ -131274,6 +131211,25 @@
 			},
 			"contextWindow": 2000000,
 			"maxTokens": 30000
+		},
+		"grok-code-fast-1": {
+			"id": "grok-code-fast-1",
+			"name": "Grok Code Fast 1",
+			"api": "openai-completions",
+			"provider": "helicone",
+			"baseUrl": "https://ai-gateway.helicone.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"hermes-2-pro-llama-3-8b": {
 			"id": "hermes-2-pro-llama-3-8b",
@@ -131963,9 +131919,7 @@
 			"baseUrl": "https://ai-gateway.helicone.ai/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -131973,8 +131927,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 200000,
-			"maxTokens": 100000
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"o3-mini": {
 			"id": "o3-mini",
@@ -132052,25 +132006,6 @@
 			},
 			"contextWindow": 131072,
 			"maxTokens": 131072
-		},
-		"grok-code-fast-1": {
-			"id": "grok-code-fast-1",
-			"name": "xAI Grok Code Fast 1",
-			"api": "openai-completions",
-			"provider": "helicone",
-			"baseUrl": "https://ai-gateway.helicone.ai/v1",
-			"reasoning": false,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 256000,
-			"maxTokens": 10000
 		}
 	},
 	"hetzner": {
@@ -133264,26 +133199,6 @@
 			"contextWindow": 400000,
 			"maxTokens": 128000
 		},
-		"gpt-5-codex": {
-			"id": "gpt-5-codex",
-			"name": "GPT-5 Codex",
-			"api": "openai-completions",
-			"provider": "jiekou",
-			"baseUrl": "https://api.jiekou.ai/openai",
-			"reasoning": true,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 400000,
-			"maxTokens": 128000
-		},
 		"gpt-5-mini": {
 			"id": "gpt-5-mini",
 			"name": "GPT-5 Mini",
@@ -133343,6 +133258,25 @@
 			},
 			"contextWindow": 400000,
 			"maxTokens": 272000
+		},
+		"gpt-5-codex": {
+			"id": "gpt-5-codex",
+			"name": "GPT-5-Codex",
+			"api": "openai-completions",
+			"provider": "jiekou",
+			"baseUrl": "https://api.jiekou.ai/openai",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"gpt-5.1": {
 			"id": "gpt-5.1",
@@ -133740,6 +133674,25 @@
 			"contextWindow": 2000000,
 			"maxTokens": 30000
 		},
+		"grok-code-fast-1": {
+			"id": "grok-code-fast-1",
+			"name": "Grok Code Fast 1",
+			"api": "openai-completions",
+			"provider": "jiekou",
+			"baseUrl": "https://api.jiekou.ai/openai",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": null,
+			"maxTokens": null
+		},
 		"moonshotai/kimi-k2-0905": {
 			"id": "moonshotai/kimi-k2-0905",
 			"name": "Kimi K2 0905",
@@ -134075,9 +134028,7 @@
 			"baseUrl": "https://api.jiekou.ai/openai",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -134085,8 +134036,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 200000,
-			"maxTokens": 100000
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"o3-mini": {
 			"id": "o3-mini",
@@ -134126,25 +134077,6 @@
 			},
 			"contextWindow": 200000,
 			"maxTokens": 100000
-		},
-		"grok-code-fast-1": {
-			"id": "grok-code-fast-1",
-			"name": "xAI Grok Code Fast 1",
-			"api": "openai-completions",
-			"provider": "jiekou",
-			"baseUrl": "https://api.jiekou.ai/openai",
-			"reasoning": false,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 256000,
-			"maxTokens": 10000
 		}
 	},
 	"kuae-cloud-coding-plan": {
@@ -135340,6 +135272,25 @@
 			"contextWindow": 200000,
 			"maxTokens": 8192
 		},
+		"claude-haiku-4-5": {
+			"id": "claude-haiku-4-5",
+			"name": "Claude Haiku 4.5",
+			"api": "openai-completions",
+			"provider": "llmgateway",
+			"baseUrl": "https://api.llmgateway.io/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": null,
+			"maxTokens": null
+		},
 		"claude-haiku-4-5-20251001": {
 			"id": "claude-haiku-4-5-20251001",
 			"name": "Claude Haiku 4.5",
@@ -135360,27 +135311,6 @@
 			},
 			"contextWindow": 200000,
 			"maxTokens": 64000
-		},
-		"claude-haiku-4-5": {
-			"id": "claude-haiku-4-5",
-			"name": "Claude Haiku 4.5 (latest)",
-			"api": "openai-completions",
-			"provider": "llmgateway",
-			"baseUrl": "https://api.llmgateway.io/v1",
-			"reasoning": true,
-			"input": [
-				"text",
-				"image",
-				"pdf"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 16384
 		},
 		"claude-haiku-4-5-free": {
 			"id": "claude-haiku-4-5-free",
@@ -135528,6 +135458,25 @@
 			"contextWindow": 200000,
 			"maxTokens": 64000
 		},
+		"claude-sonnet-4-5": {
+			"id": "claude-sonnet-4-5",
+			"name": "Claude Sonnet 4.5",
+			"api": "openai-completions",
+			"provider": "llmgateway",
+			"baseUrl": "https://api.llmgateway.io/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": null,
+			"maxTokens": null
+		},
 		"claude-sonnet-4-5-20250929": {
 			"id": "claude-sonnet-4-5-20250929",
 			"name": "Claude Sonnet 4.5",
@@ -135548,27 +135497,6 @@
 			},
 			"contextWindow": 1000000,
 			"maxTokens": 64000
-		},
-		"claude-sonnet-4-5": {
-			"id": "claude-sonnet-4-5",
-			"name": "Claude Sonnet 4.5 (latest)",
-			"api": "openai-completions",
-			"provider": "llmgateway",
-			"baseUrl": "https://api.llmgateway.io/v1",
-			"reasoning": true,
-			"input": [
-				"text",
-				"image",
-				"pdf"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 16384
 		},
 		"claude-sonnet-4-6": {
 			"id": "claude-sonnet-4-6",
@@ -136420,9 +136348,7 @@
 			"baseUrl": "https://api.llmgateway.io/v1",
 			"reasoning": false,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -136430,8 +136356,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 128000,
-			"maxTokens": 16384
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"gpt-4o-mini-search-preview": {
 			"id": "gpt-4o-mini-search-preview",
@@ -139650,9 +139576,7 @@
 			"baseUrl": "https://api.llmgateway.io/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -139660,8 +139584,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 200000,
-			"maxTokens": 100000
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"o3-mini": {
 			"id": "o3-mini",
@@ -143355,27 +143279,6 @@
 			"contextWindow": 200000,
 			"maxTokens": 64000
 		},
-		"claude-sonnet-4-thinking": {
-			"id": "claude-sonnet-4-thinking",
-			"name": "Claude 4 Sonnet Thinking",
-			"api": "openai-completions",
-			"provider": "nano-gpt",
-			"baseUrl": "https://nano-gpt.com/api/v1",
-			"reasoning": true,
-			"input": [
-				"text",
-				"image",
-				"pdf"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1000000,
-			"maxTokens": 64000
-		},
 		"claude-sonnet-4-thinking:1024": {
 			"id": "claude-sonnet-4-thinking:1024",
 			"name": "Claude 4 Sonnet Thinking (1K)",
@@ -143467,27 +143370,6 @@
 			"provider": "nano-gpt",
 			"baseUrl": "https://nano-gpt.com/api/v1",
 			"reasoning": false,
-			"input": [
-				"text",
-				"image",
-				"pdf"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 32000
-		},
-		"claude-opus-4-1-thinking": {
-			"id": "claude-opus-4-1-thinking",
-			"name": "Claude 4.1 Opus Thinking",
-			"api": "openai-completions",
-			"provider": "nano-gpt",
-			"baseUrl": "https://nano-gpt.com/api/v1",
-			"reasoning": true,
 			"input": [
 				"text",
 				"image",
@@ -143796,6 +143678,25 @@
 			"contextWindow": 200000,
 			"maxTokens": 64000
 		},
+		"claude-opus-4-1-thinking": {
+			"id": "claude-opus-4-1-thinking",
+			"name": "Claude Opus 4.1 Thinking",
+			"api": "openai-completions",
+			"provider": "nano-gpt",
+			"baseUrl": "https://nano-gpt.com/api/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": null,
+			"maxTokens": null
+		},
 		"anthropic/claude-opus-4.8:thinking": {
 			"id": "anthropic/claude-opus-4.8:thinking",
 			"name": "Claude Opus 4.8 Thinking",
@@ -143837,6 +143738,25 @@
 			},
 			"contextWindow": 1000000,
 			"maxTokens": 128000
+		},
+		"claude-sonnet-4-thinking": {
+			"id": "claude-sonnet-4-thinking",
+			"name": "Claude Sonnet 4 Thinking",
+			"api": "openai-completions",
+			"provider": "nano-gpt",
+			"baseUrl": "https://nano-gpt.com/api/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"claude-sonnet-4-5-20250929": {
 			"id": "claude-sonnet-4-5-20250929",
@@ -155423,15 +155343,13 @@
 	"neon": {
 		"claude-haiku-4-5": {
 			"id": "claude-haiku-4-5",
-			"name": "Claude Haiku 4.5 (latest)",
+			"name": "Claude Haiku 4.5",
 			"api": "openai-completions",
 			"provider": "neon",
 			"baseUrl": "${NEON_AI_GATEWAY_BASE_URL}/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -155439,8 +155357,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 200000,
-			"maxTokens": 16384
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"claude-opus-4-1": {
 			"id": "claude-opus-4-1",
@@ -155450,9 +155368,7 @@
 			"baseUrl": "${NEON_AI_GATEWAY_BASE_URL}/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -155460,8 +155376,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 200000,
-			"maxTokens": 32000
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"claude-opus-4-5": {
 			"id": "claude-opus-4-5",
@@ -155471,9 +155387,7 @@
 			"baseUrl": "${NEON_AI_GATEWAY_BASE_URL}/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -155481,8 +155395,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 200000,
-			"maxTokens": 64000
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"claude-opus-4-6": {
 			"id": "claude-opus-4-6",
@@ -155555,9 +155469,7 @@
 			"baseUrl": "${NEON_AI_GATEWAY_BASE_URL}/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -155565,20 +155477,18 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1000000,
-			"maxTokens": 64000
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"claude-sonnet-4-5": {
 			"id": "claude-sonnet-4-5",
-			"name": "Claude Sonnet 4.5 (latest)",
+			"name": "Claude Sonnet 4.5",
 			"api": "openai-completions",
 			"provider": "neon",
 			"baseUrl": "${NEON_AI_GATEWAY_BASE_URL}/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -155586,8 +155496,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 200000,
-			"maxTokens": 16384
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"claude-sonnet-4-6": {
 			"id": "claude-sonnet-4-6",
@@ -155751,14 +155661,13 @@
 		},
 		"gpt-5-1-codex-mini": {
 			"id": "gpt-5-1-codex-mini",
-			"name": "GPT-5.1 Codex mini",
+			"name": "GPT-5.1-Codex-Mini",
 			"api": "openai-completions",
 			"provider": "neon",
 			"baseUrl": "${NEON_AI_GATEWAY_BASE_URL}/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -155766,8 +155675,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 400000,
-			"maxTokens": 128000
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"gpt-5-2": {
 			"id": "gpt-5-2",
@@ -155944,11 +155853,7 @@
 			"baseUrl": "${NEON_AI_GATEWAY_BASE_URL}/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"audio",
-				"video",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -155956,8 +155861,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1048576,
-			"maxTokens": 65536
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"gemini-3-flash": {
 			"id": "gemini-3-flash",
@@ -160917,15 +160822,13 @@
 	"pioneer": {
 		"claude-haiku-4-5": {
 			"id": "claude-haiku-4-5",
-			"name": "Claude Haiku 4.5 (latest)",
+			"name": "Claude Haiku 4.5",
 			"api": "openai-completions",
 			"provider": "pioneer",
 			"baseUrl": "https://api.pioneer.ai/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -160933,8 +160836,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 200000,
-			"maxTokens": 16384
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"claude-opus-4-1": {
 			"id": "claude-opus-4-1",
@@ -160944,9 +160847,7 @@
 			"baseUrl": "https://api.pioneer.ai/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -160954,8 +160855,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 200000,
-			"maxTokens": 32000
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"claude-opus-4-5": {
 			"id": "claude-opus-4-5",
@@ -160965,9 +160866,7 @@
 			"baseUrl": "https://api.pioneer.ai/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -160975,8 +160874,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 200000,
-			"maxTokens": 64000
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"claude-opus-4-6": {
 			"id": "claude-opus-4-6",
@@ -161043,15 +160942,13 @@
 		},
 		"claude-sonnet-4-5": {
 			"id": "claude-sonnet-4-5",
-			"name": "Claude Sonnet 4.5 (latest)",
+			"name": "Claude Sonnet 4.5",
 			"api": "openai-completions",
 			"provider": "pioneer",
 			"baseUrl": "https://api.pioneer.ai/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -161059,8 +160956,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 200000,
-			"maxTokens": 16384
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"claude-sonnet-4-6": {
 			"id": "claude-sonnet-4-6",
@@ -161401,9 +161298,7 @@
 			"baseUrl": "https://api.pioneer.ai/v1",
 			"reasoning": false,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -161411,8 +161306,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 128000,
-			"maxTokens": 16384
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"gpt-4o-mini": {
 			"id": "gpt-4o-mini",
@@ -171411,15 +171306,13 @@
 		},
 		"claude-haiku-4-5": {
 			"id": "claude-haiku-4-5",
-			"name": "Claude Haiku 4.5 (latest)",
+			"name": "Claude Haiku 4.5",
 			"api": "openai-completions",
 			"provider": "snowflake-cortex",
 			"baseUrl": "https://${SNOWFLAKE_ACCOUNT}.snowflakecomputing.com/api/v2/cortex/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -171427,8 +171320,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 200000,
-			"maxTokens": 16384
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"claude-opus-4-7": {
 			"id": "claude-opus-4-7",
@@ -171474,15 +171367,13 @@
 		},
 		"claude-sonnet-4-5": {
 			"id": "claude-sonnet-4-5",
-			"name": "Claude Sonnet 4.5 (latest)",
+			"name": "Claude Sonnet 4.5",
 			"api": "openai-completions",
 			"provider": "snowflake-cortex",
 			"baseUrl": "https://${SNOWFLAKE_ACCOUNT}.snowflakecomputing.com/api/v2/cortex/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -171490,8 +171381,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 200000,
-			"maxTokens": 16384
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"claude-sonnet-4-6": {
 			"id": "claude-sonnet-4-6",
@@ -175039,15 +174930,13 @@
 		},
 		"claude-haiku-4-5": {
 			"id": "claude-haiku-4-5",
-			"name": "Claude Haiku 4.5 (latest)",
+			"name": "Claude Haiku 4.5",
 			"api": "openai-completions",
 			"provider": "xpersona",
 			"baseUrl": "https://www.xpersona.co/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"pdf"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -175055,8 +174944,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 200000,
-			"maxTokens": 16384
+			"contextWindow": null,
+			"maxTokens": null
 		},
 		"claude-opus-4-8": {
 			"id": "claude-opus-4-8",
