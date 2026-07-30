@@ -1247,6 +1247,21 @@ mod tests {
                     .unwrap_or_else(|| "—".to_string()),
                 estimate.confidence,
             );
+            println!(
+                "{:22} {:28} window={:>8}  {:>8.0} req/window  {:>8.0} req left  {}",
+                "",
+                "",
+                estimate
+                    .window_duration_ms
+                    .map(|ms| format!("{:.0}h", ms as f64 / 3_600_000.0))
+                    .unwrap_or_else(|| "unknown".to_string()),
+                estimate.requests_per_window,
+                estimate.requests_remaining,
+                estimate
+                    .hours_per_week
+                    .map(|hours| format!("{hours:.1}h/wk"))
+                    .unwrap_or_else(|| "no weekly figure".to_string()),
+            );
             // Every reported number must be finite and in range, or the UI will
             // render nonsense.
             assert!(estimate.fraction_per_1k_tokens.is_finite());
@@ -1256,6 +1271,16 @@ mod tests {
             assert!(
                 estimate.models.len() <= 1 || estimate.confidence != "high",
                 "a window shared by several models must never claim high confidence"
+            );
+            assert!(estimate.requests_per_window.is_finite());
+            assert!(estimate.requests_remaining.is_finite());
+            assert!(
+                estimate.requests_remaining <= estimate.requests_per_window + 1e-6,
+                "what is left cannot exceed what a full window affords"
+            );
+            assert!(
+                estimate.hours_per_week.is_none_or(|hours| hours > 0.0 && hours <= 168.0),
+                "a weekly allowance must fit inside a week of wall clock"
             );
         }
     }
