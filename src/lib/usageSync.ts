@@ -207,6 +207,17 @@ export type DrainEstimate = {
   resetsAt: number | null;
   /** Epoch milliseconds. */
   projectedExhaustionAt: number | null;
+  /** Length of one quota window, when the provider named it. */
+  windowDurationMs: number | null;
+  /** Requests one full window affords at the observed rate. */
+  requestsPerWindow: number;
+  /** Requests still affordable in the window as it stands. */
+  requestsRemaining: number;
+  /** Hours of model runtime one full window affords. */
+  modelHoursPerWindow: number | null;
+  /** The same allowance across a week of resets. Null when the window length
+   *  is unknown: a rate per unknown window cannot be placed on a calendar. */
+  hoursPerWeek: number | null;
 };
 
 export async function usageDrainRates(): Promise<DrainEstimate[]> {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   listenUsageSyncStatus,
+  usageDrainRates,
   usageSyncRetry,
   usageSyncProjectedUsage,
   usageSyncSetEnabled,
@@ -8,6 +9,7 @@ import {
   usageSyncStatus,
   usageSyncTrigger,
   type AutoSyncStatus,
+  type DrainEstimate,
   type ProjectedUsage,
   type SyncResult,
 } from "../lib/usageSync";
@@ -17,6 +19,9 @@ import { useAccount } from "./account";
 export type UsageSyncState = {
   status: AutoSyncStatus | null;
   projected: ProjectedUsage | null;
+  /** Locally solved plan-drain rates. Needs no account: the readings and the
+   *  traffic that explains them are both on this machine. */
+  drain: DrainEstimate[];
   loading: boolean;
   error: string | null;
   lastSyncResult: SyncResult | null;
@@ -31,6 +36,7 @@ export type UsageSyncState = {
 export function useUsageSync(): UsageSyncState {
   const [status, setStatus] = useState<AutoSyncStatus | null>(null);
   const [projected, setProjected] = useState<ProjectedUsage | null>(null);
+  const [drain, setDrain] = useState<DrainEstimate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { profile } = useAccount();
@@ -59,6 +65,16 @@ export function useUsageSync(): UsageSyncState {
       const msg = e instanceof Error ? e.message : String(e);
       setError(msg);
       addLog("error", "Usage sync projected fetch failed", msg);
+    }
+  }, [addLog]);
+
+  const fetchDrain = useCallback(async () => {
+    // A failed drain solve must not blank the panel: the quota bars and source
+    // list above it are independent evidence and stay useful without it.
+    try {
+      setDrain(await usageDrainRates());
+    } catch (e) {
+      addLog("debug", "Drain rate solve failed", e instanceof Error ? e.message : String(e));
     }
   }, [addLog]);
 
@@ -129,8 +145,9 @@ export function useUsageSync(): UsageSyncState {
 
   useEffect(() => {
     void refresh();
+    void fetchDrain();
     if (signedIn) void fetchProjected();
-  }, [refresh, fetchProjected, signedIn]);
+  }, [refresh, fetchDrain, fetchProjected, signedIn]);
 
   // Listen for sync status events from the backend.
   useEffect(() => {
@@ -138,17 +155,21 @@ export function useUsageSync(): UsageSyncState {
     listenUsageSyncStatus((event) => {
       setLastSyncResult(event.payload);
       void refresh();
+      // A sync collects a fresh quota reading, which is exactly what turns an
+      // unsolvable window into a solved pair.
+      void fetchDrain();
     }).then((fn) => {
       unlisten = fn;
     }).catch(() => {});
     return () => {
       unlisten?.();
     };
-  }, [refresh]);
+  }, [refresh, fetchDrain]);
 
   return {
     status,
     projected,
+    drain,
     loading,
     error,
     lastSyncResult,
