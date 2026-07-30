@@ -268,6 +268,14 @@ function formatRequestCount(requests: number): string {
   return `${(requests / 1000).toFixed(1)}k`;
 }
 
+/// Model-hours consumed. Concurrent requests add, so this is not wall clock
+/// and can exceed the window's own length.
+function formatModelHours(hours: number): string {
+  if (!Number.isFinite(hours) || hours <= 0) return "0m";
+  if (hours < 1) return `${Math.round(hours * 60)}m`;
+  return `${hours.toFixed(1)}h`;
+}
+
 /// "in 3 hours" answers the question the row is asking. An absolute timestamp
 /// makes the reader do the subtraction.
 function formatCountdown(epochMs: number): string {
@@ -284,6 +292,11 @@ function formatDrainTooltip(row: DrainEstimate): string {
     `${row.requests} request${row.requests === 1 ? "" : "s"} measured`,
     `${formatRequestCount(row.requestsPerWindow)} requests per full window`,
   ];
+  if (row.hoursUsedThisWindow != null) {
+    parts.push(
+      `${formatModelHours(row.hoursUsedThisWindow)} of model time spent since this window opened`,
+    );
+  }
   if (row.hoursPerWeek != null) {
     parts.push(`${row.hoursPerWeek.toFixed(1)}h of model runtime per week`);
   } else {
@@ -404,13 +417,15 @@ export function UsageSyncPanel() {
           <p className="text-muted text-sm">
             Solved on this machine by pairing consecutive quota readings against the
             traffic measured between them. No provider publishes what a request costs
-            against a subscription; this measures it.
+            against a subscription, how much of the window you have already spent, or
+            how much is left; all three are measured here.
           </p>
           <table className="usage-table usage-drain-table">
             <thead>
               <tr>
                 <th>Window</th>
                 <th>Left</th>
+                <th>Used this window</th>
                 <th>Requests left</th>
                 <th>Per request</th>
                 <th>Runs out</th>
@@ -429,6 +444,11 @@ export function UsageSyncPanel() {
                     {row.modelId ? ` · ${row.modelId}` : ""}
                   </td>
                   <td>{Math.round(row.remainingFraction * 100)}%</td>
+                  <td>
+                    {row.hoursUsedThisWindow == null
+                      ? "—"
+                      : `${formatModelHours(row.hoursUsedThisWindow)} · ${formatRequestCount(row.requestsUsedThisWindow)} req`}
+                  </td>
                   <td>{formatRequestCount(row.requestsRemaining)}</td>
                   <td>{formatDrainPercent(row.fractionPerRequest)}</td>
                   <td>

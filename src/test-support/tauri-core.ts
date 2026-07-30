@@ -2585,6 +2585,8 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
             requestsRemaining: 121,
             modelHoursPerWindow: 4.1,
             hoursPerWeek: 137.8,
+            requestsUsedThisWindow: 405,
+            hoursUsedThisWindow: 3.2,
           },
           {
             provider: "openai",
@@ -2611,6 +2613,8 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
             requestsRemaining: 2290,
             modelHoursPerWindow: 134.4,
             hoursPerWeek: 134.4,
+            requestsUsedThisWindow: 24,
+            hoursUsedThisWindow: 1.0,
           },
           {
             provider: "google",
@@ -2639,6 +2643,10 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
             requestsRemaining: 221,
             modelHoursPerWindow: 12.3,
             hoursPerWeek: null,
+            // No window length, so the window's start is unknowable and no
+            // used figure can be measured for it.
+            requestsUsedThisWindow: 0,
+            hoursUsedThisWindow: null,
           },
         ] as T;
       }

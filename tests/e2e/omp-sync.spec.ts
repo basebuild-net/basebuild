@@ -61,15 +61,18 @@ test.describe("OMP <-> Basebuild IDE sync", () => {
     await expect(usageBars).toHaveCount(2);
     await expect(usageBars.first()).toHaveAttribute("value", "42");
     await expect(page.getByRole("heading", { name: "Per-model usage" })).toBeVisible();
-    // The drain card answers "how many more requests do I get", which is the
-    // number no provider publishes. One row per solved window.
+    // The drain card answers both halves no provider publishes: how much of
+    // this window is already spent, and how many requests remain.
     const drainRows = page.locator(".usage-drain-confidence");
     await expect(drainRows).toHaveCount(3);
     await expect(page.getByText("anthropic · 5h", { exact: true })).toBeVisible();
+    await expect(page.getByText("3.2h · 405 req", { exact: true })).toBeVisible();
     await expect(page.getByText("121", { exact: true })).toBeVisible();
     await expect(page.getByText("0.19%", { exact: true })).toBeVisible();
     await expect(page.getByText("2.3k", { exact: true })).toBeVisible();
     await expect(page.getByText("not draining", { exact: true })).toBeVisible();
+    // A window with no knowable start reports no used figure rather than zero.
+    await expect(page.getByText("—", { exact: true })).toBeVisible();
     await expect(page.getByText(/Privacy-safe request spans and quota snapshots/)).toBeVisible();
     await expect(page.getByRole("heading", { name: "What never uploads" })).toBeVisible();
     await expect(page.getByText(/Prompts, responses, reasoning, tool arguments/)).toBeVisible();

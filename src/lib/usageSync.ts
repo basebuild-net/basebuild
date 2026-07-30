@@ -218,6 +218,11 @@ export type DrainEstimate = {
   /** The same allowance across a week of resets. Null when the window length
    *  is unknown: a rate per unknown window cannot be placed on a calendar. */
   hoursPerWeek: number | null;
+  /** Requests issued since this window opened. */
+  requestsUsedThisWindow: number;
+  /** Model-hours spent in the same stretch. Null when the window's start is
+   *  unknowable — that needs both a reset instant and a window length. */
+  hoursUsedThisWindow: number | null;
 };
 
 export async function usageDrainRates(): Promise<DrainEstimate[]> {

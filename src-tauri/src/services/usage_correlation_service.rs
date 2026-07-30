@@ -35,6 +35,11 @@ const MIN_PAIR_TOKENS: i64 = 1;
 /// different windows are a whole window duration apart (hours), so a minute of
 /// slack separates jitter from a rollover without ambiguity.
 const RESET_IDENTITY_TOLERANCE_MS: i64 = 60_000;
+/// How late the first retained reading may be and still count as having
+/// watched the window from its start. One sampling cadence.
+const WINDOW_START_SLACK_MS: i64 = 120_000;
+/// Below this, a whole-window rate is one burst rather than a measurement.
+const MIN_WHOLE_WINDOW_REQUESTS: i64 = 20;
 
 /// Whether two readings describe the same quota window.
 fn same_window(earlier: Option<i64>, later: Option<i64>) -> bool {
@@ -139,6 +144,17 @@ pub struct DrainEstimate {
     /// a calendar, and guessing one is how a five-hour limit gets reported as
     /// a weekly allowance 33 times too small.
     pub hours_per_week: Option<f64>,
+
+    // ── What has actually been spent inside the window as it stands ──
+    /// Requests issued since this window opened, across every local store.
+    pub requests_used_this_window: i64,
+    /// Model-hours spent in the same stretch. `None` when the window's start
+    /// is unknowable, which needs both a reset instant and a window length.
+    pub hours_used_this_window: Option<f64>,
+    /// `paired_intervals` | `whole_window` — which measurement the rate above
+    /// came from. The whole window is the stronger evidence and is preferred
+    /// whenever this machine watched the window from the moment it opened.
+    pub rate_basis: String,
 }
 
 /// A quota reading, as retained locally.
@@ -184,7 +200,8 @@ impl UsageCorrelationService {
             if intervals.is_empty() {
                 continue;
             }
-            if let Some(estimate) = summarize(&provider, &limit_id, &samples, &intervals) {
+            if let Some(mut estimate) = summarize(&provider, &limit_id, &samples, &intervals) {
+                attach_current_window_usage(&mut estimate, &samples, stats_db.as_deref())?;
                 estimates.push(estimate);
             }
         }
@@ -196,6 +213,68 @@ impl UsageCorrelationService {
         });
         Ok(estimates)
     }
+}
+
+/// Measure what has actually been spent inside the window as it stands now.
+///
+/// The drain rate says what a request costs and how many the window affords.
+/// It cannot say how much of this window has already gone into model time,
+/// because that is traffic, not quota. The window opened at its reset instant
+/// minus its length, so the local stores can be asked directly. Without both
+/// instants the question has no answer and none is invented.
+fn attach_current_window_usage(
+    estimate: &mut DrainEstimate,
+    samples: &[Sample],
+    stats_db: Option<&std::path::Path>,
+) -> Result<(), String> {
+    let (Some(resets_at), Some(duration)) = (estimate.resets_at, estimate.window_duration_ms)
+    else {
+        return Ok(());
+    };
+    let window_start = resets_at.saturating_sub(duration);
+    if window_start >= estimate.observed_at {
+        return Ok(());
+    }
+    let traffic = traffic_between(
+        stats_db,
+        &estimate.provider,
+        estimate.model_id.as_deref(),
+        window_start,
+        estimate.observed_at,
+    )?;
+    estimate.requests_used_this_window = traffic.requests;
+    estimate.hours_used_this_window = Some(traffic.duration_ms as f64 / 3_600_000.0);
+
+    // The paired-interval rate is measured only over pairs where the bar
+    // visibly moved. Requests that ran while it did not move are dropped from
+    // the denominator but not from the numerator, so the rate comes out high —
+    // observed live at 2.7x, which then under-reports what is left by the same
+    // factor. When this window has been watched since it opened, the whole
+    // window is one complete pair: everything used against every request that
+    // used it. That is the same measurement with nothing missing, so it wins.
+    let watched_from_open = samples
+        .first()
+        .is_some_and(|first| first.observed_at <= window_start + WINDOW_START_SLACK_MS);
+    if !watched_from_open || traffic.requests < MIN_WHOLE_WINDOW_REQUESTS {
+        return Ok(());
+    }
+    let used_fraction = 1.0 - estimate.remaining_fraction;
+    if used_fraction <= MIN_USED_DELTA {
+        return Ok(());
+    }
+    let fraction_per_request = used_fraction / traffic.requests as f64;
+    estimate.fraction_per_request = fraction_per_request;
+    estimate.requests_per_window = 1.0 / fraction_per_request;
+    estimate.requests_remaining = estimate.remaining_fraction / fraction_per_request;
+    if traffic.duration_ms > 0 {
+        let avg_request_ms = traffic.duration_ms as f64 / traffic.requests as f64;
+        let per_window = estimate.requests_per_window * avg_request_ms / 3_600_000.0;
+        estimate.model_hours_per_window = Some(per_window);
+        estimate.hours_per_week =
+            Some((per_window * 604_800_000.0 / duration as f64).min(168.0));
+    }
+    estimate.rate_basis = "whole_window".to_string();
+    Ok(())
 }
 
 /// Retained readings grouped by window, oldest first.
@@ -671,6 +750,11 @@ fn summarize(
         requests_remaining,
         model_hours_per_window,
         hours_per_week,
+        // Filled by `attach_current_window_usage`: it needs the local traffic
+        // stores, which `summarize` deliberately does not touch.
+        requests_used_this_window: 0,
+        hours_used_this_window: None,
+        rate_basis: "paired_intervals".to_string(),
     })
 }
 
@@ -1261,6 +1345,16 @@ mod tests {
                     .hours_per_week
                     .map(|hours| format!("{hours:.1}h/wk"))
                     .unwrap_or_else(|| "no weekly figure".to_string()),
+            );
+            println!(
+                "{:22} {:28} used this window: {} over {} request(s)",
+                "",
+                "",
+                estimate
+                    .hours_used_this_window
+                    .map(|hours| format!("{hours:.2}h"))
+                    .unwrap_or_else(|| "unknown (no window start)".to_string()),
+                estimate.requests_used_this_window,
             );
             // Every reported number must be finite and in range, or the UI will
             // render nonsense.
