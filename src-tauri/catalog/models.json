@@ -7926,8 +7926,7 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image",
-				"video"
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -7936,7 +7935,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 65536
+			"maxTokens": 262144
 		},
 		"kimi-k2.7-code": {
 			"id": "kimi-k2.7-code",
@@ -7946,9 +7945,7 @@
 			"baseUrl": "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"video"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -28900,7 +28897,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 1048576,
-			"maxTokens": 262144
+			"maxTokens": 1048576
 		}
 	},
 	"kilo": {
@@ -73460,8 +73457,7 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image",
-				"video"
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -73470,7 +73466,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 65536
+			"maxTokens": 262144
 		},
 		"kimi-k2.7-code": {
 			"id": "kimi-k2.7-code",
@@ -73480,9 +73476,7 @@
 			"baseUrl": "https://opencode.ai/zen/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"video"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -73708,7 +73702,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 204800,
-			"maxTokens": 65536
+			"maxTokens": 131072
 		},
 		"minimax-m2.5-free": {
 			"id": "minimax-m2.5-free",
@@ -110819,7 +110813,7 @@
 		},
 		"qwen3-235b-a22b-instruct-2507": {
 			"id": "qwen3-235b-a22b-instruct-2507",
-			"name": "Qwen3 235B A22B Instruct (2507)",
+			"name": "Qwen3 235B A22B Instruct 2507",
 			"api": "openai-completions",
 			"provider": "302ai",
 			"baseUrl": "https://api.302.ai/v1",
@@ -110834,7 +110828,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 8192
+			"maxTokens": 16384
 		},
 		"qwen3-235b-a22b": {
 			"id": "qwen3-235b-a22b",
@@ -111489,7 +111483,8 @@
 			"baseUrl": "https://aki.io/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -111498,7 +111493,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 131072,
-			"maxTokens": 32766
+			"maxTokens": 32768
 		},
 		"gemma4-26b": {
 			"id": "gemma4-26b",
@@ -114071,25 +114066,6 @@
 			"contextWindow": 131072,
 			"maxTokens": 8192
 		},
-		"qwen3-coder-30b-a3b-instruct": {
-			"id": "qwen3-coder-30b-a3b-instruct",
-			"name": "Qwen3 Coder 30B A3B Instruct",
-			"api": "openai-completions",
-			"provider": "alibaba",
-			"baseUrl": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-			"reasoning": false,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 128000,
-			"maxTokens": 65536
-		},
 		"qwen3-coder-flash": {
 			"id": "qwen3-coder-flash",
 			"name": "Qwen3 Coder Flash",
@@ -114204,6 +114180,25 @@
 			},
 			"contextWindow": 53248,
 			"maxTokens": 4096
+		},
+		"qwen3-coder-30b-a3b-instruct": {
+			"id": "qwen3-coder-30b-a3b-instruct",
+			"name": "Qwen3-Coder 30B-A3B Instruct",
+			"api": "openai-completions",
+			"provider": "alibaba",
+			"baseUrl": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 128000,
+			"maxTokens": 32768
 		},
 		"qwen3-coder-480b-a35b-instruct": {
 			"id": "qwen3-coder-480b-a35b-instruct",
@@ -114439,10 +114434,7 @@
 			"baseUrl": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"video",
-				"audio"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -114451,7 +114443,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 262144
+			"maxTokens": 16384
 		},
 		"qwen3.5-plus": {
 			"id": "qwen3.5-plus",
@@ -114505,9 +114497,7 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image",
-				"video",
-				"audio"
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -114516,7 +114506,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 65536
+			"maxTokens": 32768
 		},
 		"qwen3.6-flash": {
 			"id": "qwen3.6-flash",
@@ -115015,8 +115005,7 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image",
-				"video"
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -115025,7 +115014,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 65536
+			"maxTokens": 262144
 		},
 		"MiniMax-M2.5": {
 			"id": "MiniMax-M2.5",
@@ -115706,25 +115695,6 @@
 			"contextWindow": 131072,
 			"maxTokens": 8192
 		},
-		"qwen3-coder-30b-a3b-instruct": {
-			"id": "qwen3-coder-30b-a3b-instruct",
-			"name": "Qwen3 Coder 30B A3B Instruct",
-			"api": "openai-completions",
-			"provider": "alibaba-cn",
-			"baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-			"reasoning": false,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 128000,
-			"maxTokens": 65536
-		},
 		"qwen3-coder-flash": {
 			"id": "qwen3-coder-flash",
 			"name": "Qwen3 Coder Flash",
@@ -115839,6 +115809,25 @@
 			},
 			"contextWindow": 53248,
 			"maxTokens": 4096
+		},
+		"qwen3-coder-30b-a3b-instruct": {
+			"id": "qwen3-coder-30b-a3b-instruct",
+			"name": "Qwen3-Coder 30B-A3B Instruct",
+			"api": "openai-completions",
+			"provider": "alibaba-cn",
+			"baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 128000,
+			"maxTokens": 32768
 		},
 		"qwen3-coder-480b-a35b-instruct": {
 			"id": "qwen3-coder-480b-a35b-instruct",
@@ -115989,10 +115978,7 @@
 			"baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"video",
-				"audio"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -116001,7 +115987,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 262144
+			"maxTokens": 16384
 		},
 		"qwen3.5-flash": {
 			"id": "qwen3.5-flash",
@@ -116666,8 +116652,7 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image",
-				"video"
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -116676,7 +116661,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 65536
+			"maxTokens": 262144
 		},
 		"kimi-k2.7-code": {
 			"id": "kimi-k2.7-code",
@@ -116686,9 +116671,7 @@
 			"baseUrl": "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"video"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -117964,8 +117947,7 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image",
-				"video"
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -117974,7 +117956,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 65536
+			"maxTokens": 262144
 		},
 		"minimax-m2-7-highspeed": {
 			"id": "minimax-m2-7-highspeed",
@@ -118192,7 +118174,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 1048576,
-			"maxTokens": 262144
+			"maxTokens": 1048576
 		},
 		"meta-llama/Llama-3.3-70B-Instruct": {
 			"id": "meta-llama/Llama-3.3-70B-Instruct",
@@ -118397,7 +118379,8 @@
 			"baseUrl": "https://hyper.charm.land/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -118406,7 +118389,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 131072,
-			"maxTokens": 32766
+			"maxTokens": 32768
 		},
 		"gemma-4-26b-a4b-it": {
 			"id": "gemma-4-26b-a4b-it",
@@ -118458,8 +118441,7 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image",
-				"video"
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -118468,7 +118450,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 65536
+			"maxTokens": 262144
 		},
 		"kimi-k2.7-code": {
 			"id": "kimi-k2.7-code",
@@ -118478,9 +118460,7 @@
 			"baseUrl": "https://hyper.charm.land/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"video"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -118527,8 +118507,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 131072,
-			"maxTokens": 4096
+			"contextWindow": 100000,
+			"maxTokens": 16384
 		},
 		"minimax-m2.7": {
 			"id": "minimax-m2.7",
@@ -119056,6 +119036,27 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
+			"maxTokens": 65535
+		},
+		"moonshotai/Kimi-K3-TEE": {
+			"id": "moonshotai/Kimi-K3-TEE",
+			"name": "Kimi K3 TEE",
+			"api": "openai-completions",
+			"provider": "chutes",
+			"baseUrl": "https://llm.chutes.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
 			"maxTokens": 65535
 		},
 		"unsloth/Llama-3.2-1B-Instruct": {
@@ -121015,7 +121016,8 @@
 			"baseUrl": "https://api.cortecs.ai/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -121024,7 +121026,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 131072,
-			"maxTokens": 32766
+			"maxTokens": 32768
 		},
 		"gpt-4.1": {
 			"id": "gpt-4.1",
@@ -121216,8 +121218,7 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image",
-				"video"
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -121226,11 +121227,30 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 65536
+			"maxTokens": 262144
 		},
 		"kimi-k2.7-code": {
 			"id": "kimi-k2.7-code",
 			"name": "Kimi K2.7 Code",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 262144
+		},
+		"kimi-k3": {
+			"id": "kimi-k3",
+			"name": "Kimi K3 (2x usage)",
 			"api": "openai-completions",
 			"provider": "cortecs",
 			"baseUrl": "https://api.cortecs.ai/v1",
@@ -121246,8 +121266,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 262144,
-			"maxTokens": 262144
+			"contextWindow": 1048576,
+			"maxTokens": 131072
 		},
 		"llama-3.1-405b-instruct": {
 			"id": "llama-3.1-405b-instruct",
@@ -121284,8 +121304,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 131072,
-			"maxTokens": 4096
+			"contextWindow": 100000,
+			"maxTokens": 16384
 		},
 		"llama-4-maverick": {
 			"id": "llama-4-maverick",
@@ -121362,7 +121382,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 204800,
-			"maxTokens": 65536
+			"maxTokens": 131072
 		},
 		"minimax-m2.7": {
 			"id": "minimax-m2.7",
@@ -121503,7 +121523,7 @@
 		},
 		"qwen3-235b-a22b-instruct-2507": {
 			"id": "qwen3-235b-a22b-instruct-2507",
-			"name": "Qwen3 235B A22B Instruct (2507)",
+			"name": "Qwen3 235B A22B Instruct 2507",
 			"api": "openai-completions",
 			"provider": "cortecs",
 			"baseUrl": "https://api.cortecs.ai/v1",
@@ -121518,7 +121538,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 8192
+			"maxTokens": 16384
 		},
 		"qwen3-32b": {
 			"id": "qwen3-32b",
@@ -121539,25 +121559,6 @@
 			"contextWindow": 40960,
 			"maxTokens": 16384
 		},
-		"qwen3-coder-30b-a3b-instruct": {
-			"id": "qwen3-coder-30b-a3b-instruct",
-			"name": "Qwen3 Coder 30B A3B Instruct",
-			"api": "openai-completions",
-			"provider": "cortecs",
-			"baseUrl": "https://api.cortecs.ai/v1",
-			"reasoning": false,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 128000,
-			"maxTokens": 65536
-		},
 		"qwen3-coder-next": {
 			"id": "qwen3-coder-next",
 			"name": "Qwen3 Coder Next",
@@ -121576,6 +121577,25 @@
 			},
 			"contextWindow": 262144,
 			"maxTokens": 65536
+		},
+		"qwen3-coder-30b-a3b-instruct": {
+			"id": "qwen3-coder-30b-a3b-instruct",
+			"name": "Qwen3-Coder 30B-A3B Instruct",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 128000,
+			"maxTokens": 32768
 		},
 		"qwen3-coder-480b-a35b-instruct": {
 			"id": "qwen3-coder-480b-a35b-instruct",
@@ -121644,10 +121664,7 @@
 			"baseUrl": "https://api.cortecs.ai/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"video",
-				"audio"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -121656,7 +121673,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 262144
+			"maxTokens": 16384
 		}
 	},
 	"crof": {
@@ -122016,8 +122033,7 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image",
-				"video"
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -122026,7 +122042,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 65536
+			"maxTokens": 262144
 		},
 		"kimi-k2.7-code": {
 			"id": "kimi-k2.7-code",
@@ -122036,9 +122052,7 @@
 			"baseUrl": "https://crof.ai/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"video"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -122106,7 +122120,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 204800,
-			"maxTokens": 65536
+			"maxTokens": 131072
 		},
 		"qwen3.5-397b-a17b": {
 			"id": "qwen3.5-397b-a17b",
@@ -122116,10 +122130,7 @@
 			"baseUrl": "https://crof.ai/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"video",
-				"audio"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -122128,7 +122139,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 262144
+			"maxTokens": 16384
 		},
 		"qwen3.5-9b": {
 			"id": "qwen3.5-9b",
@@ -123262,7 +123273,8 @@
 			"baseUrl": "https://api.dinference.com/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -123271,7 +123283,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 131072,
-			"maxTokens": 32766
+			"maxTokens": 32768
 		},
 		"minimax-m2.5": {
 			"id": "minimax-m2.5",
@@ -123290,7 +123302,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 204800,
-			"maxTokens": 65536
+			"maxTokens": 131072
 		}
 	},
 	"daoxe": {
@@ -124953,8 +124965,7 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image",
-				"video"
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -124963,7 +124974,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 65536
+			"maxTokens": 262144
 		},
 		"llama3-8b-instruct": {
 			"id": "llama3-8b-instruct",
@@ -125040,7 +125051,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 204800,
-			"maxTokens": 65536
+			"maxTokens": 131072
 		},
 		"mistral-3-14B": {
 			"id": "mistral-3-14B",
@@ -125300,10 +125311,7 @@
 			"baseUrl": "https://inference.do-ai.run/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"video",
-				"audio"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -125312,7 +125320,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 262144
+			"maxTokens": 16384
 		},
 		"arcee-trinity-large-thinking": {
 			"id": "arcee-trinity-large-thinking",
@@ -127886,7 +127894,8 @@
 			"baseUrl": "https://app.frogbot.ai/api/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -127895,7 +127904,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 131072,
-			"maxTokens": 32766
+			"maxTokens": 32768
 		},
 		"gpt-oss-20b": {
 			"id": "gpt-oss-20b",
@@ -129642,6 +129651,517 @@
 			"maxTokens": 100000
 		}
 	},
+	"greenpt": {
+		"devstral-2-123b-instruct-2512": {
+			"id": "devstral-2-123b-instruct-2512",
+			"name": "Devstral 2",
+			"api": "openai-completions",
+			"provider": "greenpt",
+			"baseUrl": "https://api.greenpt.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 200000,
+			"maxTokens": 16384
+		},
+		"glm-5.1": {
+			"id": "glm-5.1",
+			"name": "GLM-5.1",
+			"api": "openai-completions",
+			"provider": "greenpt",
+			"baseUrl": "https://api.greenpt.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 200000,
+			"maxTokens": 131072
+		},
+		"glm-5.2": {
+			"id": "glm-5.2",
+			"name": "GLM-5.2",
+			"api": "openai-completions",
+			"provider": "greenpt",
+			"baseUrl": "https://api.greenpt.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 131072
+		},
+		"gpt-oss-120b": {
+			"id": "gpt-oss-120b",
+			"name": "GPT OSS 120B",
+			"api": "openai-completions",
+			"provider": "greenpt",
+			"baseUrl": "https://api.greenpt.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 131072,
+			"maxTokens": 32768
+		},
+		"gemma-3-27b-it": {
+			"id": "gemma-3-27b-it",
+			"name": "Gemma 3 27B",
+			"api": "openai-completions",
+			"provider": "greenpt",
+			"baseUrl": "https://api.greenpt.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 40000,
+			"maxTokens": 8192
+		},
+		"green-l": {
+			"id": "green-l",
+			"name": "Green L",
+			"api": "openai-completions",
+			"provider": "greenpt",
+			"baseUrl": "https://api.greenpt.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 128000,
+			"maxTokens": 32768
+		},
+		"green-l-raw": {
+			"id": "green-l-raw",
+			"name": "Green L Raw",
+			"api": "openai-completions",
+			"provider": "greenpt",
+			"baseUrl": "https://api.greenpt.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 128000,
+			"maxTokens": 32768
+		},
+		"green-r": {
+			"id": "green-r",
+			"name": "Green R",
+			"api": "openai-completions",
+			"provider": "greenpt",
+			"baseUrl": "https://api.greenpt.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 131072,
+			"maxTokens": 32768
+		},
+		"green-r-raw": {
+			"id": "green-r-raw",
+			"name": "Green R Raw",
+			"api": "openai-completions",
+			"provider": "greenpt",
+			"baseUrl": "https://api.greenpt.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 131072,
+			"maxTokens": 32768
+		},
+		"green-s": {
+			"id": "green-s",
+			"name": "Green S",
+			"api": "openai-completions",
+			"provider": "greenpt",
+			"baseUrl": "https://api.greenpt.ai/v1",
+			"reasoning": false,
+			"input": [
+				"audio"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 0,
+			"maxTokens": 8192
+		},
+		"green-s-pro": {
+			"id": "green-s-pro",
+			"name": "Green S Pro",
+			"api": "openai-completions",
+			"provider": "greenpt",
+			"baseUrl": "https://api.greenpt.ai/v1",
+			"reasoning": false,
+			"input": [
+				"audio"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 0,
+			"maxTokens": 8192
+		},
+		"holo2-30b-a3b": {
+			"id": "holo2-30b-a3b",
+			"name": "Holo2 30B A3B",
+			"api": "openai-completions",
+			"provider": "greenpt",
+			"baseUrl": "https://api.greenpt.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 22016,
+			"maxTokens": 16384
+		},
+		"kimi-k2.6": {
+			"id": "kimi-k2.6",
+			"name": "Kimi K2.6",
+			"api": "openai-completions",
+			"provider": "greenpt",
+			"baseUrl": "https://api.greenpt.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 262144
+		},
+		"kimi-k2.6-fast": {
+			"id": "kimi-k2.6-fast",
+			"name": "Kimi K2.6 Fast",
+			"api": "openai-completions",
+			"provider": "greenpt",
+			"baseUrl": "https://api.greenpt.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 262144
+		},
+		"kimi-k2.7-code": {
+			"id": "kimi-k2.7-code",
+			"name": "Kimi K2.7 Code",
+			"api": "openai-completions",
+			"provider": "greenpt",
+			"baseUrl": "https://api.greenpt.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 262144
+		},
+		"llama-3.3-70b-instruct": {
+			"id": "llama-3.3-70b-instruct",
+			"name": "Llama-3.3-70B-Instruct",
+			"api": "openai-completions",
+			"provider": "greenpt",
+			"baseUrl": "https://api.greenpt.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 100000,
+			"maxTokens": 16384
+		},
+		"minimax-m2.5": {
+			"id": "minimax-m2.5",
+			"name": "MiniMax-M2.5",
+			"api": "openai-completions",
+			"provider": "greenpt",
+			"baseUrl": "https://api.greenpt.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 204800,
+			"maxTokens": 131072
+		},
+		"mistral-medium-3.5-128b": {
+			"id": "mistral-medium-3.5-128b",
+			"name": "Mistral Medium 3.5",
+			"api": "openai-completions",
+			"provider": "greenpt",
+			"baseUrl": "https://api.greenpt.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 16384
+		},
+		"mistral-small-3.2-24b-instruct-2506": {
+			"id": "mistral-small-3.2-24b-instruct-2506",
+			"name": "Mistral Small 3.2",
+			"api": "openai-completions",
+			"provider": "greenpt",
+			"baseUrl": "https://api.greenpt.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 128000,
+			"maxTokens": 32768
+		},
+		"pixtral-12b-2409": {
+			"id": "pixtral-12b-2409",
+			"name": "Pixtral 12B",
+			"api": "openai-completions",
+			"provider": "greenpt",
+			"baseUrl": "https://api.greenpt.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 128000,
+			"maxTokens": 4096
+		},
+		"qwen3-235b-a22b-instruct-2507": {
+			"id": "qwen3-235b-a22b-instruct-2507",
+			"name": "Qwen3 235B A22B Instruct 2507",
+			"api": "openai-completions",
+			"provider": "greenpt",
+			"baseUrl": "https://api.greenpt.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 16384
+		},
+		"qwen3-coder-30b-a3b-instruct": {
+			"id": "qwen3-coder-30b-a3b-instruct",
+			"name": "Qwen3-Coder 30B-A3B Instruct",
+			"api": "openai-completions",
+			"provider": "greenpt",
+			"baseUrl": "https://api.greenpt.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 128000,
+			"maxTokens": 32768
+		},
+		"qwen3.5-397b-a17b": {
+			"id": "qwen3.5-397b-a17b",
+			"name": "Qwen3.5 397B-A17B",
+			"api": "openai-completions",
+			"provider": "greenpt",
+			"baseUrl": "https://api.greenpt.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 16384
+		},
+		"qwen3.6-35b-a3b": {
+			"id": "qwen3.6-35b-a3b",
+			"name": "Qwen3.6 35B-A3B",
+			"api": "openai-completions",
+			"provider": "greenpt",
+			"baseUrl": "https://api.greenpt.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 32768
+		},
+		"voxtral-small-24b-2507": {
+			"id": "voxtral-small-24b-2507",
+			"name": "Voxtral Small 24B",
+			"api": "openai-completions",
+			"provider": "greenpt",
+			"baseUrl": "https://api.greenpt.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text",
+				"audio"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 32768,
+			"maxTokens": 16384
+		},
+		"gemma4": {
+			"id": "gemma4",
+			"name": "gemma4",
+			"api": "openai-completions",
+			"provider": "greenpt",
+			"baseUrl": "https://api.greenpt.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 32768
+		}
+	},
 	"hpc-ai": {
 		"anthropic/claude-opus-4.7": {
 			"id": "anthropic/claude-opus-4.7",
@@ -130249,7 +130769,8 @@
 			"baseUrl": "https://ai-gateway.helicone.ai/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -130258,7 +130779,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 131072,
-			"maxTokens": 32766
+			"maxTokens": 32768
 		},
 		"gpt-oss-20b": {
 			"id": "gpt-oss-20b",
@@ -130846,8 +131367,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 131072,
-			"maxTokens": 4096
+			"contextWindow": 100000,
+			"maxTokens": 16384
 		},
 		"llama-3.1-8b-instant": {
 			"id": "llama-3.1-8b-instant",
@@ -131256,25 +131777,6 @@
 			"contextWindow": 262144,
 			"maxTokens": 65536
 		},
-		"qwen3-coder-30b-a3b-instruct": {
-			"id": "qwen3-coder-30b-a3b-instruct",
-			"name": "Qwen3 Coder 30B A3B Instruct",
-			"api": "openai-completions",
-			"provider": "helicone",
-			"baseUrl": "https://ai-gateway.helicone.ai/v1",
-			"reasoning": false,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 128000,
-			"maxTokens": 65536
-		},
 		"qwen3-vl-235b-a22b-instruct": {
 			"id": "qwen3-vl-235b-a22b-instruct",
 			"name": "Qwen3 VL 235B A22B Instruct",
@@ -131292,7 +131794,7 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 131072,
+			"contextWindow": 262144,
 			"maxTokens": 8192
 		},
 		"qwen3-30b-a3b": {
@@ -131313,6 +131815,25 @@
 			},
 			"contextWindow": 128000,
 			"maxTokens": 8192
+		},
+		"qwen3-coder-30b-a3b-instruct": {
+			"id": "qwen3-coder-30b-a3b-instruct",
+			"name": "Qwen3-Coder 30B-A3B Instruct",
+			"api": "openai-completions",
+			"provider": "helicone",
+			"baseUrl": "https://ai-gateway.helicone.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 128000,
+			"maxTokens": 32768
 		},
 		"qwen3-next-80b-a3b-instruct": {
 			"id": "qwen3-next-80b-a3b-instruct",
@@ -133893,7 +134414,8 @@
 			"baseUrl": "https://kenari.id/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -133902,7 +134424,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 131072,
-			"maxTokens": 32766
+			"maxTokens": 32768
 		},
 		"gpt-oss-20b": {
 			"id": "gpt-oss-20b",
@@ -135739,7 +136261,8 @@
 			"baseUrl": "https://api.llmgateway.io/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -135748,7 +136271,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 131072,
-			"maxTokens": 32766
+			"maxTokens": 32768
 		},
 		"gpt-oss-20b": {
 			"id": "gpt-oss-20b",
@@ -137142,8 +137665,7 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image",
-				"video"
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -137152,7 +137674,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 65536
+			"maxTokens": 262144
 		},
 		"kimi-k2.7-code": {
 			"id": "kimi-k2.7-code",
@@ -137162,9 +137684,7 @@
 			"baseUrl": "https://api.llmgateway.io/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"video"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -137387,8 +137907,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 131072,
-			"maxTokens": 4096
+			"contextWindow": 100000,
+			"maxTokens": 16384
 		},
 		"llama-3.1-8b-instruct": {
 			"id": "llama-3.1-8b-instruct",
@@ -137643,7 +138163,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 204800,
-			"maxTokens": 65536
+			"maxTokens": 131072
 		},
 		"minimax-m2.5-highspeed": {
 			"id": "minimax-m2.5-highspeed",
@@ -138335,7 +138855,7 @@
 		},
 		"qwen3-235b-a22b-instruct-2507": {
 			"id": "qwen3-235b-a22b-instruct-2507",
-			"name": "Qwen3 235B A22B Instruct (2507)",
+			"name": "Qwen3 235B A22B Instruct 2507",
 			"api": "openai-completions",
 			"provider": "llmgateway",
 			"baseUrl": "https://api.llmgateway.io/v1",
@@ -138350,7 +138870,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 8192
+			"maxTokens": 16384
 		},
 		"qwen3-235b-a22b-thinking-2507": {
 			"id": "qwen3-235b-a22b-thinking-2507",
@@ -138485,25 +139005,6 @@
 			"contextWindow": 128000,
 			"maxTokens": 8192
 		},
-		"qwen3-coder-30b-a3b-instruct": {
-			"id": "qwen3-coder-30b-a3b-instruct",
-			"name": "Qwen3 Coder 30B A3B Instruct",
-			"api": "openai-completions",
-			"provider": "llmgateway",
-			"baseUrl": "https://api.llmgateway.io/v1",
-			"reasoning": false,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 128000,
-			"maxTokens": 65536
-		},
 		"qwen3-coder-flash": {
 			"id": "qwen3-coder-flash",
 			"name": "Qwen3 Coder Flash",
@@ -138616,7 +139117,7 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 131072,
+			"contextWindow": 262144,
 			"maxTokens": 8192
 		},
 		"qwen3-vl-235b-a22b-thinking": {
@@ -138656,7 +139157,7 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 131072,
+			"contextWindow": 262144,
 			"maxTokens": 8192
 		},
 		"qwen3-vl-8b-instruct": {
@@ -138698,6 +139199,25 @@
 			},
 			"contextWindow": 262144,
 			"maxTokens": 32000
+		},
+		"qwen3-coder-30b-a3b-instruct": {
+			"id": "qwen3-coder-30b-a3b-instruct",
+			"name": "Qwen3-Coder 30B-A3B Instruct",
+			"api": "openai-completions",
+			"provider": "llmgateway",
+			"baseUrl": "https://api.llmgateway.io/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 128000,
+			"maxTokens": 32768
 		},
 		"qwen3-coder-480b-a35b-instruct": {
 			"id": "qwen3-coder-480b-a35b-instruct",
@@ -138850,9 +139370,7 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image",
-				"video",
-				"audio"
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -138861,7 +139379,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 65536
+			"maxTokens": 32768
 		},
 		"qwen3.6-flash": {
 			"id": "qwen3.6-flash",
@@ -138923,6 +139441,26 @@
 			},
 			"contextWindow": 1000000,
 			"maxTokens": 65536
+		},
+		"qwen3.7-flash": {
+			"id": "qwen3.7-flash",
+			"name": "Qwen3.7 Flash",
+			"api": "openai-completions",
+			"provider": "llmgateway",
+			"baseUrl": "https://api.llmgateway.io/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 1000000
 		},
 		"qwen3.7-max": {
 			"id": "qwen3.7-max",
@@ -139559,8 +140097,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 131072,
-			"maxTokens": 4096
+			"contextWindow": 100000,
+			"maxTokens": 16384
 		},
 		"llama-3.3-8b-instruct": {
 			"id": "llama-3.3-8b-instruct",
@@ -141060,8 +141598,7 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image",
-				"video"
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -141070,7 +141607,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 65536
+			"maxTokens": 262144
 		},
 		"kimi-k2.7-code": {
 			"id": "kimi-k2.7-code",
@@ -141080,9 +141617,7 @@
 			"baseUrl": "https://api.moonshot.ai/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"video"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -141262,8 +141797,7 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image",
-				"video"
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -141272,7 +141806,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 65536
+			"maxTokens": 262144
 		},
 		"kimi-k2.7-code": {
 			"id": "kimi-k2.7-code",
@@ -141282,9 +141816,7 @@
 			"baseUrl": "https://api.moonshot.cn/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"video"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -151727,25 +152259,6 @@
 			"contextWindow": 262000,
 			"maxTokens": 32768
 		},
-		"qwen3-coder-30b-a3b-instruct": {
-			"id": "qwen3-coder-30b-a3b-instruct",
-			"name": "Qwen3 Coder 30B A3B Instruct",
-			"api": "openai-completions",
-			"provider": "nano-gpt",
-			"baseUrl": "https://nano-gpt.com/api/v1",
-			"reasoning": false,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 128000,
-			"maxTokens": 65536
-		},
 		"qwen/qwen3-coder-flash": {
 			"id": "qwen/qwen3-coder-flash",
 			"name": "Qwen3 Coder Flash",
@@ -151937,6 +152450,25 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 32768,
+			"maxTokens": 32768
+		},
+		"qwen3-coder-30b-a3b-instruct": {
+			"id": "qwen3-coder-30b-a3b-instruct",
+			"name": "Qwen3-Coder 30B-A3B Instruct",
+			"api": "openai-completions",
+			"provider": "nano-gpt",
+			"baseUrl": "https://nano-gpt.com/api/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 128000,
 			"maxTokens": 32768
 		},
 		"qwen3.5-122b-a10b": {
@@ -154521,7 +155053,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 1048576,
-			"maxTokens": 262144
+			"maxTokens": 1048576
 		},
 		"moonshotai/Kimi-K2.5-fast": {
 			"id": "moonshotai/Kimi-K2.5-fast",
@@ -155086,7 +155618,8 @@
 			"baseUrl": "${NEON_AI_GATEWAY_BASE_URL}/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -155095,7 +155628,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 131072,
-			"maxTokens": 32766
+			"maxTokens": 32768
 		},
 		"gpt-oss-20b": {
 			"id": "gpt-oss-20b",
@@ -155915,7 +156448,7 @@
 			"api": "openai-completions",
 			"provider": "neuralwatt",
 			"baseUrl": "https://api.neuralwatt.com/v1",
-			"reasoning": false,
+			"reasoning": true,
 			"input": [
 				"text",
 				"image"
@@ -155926,8 +156459,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 262128,
-			"maxTokens": 262128
+			"contextWindow": 262144,
+			"maxTokens": 262144
 		},
 		"kimi-k2.6-flex": {
 			"id": "kimi-k2.6-flex",
@@ -158202,7 +158735,8 @@
 			"baseUrl": "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -158211,7 +158745,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 131072,
-			"maxTokens": 32766
+			"maxTokens": 32768
 		},
 		"gpt-oss-20b": {
 			"id": "gpt-oss-20b",
@@ -158310,7 +158844,7 @@
 		},
 		"mistral-small-3.2-24b-instruct-2506": {
 			"id": "mistral-small-3.2-24b-instruct-2506",
-			"name": "Mistral Small 3.2 24B Instruct (2506)",
+			"name": "Mistral Small 3.2",
 			"api": "openai-completions",
 			"provider": "ovhcloud",
 			"baseUrl": "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1",
@@ -158369,7 +158903,7 @@
 		},
 		"qwen3-coder-30b-a3b-instruct": {
 			"id": "qwen3-coder-30b-a3b-instruct",
-			"name": "Qwen3 Coder 30B A3B Instruct",
+			"name": "Qwen3-Coder 30B-A3B Instruct",
 			"api": "openai-completions",
 			"provider": "ovhcloud",
 			"baseUrl": "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1",
@@ -158384,7 +158918,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 128000,
-			"maxTokens": 65536
+			"maxTokens": 32768
 		},
 		"qwen3.5-397b-a17b": {
 			"id": "qwen3.5-397b-a17b",
@@ -158394,10 +158928,7 @@
 			"baseUrl": "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"video",
-				"audio"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -158406,7 +158937,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 262144
+			"maxTokens": 16384
 		},
 		"qwen3.5-9b": {
 			"id": "qwen3.5-9b",
@@ -164143,7 +164674,8 @@
 			"baseUrl": "http://localhost:8080/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -164152,7 +164684,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 131072,
-			"maxTokens": 32766
+			"maxTokens": 32768
 		},
 		"gemma-3-27b": {
 			"id": "gemma-3-27b",
@@ -164183,8 +164715,7 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image",
-				"video"
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -164193,7 +164724,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 65536
+			"maxTokens": 262144
 		},
 		"qwen3-coder-30b-a3b": {
 			"id": "qwen3-coder-30b-a3b",
@@ -165127,7 +165658,8 @@
 			"baseUrl": "https://api.qnaigc.com/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -165136,7 +165668,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 131072,
-			"maxTokens": 32766
+			"maxTokens": 32768
 		},
 		"gpt-oss-20b": {
 			"id": "gpt-oss-20b",
@@ -165830,7 +166362,7 @@
 		},
 		"qwen3-235b-a22b-instruct-2507": {
 			"id": "qwen3-235b-a22b-instruct-2507",
-			"name": "Qwen3 235B A22B Instruct (2507)",
+			"name": "Qwen3 235B A22B Instruct 2507",
 			"api": "openai-completions",
 			"provider": "qiniu-ai",
 			"baseUrl": "https://api.qnaigc.com/v1",
@@ -165845,7 +166377,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 8192
+			"maxTokens": 16384
 		},
 		"qwen3-235b-a22b-thinking-2507": {
 			"id": "qwen3-235b-a22b-thinking-2507",
@@ -166085,10 +166617,7 @@
 			"baseUrl": "https://api.qnaigc.com/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"video",
-				"audio"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -166097,7 +166626,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 262144
+			"maxTokens": 16384
 		},
 		"stepfun/step-3.5-flash": {
 			"id": "stepfun/step-3.5-flash",
@@ -166234,7 +166763,8 @@
 			"baseUrl": "https://api.regolo.ai/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -166243,7 +166773,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 131072,
-			"maxTokens": 32766
+			"maxTokens": 32768
 		},
 		"gpt-oss-20b": {
 			"id": "gpt-oss-20b",
@@ -166280,8 +166810,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 131072,
-			"maxTokens": 4096
+			"contextWindow": 100000,
+			"maxTokens": 16384
 		},
 		"llama-3.1-8b-instruct": {
 			"id": "llama-3.1-8b-instruct",
@@ -166319,7 +166849,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 204800,
-			"maxTokens": 65536
+			"maxTokens": 131072
 		},
 		"mistral-small3.2": {
 			"id": "mistral-small3.2",
@@ -167412,7 +167942,7 @@
 	"scaleway": {
 		"devstral-2-123b-instruct-2512": {
 			"id": "devstral-2-123b-instruct-2512",
-			"name": "Devstral 2 123B Instruct (2512)",
+			"name": "Devstral 2",
 			"api": "openai-completions",
 			"provider": "scaleway",
 			"baseUrl": "https://api.scaleway.ai/v1",
@@ -167426,7 +167956,7 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 256000,
+			"contextWindow": 200000,
 			"maxTokens": 16384
 		},
 		"glm-5.2": {
@@ -167456,7 +167986,8 @@
 			"baseUrl": "https://api.scaleway.ai/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -167465,7 +167996,27 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 131072,
-			"maxTokens": 32766
+			"maxTokens": 32768
+		},
+		"gemma-3-27b-it": {
+			"id": "gemma-3-27b-it",
+			"name": "Gemma 3 27B",
+			"api": "openai-completions",
+			"provider": "scaleway",
+			"baseUrl": "https://api.scaleway.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 40000,
+			"maxTokens": 8192
 		},
 		"gemma-4-26b-a4b-it": {
 			"id": "gemma-4-26b-a4b-it",
@@ -167487,26 +168038,6 @@
 			"contextWindow": 262144,
 			"maxTokens": 32768
 		},
-		"gemma-3-27b-it": {
-			"id": "gemma-3-27b-it",
-			"name": "Gemma-3-27B-IT",
-			"api": "openai-completions",
-			"provider": "scaleway",
-			"baseUrl": "https://api.scaleway.ai/v1",
-			"reasoning": true,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 40000,
-			"maxTokens": 8192
-		},
 		"llama-3.3-70b-instruct": {
 			"id": "llama-3.3-70b-instruct",
 			"name": "Llama-3.3-70B-Instruct",
@@ -167523,12 +168054,12 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 131072,
-			"maxTokens": 4096
+			"contextWindow": 100000,
+			"maxTokens": 16384
 		},
 		"mistral-medium-3.5-128b": {
 			"id": "mistral-medium-3.5-128b",
-			"name": "Mistral Medium 3.5 128B",
+			"name": "Mistral Medium 3.5",
 			"api": "openai-completions",
 			"provider": "scaleway",
 			"baseUrl": "https://api.scaleway.ai/v1",
@@ -167543,12 +168074,12 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 256000,
+			"contextWindow": 262144,
 			"maxTokens": 16384
 		},
 		"mistral-small-3.2-24b-instruct-2506": {
 			"id": "mistral-small-3.2-24b-instruct-2506",
-			"name": "Mistral Small 3.2 24B Instruct (2506)",
+			"name": "Mistral Small 3.2",
 			"api": "openai-completions",
 			"provider": "scaleway",
 			"baseUrl": "https://api.scaleway.ai/v1",
@@ -167568,7 +168099,7 @@
 		},
 		"pixtral-12b-2409": {
 			"id": "pixtral-12b-2409",
-			"name": "Pixtral 12B 2409",
+			"name": "Pixtral 12B",
 			"api": "openai-completions",
 			"provider": "scaleway",
 			"baseUrl": "https://api.scaleway.ai/v1",
@@ -167588,7 +168119,7 @@
 		},
 		"qwen3-235b-a22b-instruct-2507": {
 			"id": "qwen3-235b-a22b-instruct-2507",
-			"name": "Qwen3 235B A22B Instruct (2507)",
+			"name": "Qwen3 235B A22B Instruct 2507",
 			"api": "openai-completions",
 			"provider": "scaleway",
 			"baseUrl": "https://api.scaleway.ai/v1",
@@ -167603,11 +168134,11 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 8192
+			"maxTokens": 16384
 		},
 		"qwen3-coder-30b-a3b-instruct": {
 			"id": "qwen3-coder-30b-a3b-instruct",
-			"name": "Qwen3 Coder 30B A3B Instruct",
+			"name": "Qwen3-Coder 30B-A3B Instruct",
 			"api": "openai-completions",
 			"provider": "scaleway",
 			"baseUrl": "https://api.scaleway.ai/v1",
@@ -167622,7 +168153,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 128000,
-			"maxTokens": 65536
+			"maxTokens": 32768
 		},
 		"qwen3.5-397b-a17b": {
 			"id": "qwen3.5-397b-a17b",
@@ -167632,10 +168163,7 @@
 			"baseUrl": "https://api.scaleway.ai/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"video",
-				"audio"
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -167644,7 +168172,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 262144
+			"maxTokens": 16384
 		},
 		"qwen3.6-35b-a3b": {
 			"id": "qwen3.6-35b-a3b",
@@ -167655,9 +168183,7 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image",
-				"video",
-				"audio"
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -167666,11 +168192,11 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 65536
+			"maxTokens": 32768
 		},
 		"voxtral-small-24b-2507": {
 			"id": "voxtral-small-24b-2507",
-			"name": "Voxtral Small 24B 2507",
+			"name": "Voxtral Small 24B",
 			"api": "openai-completions",
 			"provider": "scaleway",
 			"baseUrl": "https://api.scaleway.ai/v1",
@@ -167685,7 +168211,7 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 32000,
+			"contextWindow": 32768,
 			"maxTokens": 16384
 		}
 	},
@@ -171828,7 +172354,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 204800,
-			"maxTokens": 65536
+			"maxTokens": 131072
 		},
 		"hunyuan-2.0-instruct": {
 			"id": "hunyuan-2.0-instruct",
@@ -172197,7 +172723,8 @@
 			"baseUrl": "https://inference.tinfoil.sh/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -172206,7 +172733,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 131072,
-			"maxTokens": 32766
+			"maxTokens": 32768
 		},
 		"gemma4-31b": {
 			"id": "gemma4-31b",
@@ -172913,8 +173440,7 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image",
-				"video"
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -172923,7 +173449,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 65536
+			"maxTokens": 262144
 		},
 		"minimax-m2.7": {
 			"id": "minimax-m2.7",
@@ -174101,6 +174627,26 @@
 			"contextWindow": 262144,
 			"maxTokens": 262144
 		},
+		"moonshotai/Kimi-K3": {
+			"id": "moonshotai/Kimi-K3",
+			"name": "Kimi K3",
+			"api": "openai-completions",
+			"provider": "wandb",
+			"baseUrl": "https://api.inference.wandb.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 1048576
+		},
 		"meta-llama/Llama-3.1-70B-Instruct": {
 			"id": "meta-llama/Llama-3.1-70B-Instruct",
 			"name": "Llama 3.1 70B",
@@ -174797,9 +175343,7 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image",
-				"video",
-				"audio"
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -174808,7 +175352,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 65536
+			"maxTokens": 32768
 		}
 	},
 	"zhipuai": {
@@ -176239,8 +176783,7 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image",
-				"video"
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -176249,7 +176792,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 65536
+			"maxTokens": 262144
 		},
 		"route/kimi-k2.6": {
 			"id": "route/kimi-k2.6",
@@ -176322,9 +176865,7 @@
 			"baseUrl": "https://api.routing.run/v1",
 			"reasoning": true,
 			"input": [
-				"text",
-				"image",
-				"video"
+				"text"
 			],
 			"cost": {
 				"input": 0,
