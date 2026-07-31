@@ -28855,6 +28855,45 @@
 				]
 			}
 		},
+		"tencent/Hy3": {
+			"id": "tencent/Hy3",
+			"name": "Hy3",
+			"api": "openai-completions",
+			"provider": "huggingface",
+			"baseUrl": "https://router.huggingface.co/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 64000
+		},
+		"thinkingmachines/Inkling": {
+			"id": "thinkingmachines/Inkling",
+			"name": "Inkling",
+			"api": "openai-completions",
+			"provider": "huggingface",
+			"baseUrl": "https://router.huggingface.co/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 65536,
+			"maxTokens": 65536
+		},
 		"moonshotai/Kimi-K3": {
 			"id": "moonshotai/Kimi-K3",
 			"name": "Kimi K3",
@@ -68851,7 +68890,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 1048576,
-			"maxTokens": null
+			"maxTokens": 1048576
 		},
 		"poolside/laguna-xs-2.1": {
 			"id": "poolside/laguna-xs-2.1",
@@ -72773,27 +72812,6 @@
 			"contextWindow": 1000000,
 			"maxTokens": 131072
 		},
-		"gpt-5.6-luna": {
-			"id": "gpt-5.6-luna",
-			"name": "GPT 5.6 Luna",
-			"api": "openai-completions",
-			"provider": "opencode",
-			"baseUrl": "https://opencode.ai/zen/v1",
-			"reasoning": true,
-			"input": [
-				"text",
-				"image",
-				"pdf"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1050000,
-			"maxTokens": 128000
-		},
 		"gpt-5.6-sol": {
 			"id": "gpt-5.6-sol",
 			"name": "GPT 5.6 Sol",
@@ -73101,6 +73119,27 @@
 		"gpt-5.5-pro": {
 			"id": "gpt-5.5-pro",
 			"name": "GPT-5.5 Pro",
+			"api": "openai-completions",
+			"provider": "opencode",
+			"baseUrl": "https://opencode.ai/zen/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
+		},
+		"gpt-5.6-luna": {
+			"id": "gpt-5.6-luna",
+			"name": "GPT-5.6 Luna (2x usage)",
 			"api": "openai-completions",
 			"provider": "opencode",
 			"baseUrl": "https://opencode.ai/zen/v1",
@@ -73454,7 +73493,7 @@
 		},
 		"kimi-k3": {
 			"id": "kimi-k3",
-			"name": "Kimi K3 (2x usage)",
+			"name": "Kimi K3",
 			"api": "openai-completions",
 			"provider": "opencode",
 			"baseUrl": "https://opencode.ai/zen/v1",
@@ -74593,6 +74632,27 @@
 					"xhigh"
 				]
 			}
+		},
+		"gpt-5.6-luna": {
+			"id": "gpt-5.6-luna",
+			"name": "GPT-5.6 Luna (2x usage)",
+			"api": "openai-completions",
+			"provider": "opencode-go",
+			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
 		}
 	},
 	"opencode-zen": {
@@ -111325,27 +111385,6 @@
 		}
 	},
 	"ai-router": {
-		"gpt-5.6-luna": {
-			"id": "gpt-5.6-luna",
-			"name": "GPT 5.6 Luna",
-			"api": "openai-completions",
-			"provider": "ai-router",
-			"baseUrl": "https://api.ai-router.dev/v1",
-			"reasoning": true,
-			"input": [
-				"text",
-				"image",
-				"pdf"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1050000,
-			"maxTokens": 128000
-		},
 		"gpt-5.6-sol": {
 			"id": "gpt-5.6-sol",
 			"name": "GPT 5.6 Sol",
@@ -111412,6 +111451,27 @@
 		"gpt-5.5": {
 			"id": "gpt-5.5",
 			"name": "GPT-5.5",
+			"api": "openai-completions",
+			"provider": "ai-router",
+			"baseUrl": "https://api.ai-router.dev/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
+		},
+		"gpt-5.6-luna": {
+			"id": "gpt-5.6-luna",
+			"name": "GPT-5.6 Luna (2x usage)",
 			"api": "openai-completions",
 			"provider": "ai-router",
 			"baseUrl": "https://api.ai-router.dev/v1",
@@ -112110,27 +112170,6 @@
 			"contextWindow": 202752,
 			"maxTokens": 131072
 		},
-		"gpt-5.6-luna": {
-			"id": "gpt-5.6-luna",
-			"name": "GPT 5.6 Luna",
-			"api": "openai-completions",
-			"provider": "abacus",
-			"baseUrl": "https://routellm.abacus.ai/v1",
-			"reasoning": true,
-			"input": [
-				"text",
-				"image",
-				"pdf"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1050000,
-			"maxTokens": 128000
-		},
 		"gpt-5.6-sol": {
 			"id": "gpt-5.6-sol",
 			"name": "GPT 5.6 Sol",
@@ -112641,6 +112680,27 @@
 		"gpt-5.5": {
 			"id": "gpt-5.5",
 			"name": "GPT-5.5",
+			"api": "openai-completions",
+			"provider": "abacus",
+			"baseUrl": "https://routellm.abacus.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
+		},
+		"gpt-5.6-luna": {
+			"id": "gpt-5.6-luna",
+			"name": "GPT-5.6 Luna (2x usage)",
 			"api": "openai-completions",
 			"provider": "abacus",
 			"baseUrl": "https://routellm.abacus.ai/v1",
@@ -118423,6 +118483,27 @@
 			"contextWindow": 262144,
 			"maxTokens": 262144
 		},
+		"kimi-k3": {
+			"id": "kimi-k3",
+			"name": "Kimi K3",
+			"api": "openai-completions",
+			"provider": "hyper",
+			"baseUrl": "https://hyper.charm.land/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 131072
+		},
 		"llama-4-maverick-17b-128e-instruct-fp8": {
 			"id": "llama-4-maverick-17b-128e-instruct-fp8",
 			"name": "Llama 4 Maverick 17B 128E Instruct FP8",
@@ -118479,6 +118560,27 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 204800,
+			"maxTokens": 131072
+		},
+		"minimax-m3": {
+			"id": "minimax-m3",
+			"name": "MiniMax-M3",
+			"api": "openai-completions",
+			"provider": "hyper",
+			"baseUrl": "https://hyper.charm.land/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
 			"maxTokens": 131072
 		},
 		"qwen3-coder-480b-a35b-instruct-int4-mixed-ar": {
@@ -118579,6 +118681,26 @@
 			},
 			"contextWindow": 1000000,
 			"maxTokens": 65536
+		},
+		"qwen3.7-flash": {
+			"id": "qwen3.7-flash",
+			"name": "Qwen3.7 Flash",
+			"api": "openai-completions",
+			"provider": "hyper",
+			"baseUrl": "https://hyper.charm.land/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 1000000
 		},
 		"qwen3.7-max": {
 			"id": "qwen3.7-max",
@@ -121198,7 +121320,7 @@
 		},
 		"kimi-k3": {
 			"id": "kimi-k3",
-			"name": "Kimi K3 (2x usage)",
+			"name": "Kimi K3",
 			"api": "openai-completions",
 			"provider": "cortecs",
 			"baseUrl": "https://api.cortecs.ai/v1",
@@ -122013,7 +122135,7 @@
 		},
 		"kimi-k3": {
 			"id": "kimi-k3",
-			"name": "Kimi K3 (2x usage)",
+			"name": "Kimi K3",
 			"api": "openai-completions",
 			"provider": "crof",
 			"baseUrl": "https://crof.ai/v1",
@@ -122030,6 +122152,27 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 1048576,
+			"maxTokens": 131072
+		},
+		"kimi-k3-eco": {
+			"id": "kimi-k3-eco",
+			"name": "Kimi K3 Eco",
+			"api": "openai-completions",
+			"provider": "crof",
+			"baseUrl": "https://crof.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
 			"maxTokens": 131072
 		},
 		"mimo-v2.5-pro": {
@@ -125711,7 +125854,7 @@
 		},
 		"kimi-k3": {
 			"id": "kimi-k3",
-			"name": "Kimi K3 (2x usage)",
+			"name": "Kimi K3",
 			"api": "openai-completions",
 			"provider": "empiriolabs",
 			"baseUrl": "https://api.empiriolabs.ai/v1",
@@ -126077,6 +126220,25 @@
 			},
 			"contextWindow": 256000,
 			"maxTokens": 64000
+		},
+		"qwen3-6-35b-a3b": {
+			"id": "qwen3-6-35b-a3b",
+			"name": "Qwen3.6 35B A3B",
+			"api": "openai-completions",
+			"provider": "empiriolabs",
+			"baseUrl": "https://api.empiriolabs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 131072,
+			"maxTokens": 16384
 		},
 		"qwen3-6-flash": {
 			"id": "qwen3-6-flash",
@@ -127869,7 +128031,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 131072,
-			"maxTokens": 32766
+			"maxTokens": 32768
 		},
 		"gpt-4o": {
 			"id": "gpt-4o",
@@ -130738,7 +130900,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 131072,
-			"maxTokens": 32766
+			"maxTokens": 32768
 		},
 		"gpt-4.1": {
 			"id": "gpt-4.1",
@@ -134375,7 +134537,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 131072,
-			"maxTokens": 32766
+			"maxTokens": 32768
 		},
 		"gpt-5-4-mini": {
 			"id": "gpt-5-4-mini",
@@ -134718,7 +134880,7 @@
 		},
 		"kimi-k3": {
 			"id": "kimi-k3",
-			"name": "Kimi K3 (2x usage)",
+			"name": "Kimi K3",
 			"api": "openai-completions",
 			"provider": "kenari",
 			"baseUrl": "https://kenari.id/v1",
@@ -136118,27 +136280,6 @@
 			"contextWindow": 1000000,
 			"maxTokens": 131072
 		},
-		"gpt-5.6-luna": {
-			"id": "gpt-5.6-luna",
-			"name": "GPT 5.6 Luna",
-			"api": "openai-completions",
-			"provider": "llmgateway",
-			"baseUrl": "https://api.llmgateway.io/v1",
-			"reasoning": true,
-			"input": [
-				"text",
-				"image",
-				"pdf"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1050000,
-			"maxTokens": 128000
-		},
 		"gpt-5.6-sol": {
 			"id": "gpt-5.6-sol",
 			"name": "GPT 5.6 Sol",
@@ -136218,7 +136359,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 131072,
-			"maxTokens": 32766
+			"maxTokens": 32768
 		},
 		"gpt-3.5-turbo": {
 			"id": "gpt-3.5-turbo",
@@ -136807,6 +136948,27 @@
 		"gpt-5.5-pro": {
 			"id": "gpt-5.5-pro",
 			"name": "GPT-5.5 Pro",
+			"api": "openai-completions",
+			"provider": "llmgateway",
+			"baseUrl": "https://api.llmgateway.io/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
+		},
+		"gpt-5.6-luna": {
+			"id": "gpt-5.6-luna",
+			"name": "GPT-5.6 Luna (2x usage)",
 			"api": "openai-completions",
 			"provider": "llmgateway",
 			"baseUrl": "https://api.llmgateway.io/v1",
@@ -137644,7 +137806,7 @@
 		},
 		"kimi-k3": {
 			"id": "kimi-k3",
-			"name": "Kimi K3 (2x usage)",
+			"name": "Kimi K3",
 			"api": "openai-completions",
 			"provider": "llmgateway",
 			"baseUrl": "https://api.llmgateway.io/v1",
@@ -141575,7 +141737,7 @@
 		},
 		"kimi-k3": {
 			"id": "kimi-k3",
-			"name": "Kimi K3 (2x usage)",
+			"name": "Kimi K3",
 			"api": "openai-completions",
 			"provider": "moonshotai",
 			"baseUrl": "https://api.moonshot.ai/v1",
@@ -141774,7 +141936,7 @@
 		},
 		"kimi-k3": {
 			"id": "kimi-k3",
-			"name": "Kimi K3 (2x usage)",
+			"name": "Kimi K3",
 			"api": "openai-completions",
 			"provider": "moonshotai-cn",
 			"baseUrl": "https://api.moonshot.cn/v1",
@@ -155557,7 +155719,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 131072,
-			"maxTokens": 32766
+			"maxTokens": 32768
 		},
 		"gpt-5": {
 			"id": "gpt-5",
@@ -156097,6 +156259,25 @@
 		}
 	},
 	"neuralwatt": {
+		"deepseek-v4-flash": {
+			"id": "deepseek-v4-flash",
+			"name": "DeepSeek V4 Flash",
+			"api": "openai-completions",
+			"provider": "neuralwatt",
+			"baseUrl": "https://api.neuralwatt.com/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 384000
+		},
 		"glm-5-fast": {
 			"id": "glm-5-fast",
 			"name": "GLM 5 Fast",
@@ -156286,6 +156467,26 @@
 			},
 			"contextWindow": 1000000,
 			"maxTokens": 131072
+		},
+		"gemma-4-31b": {
+			"id": "gemma-4-31b",
+			"name": "Gemma 4 31B",
+			"api": "openai-completions",
+			"provider": "neuralwatt",
+			"baseUrl": "https://api.neuralwatt.com/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262128,
+			"maxTokens": 16384
 		},
 		"moonshotai/Kimi-K2.5": {
 			"id": "moonshotai/Kimi-K2.5",
@@ -158669,7 +158870,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 131072,
-			"maxTokens": 32766
+			"maxTokens": 32768
 		},
 		"llama-3.1-8b-instruct": {
 			"id": "llama-3.1-8b-instruct",
@@ -165582,7 +165783,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 131072,
-			"maxTokens": 32766
+			"maxTokens": 32768
 		},
 		"openai/gpt-5": {
 			"id": "openai/gpt-5",
@@ -166687,7 +166888,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 131072,
-			"maxTokens": 32766
+			"maxTokens": 32768
 		},
 		"llama-3.3-70b-instruct": {
 			"id": "llama-3.3-70b-instruct",
@@ -172542,7 +172743,7 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1000000,
+			"contextWindow": 524288,
 			"maxTokens": 65536
 		},
 		"thinkingmachines/Inkling": {
@@ -172643,7 +172844,7 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 256000,
+			"contextWindow": 262144,
 			"maxTokens": 32768
 		},
 		"kimi-k2-6": {
@@ -173560,27 +173761,6 @@
 			"contextWindow": 1000000,
 			"maxTokens": 131072
 		},
-		"gpt-5.6-luna": {
-			"id": "gpt-5.6-luna",
-			"name": "GPT 5.6 Luna",
-			"api": "openai-responses",
-			"provider": "vivgrid",
-			"baseUrl": "https://api.vivgrid.com/v1",
-			"reasoning": true,
-			"input": [
-				"text",
-				"image",
-				"pdf"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1050000,
-			"maxTokens": 128000
-		},
 		"gpt-5.6-sol": {
 			"id": "gpt-5.6-sol",
 			"name": "GPT 5.6 Sol",
@@ -173789,6 +173969,27 @@
 		"gpt-5.5": {
 			"id": "gpt-5.5",
 			"name": "GPT-5.5",
+			"api": "openai-responses",
+			"provider": "vivgrid",
+			"baseUrl": "https://api.vivgrid.com/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
+		},
+		"gpt-5.6-luna": {
+			"id": "gpt-5.6-luna",
+			"name": "GPT-5.6 Luna (2x usage)",
 			"api": "openai-responses",
 			"provider": "vivgrid",
 			"baseUrl": "https://api.vivgrid.com/v1",
@@ -176558,27 +176759,6 @@
 			"contextWindow": 1000000,
 			"maxTokens": 131072
 		},
-		"gpt-5.6-luna": {
-			"id": "gpt-5.6-luna",
-			"name": "GPT 5.6 Luna",
-			"api": "openai-completions",
-			"provider": "routing-run",
-			"baseUrl": "https://api.routing.run/v1",
-			"reasoning": true,
-			"input": [
-				"text",
-				"image",
-				"pdf"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1050000,
-			"maxTokens": 128000
-		},
 		"gpt-5.6-sol": {
 			"id": "gpt-5.6-sol",
 			"name": "GPT 5.6 Sol",
@@ -176603,6 +176783,27 @@
 		"gpt-5.6-terra": {
 			"id": "gpt-5.6-terra",
 			"name": "GPT 5.6 Terra",
+			"api": "openai-completions",
+			"provider": "routing-run",
+			"baseUrl": "https://api.routing.run/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
+		},
+		"gpt-5.6-luna": {
+			"id": "gpt-5.6-luna",
+			"name": "GPT-5.6 Luna (2x usage)",
 			"api": "openai-completions",
 			"provider": "routing-run",
 			"baseUrl": "https://api.routing.run/v1",
