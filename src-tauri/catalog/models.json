@@ -33686,6 +33686,25 @@
 			"contextWindow": 262144,
 			"maxTokens": 262144
 		},
+		"deepseek-ai/DeepSeek-V3": {
+			"id": "deepseek-ai/DeepSeek-V3",
+			"name": "DeepSeek-V3",
+			"api": "openai-completions",
+			"provider": "huggingface",
+			"baseUrl": "https://router.huggingface.co/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 163840,
+			"maxTokens": 8192
+		},
 		"thinkingmachines/Inkling-Small": {
 			"id": "thinkingmachines/Inkling-Small",
 			"name": "Inkling Small",
@@ -33705,6 +33724,25 @@
 			},
 			"contextWindow": 524288,
 			"maxTokens": 32768
+		},
+		"Qwen/Qwen3-235B-A22B-Instruct-2507": {
+			"id": "Qwen/Qwen3-235B-A22B-Instruct-2507",
+			"name": "Qwen3 235B A22B Instruct 2507",
+			"api": "openai-completions",
+			"provider": "huggingface",
+			"baseUrl": "https://router.huggingface.co/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 8192
 		}
 	},
 	"kilo": {
@@ -45640,6 +45678,48 @@
 			"contextWindow": 131072,
 			"maxTokens": 65536
 		},
+		"inclusionai/ling-3.0-flash": {
+			"id": "inclusionai/ling-3.0-flash",
+			"name": "Ling 3.0 Flash",
+			"api": "openai-completions",
+			"provider": "kilo",
+			"baseUrl": "https://api.kilo.ai/api/gateway",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 32768
+		},
+		"meta/muse-spark-1.2": {
+			"id": "meta/muse-spark-1.2",
+			"name": "Muse Spark 1.2",
+			"api": "openai-completions",
+			"provider": "kilo",
+			"baseUrl": "https://api.kilo.ai/api/gateway",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video",
+				"pdf",
+				"audio"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 131072
+		},
 		"qwen/qwen3.8-max": {
 			"id": "qwen/qwen3.8-max",
 			"name": "Qwen3.8 Max",
@@ -45947,6 +46027,52 @@
 				"supportsReasoningEffort": true,
 				"includeEncryptedReasoning": true
 			}
+		},
+		"muse-spark-1.2": {
+			"id": "muse-spark-1.2",
+			"name": "Muse Spark 1.2",
+			"api": "openai-responses",
+			"provider": "meta",
+			"baseUrl": "https://api.meta.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video",
+				"pdf",
+				"audio"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 131072
+		},
+		"muse-spark-1.2-contributor": {
+			"id": "muse-spark-1.2-contributor",
+			"name": "Muse Spark 1.2 Contributor",
+			"api": "openai-responses",
+			"provider": "meta",
+			"baseUrl": "https://api.meta.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video",
+				"pdf",
+				"audio"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 131072
 		}
 	},
 	"minimax": {
@@ -94154,6 +94280,25 @@
 			"contextWindow": 32768,
 			"maxTokens": 32768
 		},
+		"inclusionai/ling-3.0-flash": {
+			"id": "inclusionai/ling-3.0-flash",
+			"name": "Ling 3.0 Flash",
+			"api": "openai-completions",
+			"provider": "openrouter",
+			"baseUrl": "https://openrouter.ai/api/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 32768
+		},
 		"aion-labs/aion-rp-llama-3.1-8b": {
 			"id": "aion-labs/aion-rp-llama-3.1-8b",
 			"name": "Llama 3.1 8b (uncensored)",
@@ -94443,6 +94588,29 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
+			"maxTokens": 131072
+		},
+		"meta/muse-spark-1.2": {
+			"id": "meta/muse-spark-1.2",
+			"name": "Muse Spark 1.2",
+			"api": "openai-completions",
+			"provider": "openrouter",
+			"baseUrl": "https://openrouter.ai/api/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video",
+				"pdf",
+				"audio"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
 			"maxTokens": 131072
 		},
 		"gryphe/mythomax-l2-13b": {
@@ -118599,25 +118767,6 @@
 			"contextWindow": 1000000,
 			"maxTokens": 1000000
 		},
-		"deepseek/deepseek-v3.1": {
-			"id": "deepseek/deepseek-v3.1",
-			"name": "DeepSeek V3.1",
-			"api": "openai-completions",
-			"provider": "abacus",
-			"baseUrl": "https://routellm.abacus.ai/v1",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 128000,
-			"maxTokens": 8192
-		},
 		"deepseek-ai/DeepSeek-V3.1-Terminus": {
 			"id": "deepseek-ai/DeepSeek-V3.1-Terminus",
 			"name": "DeepSeek V3.1 Terminus",
@@ -118674,6 +118823,25 @@
 			},
 			"contextWindow": 1048576,
 			"maxTokens": 1048576
+		},
+		"deepseek/deepseek-v3.1": {
+			"id": "deepseek/deepseek-v3.1",
+			"name": "DeepSeek-V3.1",
+			"api": "openai-completions",
+			"provider": "abacus",
+			"baseUrl": "https://routellm.abacus.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 131072,
+			"maxTokens": 8192
 		},
 		"deepseek-ai/DeepSeek-V3.2": {
 			"id": "deepseek-ai/DeepSeek-V3.2",
@@ -127478,27 +127646,6 @@
 		}
 	},
 	"cortecs": {
-		"claude-4-5-sonnet": {
-			"id": "claude-4-5-sonnet",
-			"name": "Claude 4.5 Sonnet",
-			"api": "openai-completions",
-			"provider": "cortecs",
-			"baseUrl": "https://api.cortecs.ai/v1",
-			"reasoning": true,
-			"input": [
-				"text",
-				"image",
-				"pdf"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 200000
-		},
 		"claude-haiku-4-5": {
 			"id": "claude-haiku-4-5",
 			"name": "Claude Haiku 4.5",
@@ -127520,15 +127667,14 @@
 		},
 		"claude-opus4-5": {
 			"id": "claude-opus4-5",
-			"name": "Claude Opus 4.5",
+			"name": "Claude Opus 4.5 (latest)",
 			"api": "openai-completions",
 			"provider": "cortecs",
 			"baseUrl": "https://api.cortecs.ai/v1",
 			"reasoning": true,
 			"input": [
 				"text",
-				"image",
-				"pdf"
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -127548,8 +127694,7 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image",
-				"pdf"
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -127569,8 +127714,7 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image",
-				"pdf"
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -127579,11 +127723,31 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 1000000,
-			"maxTokens": 128000
+			"maxTokens": 1000000
 		},
 		"claude-opus4-8": {
 			"id": "claude-opus4-8",
 			"name": "Claude Opus 4.8",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 1000000
+		},
+		"claude-opus-5": {
+			"id": "claude-opus-5",
+			"name": "Claude Opus 5",
 			"api": "openai-completions",
 			"provider": "cortecs",
 			"baseUrl": "https://api.cortecs.ai/v1",
@@ -127621,6 +127785,26 @@
 			"contextWindow": null,
 			"maxTokens": null
 		},
+		"claude-4-5-sonnet": {
+			"id": "claude-4-5-sonnet",
+			"name": "Claude Sonnet 4.5 (latest)",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 200000,
+			"maxTokens": 200000
+		},
 		"claude-4-6-sonnet": {
 			"id": "claude-4-6-sonnet",
 			"name": "Claude Sonnet 4.6",
@@ -127630,8 +127814,27 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image",
-				"pdf"
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 1000000
+		},
+		"claude-sonnet-5": {
+			"id": "claude-sonnet-5",
+			"name": "Claude Sonnet 5",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -127660,6 +127863,26 @@
 			},
 			"contextWindow": 256000,
 			"maxTokens": 16384
+		},
+		"cosmos3-super-reasoner": {
+			"id": "cosmos3-super-reasoner",
+			"name": "Cosmos 3 Super Reasoner",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 262144
 		},
 		"deepseek-v3-0324": {
 			"id": "deepseek-v3-0324",
@@ -127988,6 +128211,48 @@
 			"contextWindow": 200000,
 			"maxTokens": 131072
 		},
+		"gpt-5.6-sol": {
+			"id": "gpt-5.6-sol",
+			"name": "GPT 5.6 Sol",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
+		},
+		"gpt-5.6-terra": {
+			"id": "gpt-5.6-terra",
+			"name": "GPT 5.6 Terra",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
+		},
 		"gpt-oss-120b": {
 			"id": "gpt-oss-120b",
 			"name": "GPT OSS 120B",
@@ -127998,6 +128263,25 @@
 			"input": [
 				"text",
 				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 131072,
+			"maxTokens": 32768
+		},
+		"gpt-oss-20b": {
+			"id": "gpt-oss-20b",
+			"name": "GPT OSS 20B",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -128029,6 +128313,167 @@
 			"contextWindow": 1000000,
 			"maxTokens": 32768
 		},
+		"gpt-4.1-mini": {
+			"id": "gpt-4.1-mini",
+			"name": "GPT-4.1 mini",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 32768
+		},
+		"gpt-4.1-nano": {
+			"id": "gpt-4.1-nano",
+			"name": "GPT-4.1 nano",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 32768
+		},
+		"gpt-4o": {
+			"id": "gpt-4o",
+			"name": "GPT-4o",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": null,
+			"maxTokens": null
+		},
+		"gpt-4o-mini": {
+			"id": "gpt-4o-mini",
+			"name": "GPT-4o mini",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 128000,
+			"maxTokens": 16384
+		},
+		"gpt-5": {
+			"id": "gpt-5",
+			"name": "GPT-5",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 400000,
+			"maxTokens": 128000
+		},
+		"gpt-5-mini": {
+			"id": "gpt-5-mini",
+			"name": "GPT-5 Mini",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 272000,
+			"maxTokens": 128000
+		},
+		"gpt-5-nano": {
+			"id": "gpt-5-nano",
+			"name": "GPT-5 Nano",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 400000,
+			"maxTokens": 128000
+		},
+		"gpt-5.1": {
+			"id": "gpt-5.1",
+			"name": "GPT-5.1",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 400000,
+			"maxTokens": 128000
+		},
 		"gpt-5.4": {
 			"id": "gpt-5.4",
 			"name": "GPT-5.4",
@@ -128049,6 +128494,50 @@
 			},
 			"contextWindow": 400000,
 			"maxTokens": 128000
+		},
+		"gpt-5.6-luna": {
+			"id": "gpt-5.6-luna",
+			"name": "GPT-5.6 Luna (2x usage)",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
+		},
+		"gemini-2.5-flash": {
+			"id": "gemini-2.5-flash",
+			"name": "Gemini 2.5 Flash",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"audio",
+				"video",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 65536
 		},
 		"gemini-2.5-pro": {
 			"id": "gemini-2.5-pro",
@@ -128073,6 +128562,131 @@
 			"contextWindow": 1048576,
 			"maxTokens": 65536
 		},
+		"gemini-3.1-flash-lite": {
+			"id": "gemini-3.1-flash-lite",
+			"name": "Gemini 3.1 Flash Lite",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video",
+				"audio",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 65536
+		},
+		"gemini-3.5-flash": {
+			"id": "gemini-3.5-flash",
+			"name": "Gemini 3.5 Flash",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video",
+				"audio",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 65536
+		},
+		"gemma-3-27b-it": {
+			"id": "gemma-3-27b-it",
+			"name": "Gemma 3 27B",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 40000,
+			"maxTokens": 8192
+		},
+		"gemma-4-26b-a4b-it": {
+			"id": "gemma-4-26b-a4b-it",
+			"name": "Gemma 4 26B A4B IT",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 32768
+		},
+		"gemma-4-31b-it": {
+			"id": "gemma-4-31b-it",
+			"name": "Gemma 4 31B IT",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 32768
+		},
+		"hermes-4-405b": {
+			"id": "hermes-4-405b",
+			"name": "Hermes 4 405B",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 131072,
+			"maxTokens": 131072
+		},
 		"hermes-4-70b": {
 			"id": "hermes-4-70b",
 			"name": "Hermes 4 70B",
@@ -128091,6 +128705,26 @@
 			},
 			"contextWindow": 131072,
 			"maxTokens": 131072
+		},
+		"holo2-30b-a3b": {
+			"id": "holo2-30b-a3b",
+			"name": "Holo2 30B A3B",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 22016,
+			"maxTokens": 16384
 		},
 		"hy3": {
 			"id": "hy3",
@@ -128254,7 +128888,7 @@
 			"api": "openai-completions",
 			"provider": "cortecs",
 			"baseUrl": "https://api.cortecs.ai/v1",
-			"reasoning": false,
+			"reasoning": true,
 			"input": [
 				"text"
 			],
@@ -128286,6 +128920,25 @@
 			"contextWindow": 100000,
 			"maxTokens": 16384
 		},
+		"llama-3.1-8b-instruct": {
+			"id": "llama-3.1-8b-instruct",
+			"name": "Meta Llama 3.1 8B Instruct",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 16384,
+			"maxTokens": 16384
+		},
 		"llama-4-maverick": {
 			"id": "llama-4-maverick",
 			"name": "Meta Llama 4 Maverick 17B 128E",
@@ -128305,6 +128958,26 @@
 			},
 			"contextWindow": 131072,
 			"maxTokens": 8192
+		},
+		"minicpm-v-4.5": {
+			"id": "minicpm-v-4.5",
+			"name": "MiniCPM-V 4.5",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 32000,
+			"maxTokens": 32000
 		},
 		"minimax-m2": {
 			"id": "minimax-m2",
@@ -128403,6 +129076,85 @@
 			"contextWindow": 1000000,
 			"maxTokens": 131072
 		},
+		"ministral-14b-2512": {
+			"id": "ministral-14b-2512",
+			"name": "Ministral 14B",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 8192
+		},
+		"ministral-3b-2512": {
+			"id": "ministral-3b-2512",
+			"name": "Ministral 3B",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 131072,
+			"maxTokens": 8192
+		},
+		"ministral-8b-2512": {
+			"id": "ministral-8b-2512",
+			"name": "Ministral 8B",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 8192
+		},
+		"mistral-7b-instruct-v0.3": {
+			"id": "mistral-7b-instruct-v0.3",
+			"name": "Mistral 7B Instruct v0.3",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 32768,
+			"maxTokens": 32768
+		},
 		"mistral-large-2512": {
 			"id": "mistral-large-2512",
 			"name": "Mistral Large 3",
@@ -128423,6 +129175,125 @@
 			"contextWindow": 262144,
 			"maxTokens": 262144
 		},
+		"mistral-medium-2508": {
+			"id": "mistral-medium-2508",
+			"name": "Mistral Medium 3.1",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 262144
+		},
+		"mistral-medium-3.5": {
+			"id": "mistral-medium-3.5",
+			"name": "Mistral Medium 3.5",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 131072
+		},
+		"mistral-nemo-instruct-2407": {
+			"id": "mistral-nemo-instruct-2407",
+			"name": "Mistral Nemo Instruct",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 128000,
+			"maxTokens": 16384
+		},
+		"mistral-small-2503": {
+			"id": "mistral-small-2503",
+			"name": "Mistral Small 3.1",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 128000,
+			"maxTokens": 32768
+		},
+		"mistral-small-3.2-24b-instruct-2506": {
+			"id": "mistral-small-3.2-24b-instruct-2506",
+			"name": "Mistral Small 3.2",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 128000,
+			"maxTokens": 32768
+		},
+		"mistral-small-2603": {
+			"id": "mistral-small-2603",
+			"name": "Mistral Small 4",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 256000,
+			"maxTokens": 65536
+		},
 		"mixtral-8x7B-instruct-v0.1": {
 			"id": "mixtral-8x7B-instruct-v0.1",
 			"name": "Mixtral 8x7B Instruct v0.1",
@@ -128441,6 +129312,25 @@
 			},
 			"contextWindow": 32000,
 			"maxTokens": 32000
+		},
+		"nvidia-nemotron-3-nano-30b-a3b": {
+			"id": "nvidia-nemotron-3-nano-30b-a3b",
+			"name": "NVIDIA Nemotron 3 Nano 30B",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 128000,
+			"maxTokens": 16384
 		},
 		"nemotron-3-super-120b-a12b": {
 			"id": "nemotron-3-super-120b-a12b",
@@ -128467,7 +129357,7 @@
 			"api": "openai-completions",
 			"provider": "cortecs",
 			"baseUrl": "https://api.cortecs.ai/v1",
-			"reasoning": false,
+			"reasoning": true,
 			"input": [
 				"text",
 				"image"
@@ -128480,6 +129370,26 @@
 			},
 			"contextWindow": 300000,
 			"maxTokens": 5000
+		},
+		"pixtral-12b-2409": {
+			"id": "pixtral-12b-2409",
+			"name": "Pixtral 12B",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 128000,
+			"maxTokens": 4096
 		},
 		"qwen-2.5-72b-instruct": {
 			"id": "qwen-2.5-72b-instruct",
@@ -128500,6 +129410,26 @@
 			"contextWindow": 33000,
 			"maxTokens": 33000
 		},
+		"qwen2.5-vl-72b-instruct": {
+			"id": "qwen2.5-vl-72b-instruct",
+			"name": "Qwen2.5-VL-72B-Instruct",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 32768,
+			"maxTokens": 32768
+		},
 		"qwen3-235b-a22b-instruct-2507": {
 			"id": "qwen3-235b-a22b-instruct-2507",
 			"name": "Qwen3 235B A22B Instruct 2507",
@@ -128518,6 +129448,25 @@
 			},
 			"contextWindow": 262144,
 			"maxTokens": 16384
+		},
+		"qwen3-30b-a3b-instruct-2507": {
+			"id": "qwen3-30b-a3b-instruct-2507",
+			"name": "Qwen3 30B A3B Instruct 2507",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 256000,
+			"maxTokens": 32768
 		},
 		"qwen3-32b": {
 			"id": "qwen3-32b",
@@ -128556,6 +129505,26 @@
 			},
 			"contextWindow": 262144,
 			"maxTokens": 65536
+		},
+		"qwen3-vl-235b-a22b": {
+			"id": "qwen3-vl-235b-a22b",
+			"name": "Qwen3 VL 235B",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 128000,
+			"maxTokens": 16384
 		},
 		"qwen3-coder-30b-a3b-instruct": {
 			"id": "qwen3-coder-30b-a3b-instruct",
@@ -128651,6 +129620,285 @@
 			},
 			"contextWindow": 262144,
 			"maxTokens": 16384
+		},
+		"qwen3.5-9b": {
+			"id": "qwen3.5-9b",
+			"name": "Qwen3.5 9B",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video",
+				"audio"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 262144
+		},
+		"qwen3.6-27b": {
+			"id": "qwen3.6-27b",
+			"name": "Qwen3.6 27B",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video",
+				"audio"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 262144
+		},
+		"qwen3.6-35b-a3b": {
+			"id": "qwen3.6-35b-a3b",
+			"name": "Qwen3.6 35B-A3B",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 32768
+		},
+		"apertus-70b": {
+			"id": "apertus-70b",
+			"name": "apertus-70b",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 65536,
+			"maxTokens": 65536
+		},
+		"llama-3.1-nemotron-ultra-253b-v1": {
+			"id": "llama-3.1-nemotron-ultra-253b-v1",
+			"name": "llama-3.1-nemotron-ultra-253b-v1",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 128000,
+			"maxTokens": 128000
+		},
+		"mistral-7b-instruct-v0.2": {
+			"id": "mistral-7b-instruct-v0.2",
+			"name": "mistral-7b-instruct-v0.2",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 32000,
+			"maxTokens": 32000
+		},
+		"mistral-large-2402": {
+			"id": "mistral-large-2402",
+			"name": "mistral-large-2402",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 32000,
+			"maxTokens": 32000
+		},
+		"nemotron-nano-v2-12b": {
+			"id": "nemotron-nano-v2-12b",
+			"name": "nemotron-nano-v2-12b",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 128000,
+			"maxTokens": 128000
+		},
+		"nova-2-lite": {
+			"id": "nova-2-lite",
+			"name": "nova-2-lite",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 1000000
+		},
+		"nova-lite-v1": {
+			"id": "nova-lite-v1",
+			"name": "nova-lite-v1",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 300000,
+			"maxTokens": 300000
+		},
+		"nova-micro-v1": {
+			"id": "nova-micro-v1",
+			"name": "nova-micro-v1",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 128000,
+			"maxTokens": 128000
+		},
+		"nvidia-nemotron-3-nano-omni": {
+			"id": "nvidia-nemotron-3-nano-omni",
+			"name": "nvidia-nemotron-3-nano-omni",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 300000,
+			"maxTokens": 300000
+		},
+		"pixtral-large-2502": {
+			"id": "pixtral-large-2502",
+			"name": "pixtral-large-2502",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 128000,
+			"maxTokens": 128000
+		},
+		"voxtral-small-2507": {
+			"id": "voxtral-small-2507",
+			"name": "voxtral-small-2507",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text",
+				"audio"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 32000,
+			"maxTokens": 32000
 		}
 	},
 	"crof": {
@@ -139839,11 +141087,11 @@
 		},
 		"mistralai/Magistral-Small-2506": {
 			"id": "mistralai/Magistral-Small-2506",
-			"name": "Magistral Small 2506",
+			"name": "Magistral Small",
 			"api": "openai-completions",
 			"provider": "io-net",
 			"baseUrl": "https://api.intelligence.io.solutions/api/v1",
-			"reasoning": false,
+			"reasoning": true,
 			"input": [
 				"text"
 			],
@@ -139854,7 +141102,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 128000,
-			"maxTokens": 4096
+			"maxTokens": 64000
 		},
 		"mistralai/Devstral-Small-2505": {
 			"id": "mistralai/Devstral-Small-2505",
@@ -142422,7 +143670,7 @@
 		},
 		"deepseek/deepseek-v3.1": {
 			"id": "deepseek/deepseek-v3.1",
-			"name": "DeepSeek V3.1",
+			"name": "DeepSeek-V3.1",
 			"api": "openai-completions",
 			"provider": "jiekou",
 			"baseUrl": "https://api.jiekou.ai/openai",
@@ -142436,7 +143684,7 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 128000,
+			"contextWindow": 131072,
 			"maxTokens": 8192
 		},
 		"baidu/ernie-4.5-300b-a47b-paddle": {
@@ -155196,11 +156444,11 @@
 		},
 		"baidu/ernie-4.5-vl-28b-a3b": {
 			"id": "baidu/ernie-4.5-vl-28b-a3b",
-			"name": "ERNIE 4.5 VL 28B",
+			"name": "ERNIE 4.5 VL 28B A3B",
 			"api": "openai-completions",
 			"provider": "nano-gpt",
 			"baseUrl": "https://nano-gpt.com/api/v1",
-			"reasoning": false,
+			"reasoning": true,
 			"input": [
 				"text",
 				"image"
@@ -155211,8 +156459,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 32768,
-			"maxTokens": 16384
+			"contextWindow": 30000,
+			"maxTokens": 8000
 		},
 		"ernie-5.1": {
 			"id": "ernie-5.1",
@@ -162079,6 +163327,52 @@
 			"contextWindow": 1000000,
 			"maxTokens": 32000
 		},
+		"meta/muse-spark-1.2": {
+			"id": "meta/muse-spark-1.2",
+			"name": "Muse Spark 1.2",
+			"api": "openai-completions",
+			"provider": "nano-gpt",
+			"baseUrl": "https://nano-gpt.com/api/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video",
+				"pdf",
+				"audio"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 131072
+		},
+		"meta/muse-spark-1.2-contributor": {
+			"id": "meta/muse-spark-1.2-contributor",
+			"name": "Muse Spark 1.2 Contributor (Data Used for Training)",
+			"api": "openai-completions",
+			"provider": "nano-gpt",
+			"baseUrl": "https://nano-gpt.com/api/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video",
+				"audio",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 65536
+		},
 		"Gryphe/MythoMax-L2-13b": {
 			"id": "Gryphe/MythoMax-L2-13b",
 			"name": "MythoMax 13B",
@@ -162694,6 +163988,25 @@
 			},
 			"contextWindow": 128000,
 			"maxTokens": 16384
+		},
+		"pokee-isaac": {
+			"id": "pokee-isaac",
+			"name": "Pokee-Isaac 28B",
+			"api": "openai-completions",
+			"provider": "nano-gpt",
+			"baseUrl": "https://nano-gpt.com/api/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 10000000,
+			"maxTokens": 60000
 		},
 		"qwq-32b": {
 			"id": "qwq-32b",
@@ -166412,6 +167725,27 @@
 		}
 	},
 	"neon": {
+		"claude-fable-5": {
+			"id": "claude-fable-5",
+			"name": "Claude Fable 5",
+			"api": "openai-completions",
+			"provider": "neon",
+			"baseUrl": "${NEON_AI_GATEWAY_BASE_URL}/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 128000
+		},
 		"claude-haiku-4-5": {
 			"id": "claude-haiku-4-5",
 			"name": "Claude Haiku 4.5",
@@ -166532,6 +167866,27 @@
 			"contextWindow": 1000000,
 			"maxTokens": 128000
 		},
+		"claude-opus-5": {
+			"id": "claude-opus-5",
+			"name": "Claude Opus 5",
+			"api": "openai-completions",
+			"provider": "neon",
+			"baseUrl": "${NEON_AI_GATEWAY_BASE_URL}/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 128000
+		},
 		"claude-sonnet-4": {
 			"id": "claude-sonnet-4",
 			"name": "Claude Sonnet 4",
@@ -166590,6 +167945,45 @@
 			},
 			"contextWindow": 1000000,
 			"maxTokens": 16384
+		},
+		"claude-sonnet-5": {
+			"id": "claude-sonnet-5",
+			"name": "Claude Sonnet 5",
+			"api": "openai-completions",
+			"provider": "neon",
+			"baseUrl": "${NEON_AI_GATEWAY_BASE_URL}/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 1000000
+		},
+		"glm-5-2": {
+			"id": "glm-5-2",
+			"name": "GLM-5.2",
+			"api": "openai-completions",
+			"provider": "neon",
+			"baseUrl": "${NEON_AI_GATEWAY_BASE_URL}/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 131072
 		},
 		"gpt-oss-120b": {
 			"id": "gpt-oss-120b",
@@ -166893,6 +168287,90 @@
 			"contextWindow": 1050000,
 			"maxTokens": 128000
 		},
+		"gpt-5-5-pro": {
+			"id": "gpt-5-5-pro",
+			"name": "GPT-5.5 Pro",
+			"api": "openai-completions",
+			"provider": "neon",
+			"baseUrl": "${NEON_AI_GATEWAY_BASE_URL}/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
+		},
+		"gpt-5-6-luna": {
+			"id": "gpt-5-6-luna",
+			"name": "GPT-5.6 Luna",
+			"api": "openai-completions",
+			"provider": "neon",
+			"baseUrl": "${NEON_AI_GATEWAY_BASE_URL}/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
+		},
+		"gpt-5-6-sol": {
+			"id": "gpt-5-6-sol",
+			"name": "GPT-5.6 Sol",
+			"api": "openai-completions",
+			"provider": "neon",
+			"baseUrl": "${NEON_AI_GATEWAY_BASE_URL}/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
+		},
+		"gpt-5-6-terra": {
+			"id": "gpt-5-6-terra",
+			"name": "GPT-5.6 Terra",
+			"api": "openai-completions",
+			"provider": "neon",
+			"baseUrl": "${NEON_AI_GATEWAY_BASE_URL}/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
+		},
 		"gemini-2-5-flash": {
 			"id": "gemini-2-5-flash",
 			"name": "Gemini 2.5 Flash",
@@ -167069,6 +168547,27 @@
 			},
 			"contextWindow": 131072,
 			"maxTokens": 16384
+		},
+		"inkling": {
+			"id": "inkling",
+			"name": "Inkling",
+			"api": "openai-completions",
+			"provider": "neon",
+			"baseUrl": "${NEON_AI_GATEWAY_BASE_URL}/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"audio"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 1048576
 		},
 		"meta-llama-3-1-8b-instruct": {
 			"id": "meta-llama-3-1-8b-instruct",
@@ -167876,25 +169375,6 @@
 			"contextWindow": 163840,
 			"maxTokens": 163840
 		},
-		"deepseek/deepseek-v3.1": {
-			"id": "deepseek/deepseek-v3.1",
-			"name": "DeepSeek V3.1",
-			"api": "openai-completions",
-			"provider": "novita-ai",
-			"baseUrl": "https://api.novita.ai/openai",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 128000,
-			"maxTokens": 8192
-		},
 		"deepseek/deepseek-v3.2": {
 			"id": "deepseek/deepseek-v3.2",
 			"name": "DeepSeek V3.2",
@@ -167971,6 +169451,25 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 8192,
+			"maxTokens": 8192
+		},
+		"deepseek/deepseek-v3.1": {
+			"id": "deepseek/deepseek-v3.1",
+			"name": "DeepSeek-V3.1",
+			"api": "openai-completions",
+			"provider": "novita-ai",
+			"baseUrl": "https://api.novita.ai/openai",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 131072,
 			"maxTokens": 8192
 		},
 		"deepseek/deepseek-v3.2-exp": {
@@ -168070,11 +169569,11 @@
 		},
 		"baidu/ernie-4.5-vl-28b-a3b": {
 			"id": "baidu/ernie-4.5-vl-28b-a3b",
-			"name": "ERNIE 4.5 VL 28B",
+			"name": "ERNIE 4.5 VL 28B A3B",
 			"api": "openai-completions",
 			"provider": "novita-ai",
 			"baseUrl": "https://api.novita.ai/openai",
-			"reasoning": false,
+			"reasoning": true,
 			"input": [
 				"text",
 				"image"
@@ -168085,8 +169584,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 32768,
-			"maxTokens": 16384
+			"contextWindow": 30000,
+			"maxTokens": 8000
 		},
 		"baidu/ernie-4.5-21B-a3b-thinking": {
 			"id": "baidu/ernie-4.5-21B-a3b-thinking",
@@ -171951,6 +173450,27 @@
 		}
 	},
 	"pioneer": {
+		"claude-fable-5": {
+			"id": "claude-fable-5",
+			"name": "Claude Fable 5",
+			"api": "openai-completions",
+			"provider": "pioneer",
+			"baseUrl": "https://api.pioneer.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 128000
+		},
 		"claude-haiku-4-5": {
 			"id": "claude-haiku-4-5",
 			"name": "Claude Haiku 4.5",
@@ -172071,6 +173591,48 @@
 			"contextWindow": 1000000,
 			"maxTokens": 128000
 		},
+		"claude-opus-5": {
+			"id": "claude-opus-5",
+			"name": "Claude Opus 5",
+			"api": "openai-completions",
+			"provider": "pioneer",
+			"baseUrl": "https://api.pioneer.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 128000
+		},
+		"claude-3-7-sonnet-latest": {
+			"id": "claude-3-7-sonnet-latest",
+			"name": "Claude Sonnet 3.7",
+			"api": "openai-completions",
+			"provider": "pioneer",
+			"baseUrl": "https://api.pioneer.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 128000
+		},
 		"claude-sonnet-4-5": {
 			"id": "claude-sonnet-4-5",
 			"name": "Claude Sonnet 4.5",
@@ -172111,6 +173673,64 @@
 			"contextWindow": 1000000,
 			"maxTokens": 16384
 		},
+		"claude-sonnet-5": {
+			"id": "claude-sonnet-5",
+			"name": "Claude Sonnet 5",
+			"api": "openai-completions",
+			"provider": "pioneer",
+			"baseUrl": "https://api.pioneer.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 1000000
+		},
+		"mistralai/Codestral-22B-v0.1": {
+			"id": "mistralai/Codestral-22B-v0.1",
+			"name": "Codestral-22B-v0.1",
+			"api": "openai-completions",
+			"provider": "pioneer",
+			"baseUrl": "https://api.pioneer.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 128000,
+			"maxTokens": 4000
+		},
+		"deepseek-ai/DeepSeek-V3.1": {
+			"id": "deepseek-ai/DeepSeek-V3.1",
+			"name": "DeepSeek V3.1",
+			"api": "openai-completions",
+			"provider": "pioneer",
+			"baseUrl": "https://api.pioneer.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 161000,
+			"maxTokens": 161000
+		},
 		"deepseek-ai/DeepSeek-V4-Flash": {
 			"id": "deepseek-ai/DeepSeek-V4-Flash",
 			"name": "DeepSeek V4 Flash",
@@ -172148,6 +173768,44 @@
 			},
 			"contextWindow": 1048576,
 			"maxTokens": 1048576
+		},
+		"deepseek-ai/DeepSeek-V3": {
+			"id": "deepseek-ai/DeepSeek-V3",
+			"name": "DeepSeek-V3",
+			"api": "openai-completions",
+			"provider": "pioneer",
+			"baseUrl": "https://api.pioneer.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 163840,
+			"maxTokens": 8192
+		},
+		"devstral-2": {
+			"id": "devstral-2",
+			"name": "Devstral 2",
+			"api": "openai-completions",
+			"provider": "pioneer",
+			"baseUrl": "https://api.pioneer.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 256000,
+			"maxTokens": 131072
 		},
 		"google/diffusiongemma-26B-A4B-it": {
 			"id": "google/diffusiongemma-26B-A4B-it",
@@ -172320,6 +173978,48 @@
 			},
 			"contextWindow": 8192,
 			"maxTokens": 4096
+		},
+		"gpt-5.6-sol": {
+			"id": "gpt-5.6-sol",
+			"name": "GPT 5.6 Sol",
+			"api": "openai-completions",
+			"provider": "pioneer",
+			"baseUrl": "https://api.pioneer.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
+		},
+		"gpt-5.6-terra": {
+			"id": "gpt-5.6-terra",
+			"name": "GPT 5.6 Terra",
+			"api": "openai-completions",
+			"provider": "pioneer",
+			"baseUrl": "https://api.pioneer.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
 		},
 		"openai/gpt-oss-120b": {
 			"id": "openai/gpt-oss-120b",
@@ -172625,9 +174325,53 @@
 			"contextWindow": 1050000,
 			"maxTokens": 128000
 		},
+		"gpt-5.6-luna": {
+			"id": "gpt-5.6-luna",
+			"name": "GPT-5.6 Luna (2x usage)",
+			"api": "openai-completions",
+			"provider": "pioneer",
+			"baseUrl": "https://api.pioneer.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
+		},
 		"gemini-3-flash": {
 			"id": "gemini-3-flash",
 			"name": "Gemini 3 Flash",
+			"api": "openai-completions",
+			"provider": "pioneer",
+			"baseUrl": "https://api.pioneer.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video",
+				"audio",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 65536
+		},
+		"gemini-3.1-flash-lite": {
+			"id": "gemini-3.1-flash-lite",
+			"name": "Gemini 3.1 Flash Lite",
 			"api": "openai-completions",
 			"provider": "pioneer",
 			"baseUrl": "https://api.pioneer.ai/v1",
@@ -172674,6 +174418,52 @@
 		"gemini-3.5-flash": {
 			"id": "gemini-3.5-flash",
 			"name": "Gemini 3.5 Flash",
+			"api": "openai-completions",
+			"provider": "pioneer",
+			"baseUrl": "https://api.pioneer.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video",
+				"audio",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 65536
+		},
+		"gemini-3.5-flash-lite": {
+			"id": "gemini-3.5-flash-lite",
+			"name": "Gemini 3.5 Flash Lite",
+			"api": "openai-completions",
+			"provider": "pioneer",
+			"baseUrl": "https://api.pioneer.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video",
+				"audio",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 65536
+		},
+		"gemini-3.6-flash": {
+			"id": "gemini-3.6-flash",
+			"name": "Gemini 3.6 Flash",
 			"api": "openai-completions",
 			"provider": "pioneer",
 			"baseUrl": "https://api.pioneer.ai/v1",
@@ -172794,6 +174584,26 @@
 			"contextWindow": 131072,
 			"maxTokens": 8192
 		},
+		"grok-4.5": {
+			"id": "grok-4.5",
+			"name": "Grok 4.5",
+			"api": "openai-completions",
+			"provider": "pioneer",
+			"baseUrl": "https://api.pioneer.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 500000,
+			"maxTokens": 500000
+		},
 		"moonshotai/Kimi-K2.6": {
 			"id": "moonshotai/Kimi-K2.6",
 			"name": "Kimi K2.6",
@@ -172834,6 +174644,26 @@
 			"contextWindow": 262144,
 			"maxTokens": 262144
 		},
+		"moonshotai/Kimi-K3": {
+			"id": "moonshotai/Kimi-K3",
+			"name": "Kimi K3",
+			"api": "openai-completions",
+			"provider": "pioneer",
+			"baseUrl": "https://api.pioneer.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 1048576
+		},
 		"LiquidAI/LFM2-24B-A2B": {
 			"id": "LiquidAI/LFM2-24B-A2B",
 			"name": "LFM2 24B A2B",
@@ -172851,6 +174681,25 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 32768,
+			"maxTokens": 32768
+		},
+		"poolside/laguna-s-2.1": {
+			"id": "poolside/laguna-s-2.1",
+			"name": "Laguna S 2.1",
+			"api": "openai-completions",
+			"provider": "pioneer",
+			"baseUrl": "https://api.pioneer.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
 			"maxTokens": 32768
 		},
 		"meta-llama/Llama-3.1-8B-Instruct": {
@@ -172928,6 +174777,63 @@
 			},
 			"contextWindow": 128000,
 			"maxTokens": 128000
+		},
+		"meta-llama/Llama-3.2-1B": {
+			"id": "meta-llama/Llama-3.2-1B",
+			"name": "Llama-3.2-1B",
+			"api": "openai-completions",
+			"provider": "pioneer",
+			"baseUrl": "https://api.pioneer.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 131072,
+			"maxTokens": 131072
+		},
+		"meta-llama/Llama-3.2-3B": {
+			"id": "meta-llama/Llama-3.2-3B",
+			"name": "Llama-3.2-3B",
+			"api": "openai-completions",
+			"provider": "pioneer",
+			"baseUrl": "https://api.pioneer.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 131072,
+			"maxTokens": 131072
+		},
+		"mistralai/Magistral-Small-2506": {
+			"id": "mistralai/Magistral-Small-2506",
+			"name": "Magistral Small",
+			"api": "openai-completions",
+			"provider": "pioneer",
+			"baseUrl": "https://api.pioneer.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 128000,
+			"maxTokens": 64000
 		},
 		"XiaomiMiMo/MiMo-V2.5": {
 			"id": "XiaomiMiMo/MiMo-V2.5",
@@ -173009,6 +174915,25 @@
 			"contextWindow": 204800,
 			"maxTokens": 131072
 		},
+		"mistralai/Ministral-8B-Instruct-2410": {
+			"id": "mistralai/Ministral-8B-Instruct-2410",
+			"name": "Ministral 8B Instruct",
+			"api": "openai-completions",
+			"provider": "pioneer",
+			"baseUrl": "https://api.pioneer.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 128000,
+			"maxTokens": 4000
+		},
 		"mistralai/Mistral-7B-Instruct-v0.3": {
 			"id": "mistralai/Mistral-7B-Instruct-v0.3",
 			"name": "Mistral 7B Instruct v0.3",
@@ -173027,6 +174952,26 @@
 			},
 			"contextWindow": 32768,
 			"maxTokens": 32768
+		},
+		"mistral-large-3": {
+			"id": "mistral-large-3",
+			"name": "Mistral Large 3",
+			"api": "openai-completions",
+			"provider": "pioneer",
+			"baseUrl": "https://api.pioneer.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 256000,
+			"maxTokens": 131072
 		},
 		"mistral-medium-3.5": {
 			"id": "mistral-medium-3.5",
@@ -173086,6 +175031,28 @@
 			},
 			"contextWindow": 256000,
 			"maxTokens": 256000
+		},
+		"meta/muse-spark-1.1": {
+			"id": "meta/muse-spark-1.1",
+			"name": "Muse Spark 1.1",
+			"api": "openai-completions",
+			"provider": "pioneer",
+			"baseUrl": "https://api.pioneer.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 32000
 		},
 		"nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16": {
 			"id": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16",
@@ -173165,6 +175132,45 @@
 			"contextWindow": 1048576,
 			"maxTokens": 4096
 		},
+		"mistralai/Pixtral-12B-2409": {
+			"id": "mistralai/Pixtral-12B-2409",
+			"name": "Pixtral 12B",
+			"api": "openai-completions",
+			"provider": "pioneer",
+			"baseUrl": "https://api.pioneer.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 128000,
+			"maxTokens": 4000
+		},
+		"Qwen/Qwen2.5-Coder-0.5B": {
+			"id": "Qwen/Qwen2.5-Coder-0.5B",
+			"name": "Qwen2.5-Coder-0.5B",
+			"api": "openai-completions",
+			"provider": "pioneer",
+			"baseUrl": "https://api.pioneer.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 32768,
+			"maxTokens": 32768
+		},
 		"Qwen/Qwen3-1.7B-Base": {
 			"id": "Qwen/Qwen3-1.7B-Base",
 			"name": "Qwen3 1.7B Base",
@@ -173183,6 +175189,25 @@
 			},
 			"contextWindow": 32768,
 			"maxTokens": 32768
+		},
+		"Qwen/Qwen3-235B-A22B-Instruct-2507": {
+			"id": "Qwen/Qwen3-235B-A22B-Instruct-2507",
+			"name": "Qwen3 235B A22B Instruct 2507",
+			"api": "openai-completions",
+			"provider": "pioneer",
+			"baseUrl": "https://api.pioneer.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 8192
 		},
 		"Qwen/Qwen3-4B-Base": {
 			"id": "Qwen/Qwen3-4B-Base",
@@ -180391,6 +182416,25 @@
 			"contextWindow": 1048576,
 			"maxTokens": 393216
 		},
+		"deepseek-ai/DeepSeek-V3": {
+			"id": "deepseek-ai/DeepSeek-V3",
+			"name": "DeepSeek-V3",
+			"api": "openai-completions",
+			"provider": "siliconflow",
+			"baseUrl": "https://api.siliconflow.com/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 163840,
+			"maxTokens": 8192
+		},
 		"deepseek-ai/DeepSeek-V3.2": {
 			"id": "deepseek-ai/DeepSeek-V3.2",
 			"name": "DeepSeek-V3.2",
@@ -181726,25 +183770,6 @@
 			"contextWindow": 131000,
 			"maxTokens": 131000
 		},
-		"deepseek-ai/DeepSeek-V3": {
-			"id": "deepseek-ai/DeepSeek-V3",
-			"name": "deepseek-ai/DeepSeek-V3",
-			"api": "openai-completions",
-			"provider": "siliconflow",
-			"baseUrl": "https://api.siliconflow.com/v1",
-			"reasoning": false,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 164000,
-			"maxTokens": 164000
-		},
 		"deepseek-ai/DeepSeek-V3.2-Exp": {
 			"id": "deepseek-ai/DeepSeek-V3.2-Exp",
 			"name": "deepseek-ai/DeepSeek-V3.2-Exp",
@@ -181958,6 +183983,25 @@
 			},
 			"contextWindow": 1048576,
 			"maxTokens": 1048576
+		},
+		"deepseek-ai/DeepSeek-V3": {
+			"id": "deepseek-ai/DeepSeek-V3",
+			"name": "DeepSeek-V3",
+			"api": "openai-completions",
+			"provider": "siliconflow-cn",
+			"baseUrl": "https://api.siliconflow.cn/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 163840,
+			"maxTokens": 8192
 		},
 		"deepseek-ai/DeepSeek-V3.2": {
 			"id": "deepseek-ai/DeepSeek-V3.2",
@@ -183313,25 +185357,6 @@
 			},
 			"contextWindow": 131000,
 			"maxTokens": 131000
-		},
-		"deepseek-ai/DeepSeek-V3": {
-			"id": "deepseek-ai/DeepSeek-V3",
-			"name": "deepseek-ai/DeepSeek-V3",
-			"api": "openai-completions",
-			"provider": "siliconflow-cn",
-			"baseUrl": "https://api.siliconflow.cn/v1",
-			"reasoning": false,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 164000,
-			"maxTokens": 164000
 		},
 		"deepseek-ai/deepseek-vl2": {
 			"id": "deepseek-ai/deepseek-vl2",
@@ -185185,8 +187210,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 524288,
-			"maxTokens": 65536
+			"contextWindow": 1048576,
+			"maxTokens": 1048576
 		},
 		"thinkingmachines/Inkling": {
 			"id": "thinkingmachines/Inkling",
