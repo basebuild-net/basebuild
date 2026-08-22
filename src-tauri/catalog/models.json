@@ -47611,13 +47611,13 @@
 			"supportsComputerUse": false,
 			"supportsComputerUseConfig": false
 		},
-		"gemini-3.6-flash-high": {
-			"id": "gemini-3.6-flash-high",
+		"gemini-3.6-flash": {
+			"id": "gemini-3.6-flash",
 			"name": "Gemini 3.6 Flash",
 			"api": "cursor-agent",
 			"provider": "cursor",
 			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
+			"reasoning": true,
 			"input": [
 				"text",
 				"image"
@@ -47632,84 +47632,32 @@
 			"maxTokens": 64000,
 			"cursorMaxMode": false,
 			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
+			"supportsComputerUseConfig": false,
+			"requestModelId": "gemini-3.6-flash-minimal",
+			"thinking": {
+				"mode": "effort",
+				"efforts": [
+					"minimal",
+					"low",
+					"medium",
+					"high"
+				],
+				"requiresEffort": true,
+				"effortRouting": {
+					"minimal": "gemini-3.6-flash-minimal",
+					"low": "gemini-3.6-flash-low",
+					"medium": "gemini-3.6-flash-medium",
+					"high": "gemini-3.6-flash-high"
+				}
+			}
 		},
-		"gemini-3.6-flash-low": {
-			"id": "gemini-3.6-flash-low",
-			"name": "Gemini 3.6 Flash Low",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gemini-3.6-flash-medium": {
-			"id": "gemini-3.6-flash-medium",
-			"name": "Gemini 3.6 Flash Medium",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gemini-3.6-flash-minimal": {
-			"id": "gemini-3.6-flash-minimal",
-			"name": "Gemini 3.6 Flash Minimal",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gemini-3.7-flash-high": {
-			"id": "gemini-3.7-flash-high",
+		"gemini-3.7-flash": {
+			"id": "gemini-3.7-flash",
 			"name": "Gemini 3.7 Flash",
 			"api": "cursor-agent",
 			"provider": "cursor",
 			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
+			"reasoning": true,
 			"input": [
 				"text",
 				"image"
@@ -47724,61 +47672,30 @@
 			"maxTokens": 64000,
 			"cursorMaxMode": false,
 			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
+			"supportsComputerUseConfig": false,
+			"requestModelId": "gemini-3.7-flash-low",
+			"thinking": {
+				"mode": "effort",
+				"efforts": [
+					"low",
+					"medium",
+					"high"
+				],
+				"requiresEffort": true,
+				"effortRouting": {
+					"low": "gemini-3.7-flash-low",
+					"medium": "gemini-3.7-flash-medium",
+					"high": "gemini-3.7-flash-high"
+				}
+			}
 		},
-		"gemini-3.7-flash-low": {
-			"id": "gemini-3.7-flash-low",
-			"name": "Gemini 3.7 Flash Low",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gemini-3.7-flash-medium": {
-			"id": "gemini-3.7-flash-medium",
-			"name": "Gemini 3.7 Flash Medium",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"glm-5.2-high": {
-			"id": "glm-5.2-high",
+		"glm-5.2": {
+			"id": "glm-5.2",
 			"name": "GLM 5.2",
 			"api": "cursor-agent",
 			"provider": "cursor",
 			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
+			"reasoning": true,
 			"input": [
 				"text"
 			],
@@ -47793,30 +47710,20 @@
 			"cursorMaxMode": false,
 			"tokenizer": "glm5",
 			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"glm-5.2-max": {
-			"id": "glm-5.2-max",
-			"name": "GLM 5.2 Max",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1000000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"tokenizer": "glm5",
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
+			"supportsComputerUseConfig": false,
+			"requestModelId": "glm-5.2-high",
+			"thinking": {
+				"mode": "effort",
+				"efforts": [
+					"high",
+					"max"
+				],
+				"requiresEffort": true,
+				"effortRouting": {
+					"high": "glm-5.2-high",
+					"max": "glm-5.2-max"
+				}
+			}
 		},
 		"gpt-5-mini": {
 			"id": "gpt-5-mini",
@@ -48558,7 +48465,7 @@
 			},
 			"contextWindow": 200000,
 			"maxTokens": 64000,
-			"contextPromotionTarget": "cursor/gpt-5.5-low",
+			"contextPromotionTarget": "cursor/gpt-5.5",
 			"supportsComputerUse": false,
 			"supportsComputerUseConfig": false
 		},
@@ -48606,79 +48513,13 @@
 			"supportsComputerUse": false,
 			"supportsComputerUseConfig": false
 		},
-		"gpt-5.4-high": {
-			"id": "gpt-5.4-high",
-			"name": "GPT-5.4 1M High",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1000000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.4-high-fast": {
-			"id": "gpt-5.4-high-fast",
-			"name": "GPT-5.4 High Fast",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.4-low": {
-			"id": "gpt-5.4-low",
-			"name": "GPT-5.4 1M Low",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1000000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.4-medium": {
-			"id": "gpt-5.4-medium",
+		"gpt-5.4": {
+			"id": "gpt-5.4",
 			"name": "GPT-5.4 1M",
 			"api": "cursor-agent",
 			"provider": "cursor",
 			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
+			"reasoning": true,
 			"input": [
 				"text"
 			],
@@ -48692,15 +48533,32 @@
 			"maxTokens": 64000,
 			"cursorMaxMode": false,
 			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
+			"supportsComputerUseConfig": false,
+			"requestModelId": "gpt-5.4-low",
+			"thinking": {
+				"mode": "effort",
+				"efforts": [
+					"low",
+					"medium",
+					"high",
+					"xhigh"
+				],
+				"requiresEffort": true,
+				"effortRouting": {
+					"low": "gpt-5.4-low",
+					"medium": "gpt-5.4-medium",
+					"high": "gpt-5.4-high",
+					"xhigh": "gpt-5.4-xhigh"
+				}
+			}
 		},
-		"gpt-5.4-medium-fast": {
-			"id": "gpt-5.4-medium-fast",
+		"gpt-5.4-fast": {
+			"id": "gpt-5.4-fast",
 			"name": "GPT-5.4 Fast",
 			"api": "cursor-agent",
 			"provider": "cursor",
 			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
+			"reasoning": true,
 			"input": [
 				"text"
 			],
@@ -48714,61 +48572,30 @@
 			"maxTokens": 64000,
 			"cursorMaxMode": false,
 			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
+			"supportsComputerUseConfig": false,
+			"requestModelId": "gpt-5.4-medium-fast",
+			"thinking": {
+				"mode": "effort",
+				"efforts": [
+					"medium",
+					"high",
+					"xhigh"
+				],
+				"requiresEffort": true,
+				"effortRouting": {
+					"medium": "gpt-5.4-medium-fast",
+					"high": "gpt-5.4-high-fast",
+					"xhigh": "gpt-5.4-xhigh-fast"
+				}
+			}
 		},
-		"gpt-5.4-mini-high": {
-			"id": "gpt-5.4-mini-high",
-			"name": "GPT-5.4 Mini High",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.4-mini-low": {
-			"id": "gpt-5.4-mini-low",
-			"name": "GPT-5.4 Mini Low",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.4-mini-medium": {
-			"id": "gpt-5.4-mini-medium",
+		"gpt-5.4-mini": {
+			"id": "gpt-5.4-mini",
 			"name": "GPT-5.4 Mini",
 			"api": "cursor-agent",
 			"provider": "cursor",
 			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
+			"reasoning": true,
 			"input": [
 				"text",
 				"image"
@@ -48783,107 +48610,32 @@
 			"maxTokens": 64000,
 			"cursorMaxMode": false,
 			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
+			"supportsComputerUseConfig": false,
+			"requestModelId": "gpt-5.4-mini-none",
+			"thinking": {
+				"mode": "effort",
+				"efforts": [
+					"low",
+					"medium",
+					"high",
+					"xhigh"
+				],
+				"effortRouting": {
+					"off": "gpt-5.4-mini-none",
+					"low": "gpt-5.4-mini-low",
+					"medium": "gpt-5.4-mini-medium",
+					"high": "gpt-5.4-mini-high",
+					"xhigh": "gpt-5.4-mini-xhigh"
+				}
+			}
 		},
-		"gpt-5.4-mini-none": {
-			"id": "gpt-5.4-mini-none",
-			"name": "GPT-5.4 Mini None",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.4-mini-xhigh": {
-			"id": "gpt-5.4-mini-xhigh",
-			"name": "GPT-5.4 Mini Extra High",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.4-nano-high": {
-			"id": "gpt-5.4-nano-high",
-			"name": "GPT-5.4 Nano High",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.4-nano-low": {
-			"id": "gpt-5.4-nano-low",
-			"name": "GPT-5.4 Nano Low",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.4-nano-medium": {
-			"id": "gpt-5.4-nano-medium",
+		"gpt-5.4-nano": {
+			"id": "gpt-5.4-nano",
 			"name": "GPT-5.4 Nano",
 			"api": "cursor-agent",
 			"provider": "cursor",
 			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
+			"reasoning": true,
 			"input": [
 				"text",
 				"image"
@@ -48898,105 +48650,32 @@
 			"maxTokens": 64000,
 			"cursorMaxMode": false,
 			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
+			"supportsComputerUseConfig": false,
+			"requestModelId": "gpt-5.4-nano-none",
+			"thinking": {
+				"mode": "effort",
+				"efforts": [
+					"low",
+					"medium",
+					"high",
+					"xhigh"
+				],
+				"effortRouting": {
+					"off": "gpt-5.4-nano-none",
+					"low": "gpt-5.4-nano-low",
+					"medium": "gpt-5.4-nano-medium",
+					"high": "gpt-5.4-nano-high",
+					"xhigh": "gpt-5.4-nano-xhigh"
+				}
+			}
 		},
-		"gpt-5.4-nano-none": {
-			"id": "gpt-5.4-nano-none",
-			"name": "GPT-5.4 Nano None",
+		"gpt-5.5": {
+			"id": "gpt-5.5",
+			"name": "GPT-5.5 1M Extra",
 			"api": "cursor-agent",
 			"provider": "cursor",
 			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.4-nano-xhigh": {
-			"id": "gpt-5.4-nano-xhigh",
-			"name": "GPT-5.4 Nano Extra High",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.4-xhigh": {
-			"id": "gpt-5.4-xhigh",
-			"name": "GPT-5.4 1M Extra High",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1000000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.4-xhigh-fast": {
-			"id": "gpt-5.4-xhigh-fast",
-			"name": "GPT-5.4 Extra High Fast",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.5-extra-high": {
-			"id": "gpt-5.5-extra-high",
-			"name": "GPT-5.5 1M Extra High",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
+			"reasoning": true,
 			"input": [
 				"text",
 				"image"
@@ -49010,17 +48689,34 @@
 			"contextWindow": 1000000,
 			"maxTokens": 64000,
 			"cursorMaxMode": false,
-			"contextPromotionTarget": "cursor/gpt-5.4-low",
+			"contextPromotionTarget": "cursor/gpt-5.4",
 			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
+			"supportsComputerUseConfig": false,
+			"requestModelId": "gpt-5.5-none",
+			"thinking": {
+				"mode": "effort",
+				"efforts": [
+					"low",
+					"medium",
+					"high",
+					"xhigh"
+				],
+				"effortRouting": {
+					"off": "gpt-5.5-none",
+					"low": "gpt-5.5-low",
+					"medium": "gpt-5.5-medium",
+					"high": "gpt-5.5-high",
+					"xhigh": "gpt-5.5-extra-high"
+				}
+			}
 		},
-		"gpt-5.5-extra-high-fast": {
-			"id": "gpt-5.5-extra-high-fast",
-			"name": "GPT-5.5 Extra High Fast",
+		"gpt-5.5-fast": {
+			"id": "gpt-5.5-fast",
+			"name": "GPT-5.5 Extra Fast",
 			"api": "cursor-agent",
 			"provider": "cursor",
 			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
+			"reasoning": true,
 			"input": [
 				"text",
 				"image"
@@ -49034,209 +48730,34 @@
 			"contextWindow": 200000,
 			"maxTokens": 64000,
 			"cursorMaxMode": false,
-			"contextPromotionTarget": "cursor/gpt-5.4-low",
+			"contextPromotionTarget": "cursor/gpt-5.4",
 			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
+			"supportsComputerUseConfig": false,
+			"requestModelId": "gpt-5.5-none-fast",
+			"thinking": {
+				"mode": "effort",
+				"efforts": [
+					"low",
+					"medium",
+					"high",
+					"xhigh"
+				],
+				"effortRouting": {
+					"off": "gpt-5.5-none-fast",
+					"low": "gpt-5.5-low-fast",
+					"medium": "gpt-5.5-medium-fast",
+					"high": "gpt-5.5-high-fast",
+					"xhigh": "gpt-5.5-extra-high-fast"
+				}
+			}
 		},
-		"gpt-5.5-high": {
-			"id": "gpt-5.5-high",
-			"name": "GPT-5.5 1M High",
+		"gpt-5.6-luna": {
+			"id": "gpt-5.6-luna",
+			"name": "GPT-5.6 Luna",
 			"api": "cursor-agent",
 			"provider": "cursor",
 			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1000000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"contextPromotionTarget": "cursor/gpt-5.4-low",
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.5-high-fast": {
-			"id": "gpt-5.5-high-fast",
-			"name": "GPT-5.5 High Fast",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"contextPromotionTarget": "cursor/gpt-5.4-low",
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.5-low": {
-			"id": "gpt-5.5-low",
-			"name": "GPT-5.5 1M Low",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1000000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"contextPromotionTarget": "cursor/gpt-5.4-low",
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.5-low-fast": {
-			"id": "gpt-5.5-low-fast",
-			"name": "GPT-5.5 Low Fast",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"contextPromotionTarget": "cursor/gpt-5.4-low",
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.5-medium": {
-			"id": "gpt-5.5-medium",
-			"name": "GPT-5.5 1M",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1000000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"contextPromotionTarget": "cursor/gpt-5.4-low",
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.5-medium-fast": {
-			"id": "gpt-5.5-medium-fast",
-			"name": "GPT-5.5 Fast",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"contextPromotionTarget": "cursor/gpt-5.4-low",
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.5-none": {
-			"id": "gpt-5.5-none",
-			"name": "GPT-5.5 1M None",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1000000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"contextPromotionTarget": "cursor/gpt-5.4-low",
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.5-none-fast": {
-			"id": "gpt-5.5-none-fast",
-			"name": "GPT-5.5 None Fast",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"contextPromotionTarget": "cursor/gpt-5.4-low",
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.6-luna-high": {
-			"id": "gpt-5.6-luna-high",
-			"name": "GPT-5.6 Luna 1M High",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
+			"reasoning": true,
 			"input": [
 				"text",
 				"image"
@@ -49251,153 +48772,34 @@
 			"maxTokens": 64000,
 			"cursorMaxMode": false,
 			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
+			"supportsComputerUseConfig": false,
+			"requestModelId": "gpt-5.6-luna-none",
+			"thinking": {
+				"mode": "effort",
+				"efforts": [
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max"
+				],
+				"effortRouting": {
+					"off": "gpt-5.6-luna-none",
+					"low": "gpt-5.6-luna-low",
+					"medium": "gpt-5.6-luna-medium",
+					"high": "gpt-5.6-luna-high",
+					"xhigh": "gpt-5.6-luna-xhigh",
+					"max": "gpt-5.6-luna-max"
+				}
+			}
 		},
-		"gpt-5.6-luna-high-fast": {
-			"id": "gpt-5.6-luna-high-fast",
-			"name": "GPT-5.6 Luna High Fast",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.6-luna-low": {
-			"id": "gpt-5.6-luna-low",
-			"name": "GPT-5.6 Luna 1M Low",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1000000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.6-luna-low-fast": {
-			"id": "gpt-5.6-luna-low-fast",
-			"name": "GPT-5.6 Luna Low Fast",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.6-luna-max": {
-			"id": "gpt-5.6-luna-max",
-			"name": "GPT-5.6 Luna 1M Max",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1000000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.6-luna-max-fast": {
-			"id": "gpt-5.6-luna-max-fast",
-			"name": "GPT-5.6 Luna Max Fast",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.6-luna-medium": {
-			"id": "gpt-5.6-luna-medium",
-			"name": "GPT-5.6 Luna 1M",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1000000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.6-luna-medium-fast": {
-			"id": "gpt-5.6-luna-medium-fast",
+		"gpt-5.6-luna-fast": {
+			"id": "gpt-5.6-luna-fast",
 			"name": "GPT-5.6 Luna Fast",
 			"api": "cursor-agent",
 			"provider": "cursor",
 			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
+			"reasoning": true,
 			"input": [
 				"text",
 				"image"
@@ -49412,15 +48814,34 @@
 			"maxTokens": 64000,
 			"cursorMaxMode": false,
 			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
+			"supportsComputerUseConfig": false,
+			"requestModelId": "gpt-5.6-luna-none-fast",
+			"thinking": {
+				"mode": "effort",
+				"efforts": [
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max"
+				],
+				"effortRouting": {
+					"off": "gpt-5.6-luna-none-fast",
+					"low": "gpt-5.6-luna-low-fast",
+					"medium": "gpt-5.6-luna-medium-fast",
+					"high": "gpt-5.6-luna-high-fast",
+					"xhigh": "gpt-5.6-luna-xhigh-fast",
+					"max": "gpt-5.6-luna-max-fast"
+				}
+			}
 		},
-		"gpt-5.6-luna-none": {
-			"id": "gpt-5.6-luna-none",
-			"name": "GPT-5.6 Luna 1M None",
+		"gpt-5.6-sol": {
+			"id": "gpt-5.6-sol",
+			"name": "GPT-5.6 Sol",
 			"api": "cursor-agent",
 			"provider": "cursor",
 			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
+			"reasoning": true,
 			"input": [
 				"text",
 				"image"
@@ -49435,245 +48856,34 @@
 			"maxTokens": 64000,
 			"cursorMaxMode": false,
 			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
+			"supportsComputerUseConfig": false,
+			"requestModelId": "gpt-5.6-sol-none",
+			"thinking": {
+				"mode": "effort",
+				"efforts": [
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max"
+				],
+				"effortRouting": {
+					"off": "gpt-5.6-sol-none",
+					"low": "gpt-5.6-sol-low",
+					"medium": "gpt-5.6-sol-medium",
+					"high": "gpt-5.6-sol-high",
+					"xhigh": "gpt-5.6-sol-xhigh",
+					"max": "gpt-5.6-sol-max"
+				}
+			}
 		},
-		"gpt-5.6-luna-none-fast": {
-			"id": "gpt-5.6-luna-none-fast",
-			"name": "GPT-5.6 Luna None Fast",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.6-luna-xhigh": {
-			"id": "gpt-5.6-luna-xhigh",
-			"name": "GPT-5.6 Luna 1M Extra High",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1000000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.6-luna-xhigh-fast": {
-			"id": "gpt-5.6-luna-xhigh-fast",
-			"name": "GPT-5.6 Luna Extra High Fast",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.6-sol-high": {
-			"id": "gpt-5.6-sol-high",
-			"name": "GPT-5.6 Sol 1M High",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1000000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.6-sol-high-fast": {
-			"id": "gpt-5.6-sol-high-fast",
-			"name": "GPT-5.6 Sol High Fast",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.6-sol-low": {
-			"id": "gpt-5.6-sol-low",
-			"name": "GPT-5.6 Sol 1M Low",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1000000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.6-sol-low-fast": {
-			"id": "gpt-5.6-sol-low-fast",
-			"name": "GPT-5.6 Sol Low Fast",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.6-sol-max": {
-			"id": "gpt-5.6-sol-max",
-			"name": "GPT-5.6 Sol 1M Max",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1000000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.6-sol-max-fast": {
-			"id": "gpt-5.6-sol-max-fast",
-			"name": "GPT-5.6 Sol Max Fast",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.6-sol-medium": {
-			"id": "gpt-5.6-sol-medium",
-			"name": "GPT-5.6 Sol 1M",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1000000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.6-sol-medium-fast": {
-			"id": "gpt-5.6-sol-medium-fast",
+		"gpt-5.6-sol-fast": {
+			"id": "gpt-5.6-sol-fast",
 			"name": "GPT-5.6 Sol Fast",
 			"api": "cursor-agent",
 			"provider": "cursor",
 			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
+			"reasoning": true,
 			"input": [
 				"text",
 				"image"
@@ -49688,15 +48898,34 @@
 			"maxTokens": 64000,
 			"cursorMaxMode": false,
 			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
+			"supportsComputerUseConfig": false,
+			"requestModelId": "gpt-5.6-sol-none-fast",
+			"thinking": {
+				"mode": "effort",
+				"efforts": [
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max"
+				],
+				"effortRouting": {
+					"off": "gpt-5.6-sol-none-fast",
+					"low": "gpt-5.6-sol-low-fast",
+					"medium": "gpt-5.6-sol-medium-fast",
+					"high": "gpt-5.6-sol-high-fast",
+					"xhigh": "gpt-5.6-sol-xhigh-fast",
+					"max": "gpt-5.6-sol-max-fast"
+				}
+			}
 		},
-		"gpt-5.6-sol-none": {
-			"id": "gpt-5.6-sol-none",
-			"name": "GPT-5.6 Sol 1M None",
+		"gpt-5.6-terra": {
+			"id": "gpt-5.6-terra",
+			"name": "GPT-5.6 Terra",
 			"api": "cursor-agent",
 			"provider": "cursor",
 			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
+			"reasoning": true,
 			"input": [
 				"text",
 				"image"
@@ -49711,245 +48940,34 @@
 			"maxTokens": 64000,
 			"cursorMaxMode": false,
 			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
+			"supportsComputerUseConfig": false,
+			"requestModelId": "gpt-5.6-terra-none",
+			"thinking": {
+				"mode": "effort",
+				"efforts": [
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max"
+				],
+				"effortRouting": {
+					"off": "gpt-5.6-terra-none",
+					"low": "gpt-5.6-terra-low",
+					"medium": "gpt-5.6-terra-medium",
+					"high": "gpt-5.6-terra-high",
+					"xhigh": "gpt-5.6-terra-xhigh",
+					"max": "gpt-5.6-terra-max"
+				}
+			}
 		},
-		"gpt-5.6-sol-none-fast": {
-			"id": "gpt-5.6-sol-none-fast",
-			"name": "GPT-5.6 Sol None Fast",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.6-sol-xhigh": {
-			"id": "gpt-5.6-sol-xhigh",
-			"name": "GPT-5.6 Sol 1M Extra High",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1000000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.6-sol-xhigh-fast": {
-			"id": "gpt-5.6-sol-xhigh-fast",
-			"name": "GPT-5.6 Sol Extra High Fast",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.6-terra-high": {
-			"id": "gpt-5.6-terra-high",
-			"name": "GPT-5.6 Terra 1M High",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1000000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.6-terra-high-fast": {
-			"id": "gpt-5.6-terra-high-fast",
-			"name": "GPT-5.6 Terra High Fast",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.6-terra-low": {
-			"id": "gpt-5.6-terra-low",
-			"name": "GPT-5.6 Terra 1M Low",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1000000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.6-terra-low-fast": {
-			"id": "gpt-5.6-terra-low-fast",
-			"name": "GPT-5.6 Terra Low Fast",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.6-terra-max": {
-			"id": "gpt-5.6-terra-max",
-			"name": "GPT-5.6 Terra 1M Max",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1000000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.6-terra-max-fast": {
-			"id": "gpt-5.6-terra-max-fast",
-			"name": "GPT-5.6 Terra Max Fast",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.6-terra-medium": {
-			"id": "gpt-5.6-terra-medium",
-			"name": "GPT-5.6 Terra 1M",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1000000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.6-terra-medium-fast": {
-			"id": "gpt-5.6-terra-medium-fast",
+		"gpt-5.6-terra-fast": {
+			"id": "gpt-5.6-terra-fast",
 			"name": "GPT-5.6 Terra Fast",
 			"api": "cursor-agent",
 			"provider": "cursor",
 			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
+			"reasoning": true,
 			"input": [
 				"text",
 				"image"
@@ -49964,99 +48982,26 @@
 			"maxTokens": 64000,
 			"cursorMaxMode": false,
 			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.6-terra-none": {
-			"id": "gpt-5.6-terra-none",
-			"name": "GPT-5.6 Terra 1M None",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1000000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.6-terra-none-fast": {
-			"id": "gpt-5.6-terra-none-fast",
-			"name": "GPT-5.6 Terra None Fast",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.6-terra-xhigh": {
-			"id": "gpt-5.6-terra-xhigh",
-			"name": "GPT-5.6 Terra 1M Extra High",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1000000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
-		},
-		"gpt-5.6-terra-xhigh-fast": {
-			"id": "gpt-5.6-terra-xhigh-fast",
-			"name": "GPT-5.6 Terra Extra High Fast",
-			"api": "cursor-agent",
-			"provider": "cursor",
-			"baseUrl": "https://api2.cursor.sh",
-			"reasoning": false,
-			"input": [
-				"text",
-				"image"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
-			"maxTokens": 64000,
-			"cursorMaxMode": false,
-			"supportsComputerUse": false,
-			"supportsComputerUseConfig": false
+			"supportsComputerUseConfig": false,
+			"requestModelId": "gpt-5.6-terra-none-fast",
+			"thinking": {
+				"mode": "effort",
+				"efforts": [
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max"
+				],
+				"effortRouting": {
+					"off": "gpt-5.6-terra-none-fast",
+					"low": "gpt-5.6-terra-low-fast",
+					"medium": "gpt-5.6-terra-medium-fast",
+					"high": "gpt-5.6-terra-high-fast",
+					"xhigh": "gpt-5.6-terra-xhigh-fast",
+					"max": "gpt-5.6-terra-max-fast"
+				}
+			}
 		},
 		"grok-code-fast-1": {
 			"id": "grok-code-fast-1",
@@ -50580,6 +49525,26 @@
 			},
 			"contextWindow": 128000,
 			"maxTokens": 8192
+		},
+		"deepseek-v4-flash-vision-exp": {
+			"id": "deepseek-v4-flash-vision-exp",
+			"name": "DeepSeek V4 Flash Vision Exp",
+			"api": "openai-completions",
+			"provider": "deepseek",
+			"baseUrl": "https://api.deepseek.com",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 384000
 		}
 	},
 	"devin": {
@@ -64145,6 +63110,27 @@
 				"usesOpenAIToolCallIdLimit": false,
 				"dropThinkingWhenReasoningEffort": false
 			}
+		},
+		"claude-fable-5@default": {
+			"id": "claude-fable-5@default",
+			"name": "Claude Fable 5",
+			"api": "google-vertex",
+			"provider": "google-vertex",
+			"baseUrl": "https://{location}-aiplatform.googleapis.com",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 128000
 		},
 		"claude-3-5-haiku@20241022": {
 			"id": "claude-3-5-haiku@20241022",
@@ -108859,6 +107845,26 @@
 			"contextWindow": 131072,
 			"maxTokens": 65536
 		},
+		"deepseek/deepseek-v4-flash-vision-exp": {
+			"id": "deepseek/deepseek-v4-flash-vision-exp",
+			"name": "DeepSeek V4 Flash Vision Exp",
+			"api": "openai-completions",
+			"provider": "kilo",
+			"baseUrl": "https://api.kilo.ai/api/gateway",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 384000
+		},
 		"tencent/hy-mt2-1.8b": {
 			"id": "tencent/hy-mt2-1.8b",
 			"name": "Hy-MT2-1.8B",
@@ -108897,6 +107903,67 @@
 			"contextWindow": 8192,
 			"maxTokens": 4096
 		},
+		"thinkingmachines/inkling:free": {
+			"id": "thinkingmachines/inkling:free",
+			"name": "Inkling (free)",
+			"api": "openai-completions",
+			"provider": "kilo",
+			"baseUrl": "https://api.kilo.ai/api/gateway",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"audio"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 262144
+		},
+		"thinkingmachines/inkling-small:free": {
+			"id": "thinkingmachines/inkling-small:free",
+			"name": "Inkling Small (free)",
+			"api": "openai-completions",
+			"provider": "kilo",
+			"baseUrl": "https://api.kilo.ai/api/gateway",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"audio"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 262144
+		},
+		"meituan/longcat-2.0-free": {
+			"id": "meituan/longcat-2.0-free",
+			"name": "Meituan: LongCat 2.0 (free)",
+			"api": "openai-completions",
+			"provider": "kilo",
+			"baseUrl": "https://api.kilo.ai/api/gateway",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048756,
+			"maxTokens": 131072
+		},
 		"mistralai/ministral-8b": {
 			"id": "mistralai/ministral-8b",
 			"name": "Ministral 8B",
@@ -108916,6 +107983,29 @@
 			"contextWindow": 128000,
 			"maxTokens": 128000
 		},
+		"meta/muse-spark-1.2-contributor": {
+			"id": "meta/muse-spark-1.2-contributor",
+			"name": "Muse Spark 1.2 Contributor (Data Used for Training)",
+			"api": "openai-completions",
+			"provider": "kilo",
+			"baseUrl": "https://api.kilo.ai/api/gateway",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video",
+				"audio",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 65536
+		},
 		"stealth/ox-alpha": {
 			"id": "stealth/ox-alpha",
 			"name": "Ox Alpha",
@@ -108925,8 +108015,7 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image",
-				"video"
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -108934,8 +108023,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1048576,
-			"maxTokens": 131072
+			"contextWindow": 1000000,
+			"maxTokens": 32768
 		},
 		"perplexity/sonar-reasoning-pro": {
 			"id": "perplexity/sonar-reasoning-pro",
@@ -207106,7 +206195,7 @@
 		},
 		"x-preview-f-free": {
 			"id": "x-preview-f-free",
-			"name": "Ox Alpha Free",
+			"name": "Ox Alpha Free (Unlimited)",
 			"api": "openai-completions",
 			"provider": "opencode",
 			"baseUrl": "https://opencode.ai/zen/v1",
@@ -210423,6 +209512,26 @@
 				}
 			}
 		},
+		"deepseek-v4-flash-vision-exp": {
+			"id": "deepseek-v4-flash-vision-exp",
+			"name": "DeepSeek V4 Flash Vision Exp",
+			"api": "openai-completions",
+			"provider": "opencode-go",
+			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 384000
+		},
 		"muse-spark-1.2": {
 			"id": "muse-spark-1.2",
 			"name": "Muse Spark 1.2",
@@ -210444,6 +209553,27 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 1048576,
+			"maxTokens": 131072
+		},
+		"ox-alpha-free": {
+			"id": "ox-alpha-free",
+			"name": "Ox Alpha Free (Unlimited)",
+			"api": "openai-completions",
+			"provider": "opencode-go",
+			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
 			"maxTokens": 131072
 		}
 	},
@@ -255402,6 +254532,26 @@
 			"contextWindow": 131072,
 			"maxTokens": 131072
 		},
+		"deepseek/deepseek-v4-flash-vision-exp": {
+			"id": "deepseek/deepseek-v4-flash-vision-exp",
+			"name": "DeepSeek V4 Flash Vision Exp",
+			"api": "openai-completions",
+			"provider": "openrouter",
+			"baseUrl": "https://openrouter.ai/api/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 384000
+		},
 		"baidu/ernie-4.5-vl-424b-a47b": {
 			"id": "baidu/ernie-4.5-vl-424b-a47b",
 			"name": "ERNIE 4.5 VL 424B A47B",
@@ -255809,6 +254959,48 @@
 			"contextWindow": 8000,
 			"maxTokens": 4096
 		},
+		"thinkingmachines/inkling:free": {
+			"id": "thinkingmachines/inkling:free",
+			"name": "Inkling (free)",
+			"api": "openai-completions",
+			"provider": "openrouter",
+			"baseUrl": "https://openrouter.ai/api/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"audio"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 262144
+		},
+		"thinkingmachines/inkling-small:free": {
+			"id": "thinkingmachines/inkling-small:free",
+			"name": "Inkling Small (free)",
+			"api": "openai-completions",
+			"provider": "openrouter",
+			"baseUrl": "https://openrouter.ai/api/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"audio"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 262144
+		},
 		"liquid/lfm-2-24b-a2b": {
 			"id": "liquid/lfm-2-24b-a2b",
 			"name": "LFM2 24B A2B",
@@ -256157,6 +255349,29 @@
 			"contextWindow": 262144,
 			"maxTokens": 131072
 		},
+		"meta/muse-spark-1.2-contributor": {
+			"id": "meta/muse-spark-1.2-contributor",
+			"name": "Muse Spark 1.2 Contributor (Data Used for Training)",
+			"api": "openai-completions",
+			"provider": "openrouter",
+			"baseUrl": "https://openrouter.ai/api/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video",
+				"audio",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 65536
+		},
 		"gryphe/mythomax-l2-13b": {
 			"id": "gryphe/mythomax-l2-13b",
 			"name": "MythoMax 13B",
@@ -256327,8 +255542,7 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image",
-				"video"
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -256336,8 +255550,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1048576,
-			"maxTokens": 131072
+			"contextWindow": 1000000,
+			"maxTokens": 32768
 		},
 		"writer/palmyra-x5": {
 			"id": "writer/palmyra-x5",
@@ -272556,6 +271770,27 @@
 				"usesOpenAIToolCallIdLimit": false,
 				"dropThinkingWhenReasoningEffort": false
 			}
+		},
+		"stealth-ox-alpha": {
+			"id": "stealth-ox-alpha",
+			"name": "Ox Alpha",
+			"api": "openai-completions",
+			"provider": "venice",
+			"baseUrl": "https://api.venice.ai/api/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 131072
 		}
 	},
 	"vercel-ai-gateway": {
@@ -323201,6 +322436,26 @@
 			"contextWindow": 1000000,
 			"maxTokens": 384000
 		},
+		"deepseek/deepseek-v4-flash-vision-exp": {
+			"id": "deepseek/deepseek-v4-flash-vision-exp",
+			"name": "DeepSeek V4 Flash Vision Exp",
+			"api": "openai-completions",
+			"provider": "crossmodel",
+			"baseUrl": "https://api.crossmodel.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 384000
+		},
 		"deepseek/deepseek-v4-pro": {
 			"id": "deepseek/deepseek-v4-pro",
 			"name": "DeepSeek V4 Pro",
@@ -332252,6 +331507,26 @@
 			"contextWindow": 1048576,
 			"maxTokens": 384000
 		},
+		"deepseek/deepseek-v4-flash-vision-exp": {
+			"id": "deepseek/deepseek-v4-flash-vision-exp",
+			"name": "DeepSeek V4 Flash Vision Exp",
+			"api": "openai-completions",
+			"provider": "edenai",
+			"baseUrl": "https://api.edenai.run/v3",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 384000
+		},
 		"deepseek/deepseek-v4-pro": {
 			"id": "deepseek/deepseek-v4-pro",
 			"name": "DeepSeek V4 Pro",
@@ -335561,7 +334836,7 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 8000,
+			"contextWindow": 262144,
 			"maxTokens": 262144
 		},
 		"deepinfra/nemotron-3-ultra-550b-a55b": {
@@ -335986,7 +335261,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 1048576,
-			"maxTokens": 262144
+			"maxTokens": 131072
 		},
 		"cloudflare/@cf/qwen/qwen3.8-27b": {
 			"id": "cloudflare/@cf/qwen/qwen3.8-27b",
@@ -350101,6 +349376,25 @@
 			"contextWindow": 1050000,
 			"maxTokens": 393216
 		},
+		"ranoai/deepseek-v4-flash": {
+			"id": "ranoai/deepseek-v4-flash",
+			"name": "DeepSeek V4 Flash (RanoAI)",
+			"api": "openai-completions",
+			"provider": "llmgateway-providers",
+			"baseUrl": "https://api.llmgateway.io/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 393216
+		},
 		"runware/deepseek-v4-flash": {
 			"id": "runware/deepseek-v4-flash",
 			"name": "DeepSeek V4 Flash (Runware)",
@@ -353567,6 +352861,26 @@
 		"aws-bedrock/grok-4-6": {
 			"id": "aws-bedrock/grok-4-6",
 			"name": "Grok 4.6 (AWS Bedrock)",
+			"api": "openai-completions",
+			"provider": "llmgateway-providers",
+			"baseUrl": "https://api.llmgateway.io/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 500000,
+			"maxTokens": 500000
+		},
+		"vertex-openai/grok-4-6": {
+			"id": "vertex-openai/grok-4-6",
+			"name": "Grok 4.6 (Vertex AI (OpenAI-compatible))",
 			"api": "openai-completions",
 			"provider": "llmgateway-providers",
 			"baseUrl": "https://api.llmgateway.io/v1",
@@ -362652,6 +361966,26 @@
 			"contextWindow": 1048576,
 			"maxTokens": 1048576
 		},
+		"deepseek/deepseek-v4-flash-vision-exp": {
+			"id": "deepseek/deepseek-v4-flash-vision-exp",
+			"name": "DeepSeek V4 Flash Vision Exp",
+			"api": "openai-completions",
+			"provider": "nano-gpt",
+			"baseUrl": "https://nano-gpt.com/api/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 384000
+		},
 		"deepseek/deepseek-v4-pro": {
 			"id": "deepseek/deepseek-v4-pro",
 			"name": "DeepSeek V4 Pro",
@@ -370968,6 +370302,26 @@
 			"contextWindow": 262144,
 			"maxTokens": 32768
 		},
+		"stealth/ox-alpha": {
+			"id": "stealth/ox-alpha",
+			"name": "Ox Alpha",
+			"api": "openai-completions",
+			"provider": "nano-gpt",
+			"baseUrl": "https://nano-gpt.com/api/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 32768
+		},
 		"perceptron/perceptron-mk1": {
 			"id": "perceptron/perceptron-mk1",
 			"name": "Perceptron Mk1",
@@ -371390,6 +370744,26 @@
 			"contextWindow": 262000,
 			"maxTokens": 65536
 		},
+		"qwen/qwen3.6-35b-a3b-uncensored": {
+			"id": "qwen/qwen3.6-35b-a3b-uncensored",
+			"name": "Qwen 3.6 35B A3B Uncensored",
+			"api": "openai-completions",
+			"provider": "nano-gpt",
+			"baseUrl": "https://nano-gpt.com/api/v1",
+			"reasoning": false,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 65536,
+			"maxTokens": 32768
+		},
 		"qwen-3.6-plus": {
 			"id": "qwen-3.6-plus",
 			"name": "Qwen 3.6 Plus",
@@ -371410,6 +370784,26 @@
 			},
 			"contextWindow": 991808,
 			"maxTokens": 65536
+		},
+		"qwen/qwen3.8-27b-uncensored": {
+			"id": "qwen/qwen3.8-27b-uncensored",
+			"name": "Qwen 3.8 27B Uncensored",
+			"api": "openai-completions",
+			"provider": "nano-gpt",
+			"baseUrl": "https://nano-gpt.com/api/v1",
+			"reasoning": false,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 131072,
+			"maxTokens": 32768
 		},
 		"qwen-long": {
 			"id": "qwen-long",
@@ -379239,9 +378633,48 @@
 			"contextWindow": 1000000,
 			"maxTokens": 384000
 		},
+		"deepseek/deepseek-v4-flash-vision-exp": {
+			"id": "deepseek/deepseek-v4-flash-vision-exp",
+			"name": "DeepSeek V4 Flash Vision Exp",
+			"api": "openai-completions",
+			"provider": "ofox",
+			"baseUrl": "https://api.ofox.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 384000
+		},
 		"deepseek/deepseek-v4-pro": {
 			"id": "deepseek/deepseek-v4-pro",
 			"name": "DeepSeek V4 Pro",
+			"api": "openai-completions",
+			"provider": "ofox",
+			"baseUrl": "https://api.ofox.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 384000
+		},
+		"deepseek/deepseek-v4-pro-0423": {
+			"id": "deepseek/deepseek-v4-pro-0423",
+			"name": "DeepSeek V4 Pro 0423",
 			"api": "openai-completions",
 			"provider": "ofox",
 			"baseUrl": "https://api.ofox.ai/v1",
@@ -380912,6 +380345,27 @@
 			},
 			"contextWindow": 1000000,
 			"maxTokens": 64000
+		},
+		"bailian/qwen3.8-27b": {
+			"id": "bailian/qwen3.8-27b",
+			"name": "Qwen3.8 27B",
+			"api": "openai-completions",
+			"provider": "ofox",
+			"baseUrl": "https://api.ofox.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1131072,
+			"maxTokens": 131072
 		},
 		"bailian/qwen3.8-max": {
 			"id": "bailian/qwen3.8-max",
@@ -393899,6 +393353,25 @@
 		}
 	},
 	"scaleway": {
+		"deepseek-v4-flash-0731": {
+			"id": "deepseek-v4-flash-0731",
+			"name": "DeepSeek V4 Flash 0731",
+			"api": "openai-completions",
+			"provider": "scaleway",
+			"baseUrl": "https://api.scaleway.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 1048576
+		},
 		"devstral-2-123b-instruct-2512": {
 			"id": "devstral-2-123b-instruct-2512",
 			"name": "Devstral 2",
@@ -398548,7 +398021,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 163840,
-			"maxTokens": 32768
+			"maxTokens": 161000
 		},
 		"deepseek/deepseek-v3.2": {
 			"id": "deepseek/deepseek-v3.2",
