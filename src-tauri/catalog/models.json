@@ -79039,6 +79039,26 @@
 				"usesOpenAIToolCallIdLimit": false,
 				"dropThinkingWhenReasoningEffort": false
 			}
+		},
+		"Qwen/Qwen3.8-27B": {
+			"id": "Qwen/Qwen3.8-27B",
+			"name": "Qwen3.8 27B",
+			"api": "openai-completions",
+			"provider": "huggingface",
+			"baseUrl": "https://router.huggingface.co/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 32768
 		}
 	},
 	"kilo": {
@@ -118241,7 +118261,28 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 196608,
-			"maxTokens": 196608
+			"maxTokens": 176947
+		},
+		"minimax/minimax-m3:free": {
+			"id": "minimax/minimax-m3:free",
+			"name": "MiniMax M3 (free)",
+			"api": "openai-completions",
+			"provider": "kilo",
+			"baseUrl": "https://api.kilo.ai/api/gateway",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 943718
 		},
 		"perplexity/sonar-reasoning-pro": {
 			"id": "perplexity/sonar-reasoning-pro",
@@ -217956,8 +217997,7 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image",
-				"pdf"
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -222212,6 +222252,26 @@
 					"dropThinkingWhenReasoningEffort": false
 				}
 			}
+		},
+		"grok-4.6": {
+			"id": "grok-4.6",
+			"name": "Grok 4.6",
+			"api": "openai-completions",
+			"provider": "opencode-go",
+			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 500000,
+			"maxTokens": 500000
 		},
 		"longcat-2.0": {
 			"id": "longcat-2.0",
@@ -268371,7 +268431,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 131072,
-			"maxTokens": 131072
+			"maxTokens": 117964
 		},
 		"baidu/ernie-4.5-vl-424b-a47b": {
 			"id": "baidu/ernie-4.5-vl-424b-a47b",
@@ -268429,7 +268489,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 4095,
-			"maxTokens": 4096
+			"maxTokens": 3685
 		},
 		"openai/gpt-4o-search-preview": {
 			"id": "openai/gpt-4o-search-preview",
@@ -268587,7 +268647,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 131000,
-			"maxTokens": 131000
+			"maxTokens": 117900
 		},
 		"x-ai/grok-4.20-multi-agent": {
 			"id": "x-ai/grok-4.20-multi-agent",
@@ -268683,7 +268743,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 131072,
-			"maxTokens": 131072
+			"maxTokens": 117964
 		},
 		"tencent/hunyuan-a13b-instruct": {
 			"id": "tencent/hunyuan-a13b-instruct",
@@ -268702,7 +268762,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 131072,
-			"maxTokens": 131072
+			"maxTokens": 117964
 		},
 		"tencent/hy-mt2-1.8b": {
 			"id": "tencent/hy-mt2-1.8b",
@@ -268854,7 +268914,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 8192,
-			"maxTokens": 16384
+			"maxTokens": 7372
 		},
 		"aion-labs/aion-rp-llama-3.1-8b": {
 			"id": "aion-labs/aion-rp-llama-3.1-8b",
@@ -268892,7 +268952,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 60000,
-			"maxTokens": 60000
+			"maxTokens": 54000
 		},
 		"meta-llama/llama-3.2-3b-instruct:free": {
 			"id": "meta-llama/llama-3.2-3b-instruct:free",
@@ -269107,7 +269167,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 196608,
-			"maxTokens": 196608
+			"maxTokens": 176947
 		},
 		"minimax/minimax-m3:free": {
 			"id": "minimax/minimax-m3:free",
@@ -269128,7 +269188,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 1048576,
-			"maxTokens": 1048576
+			"maxTokens": 943718
 		},
 		"mistralai/ministral-8b": {
 			"id": "mistralai/ministral-8b",
@@ -269147,7 +269207,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 128000,
-			"maxTokens": 128000
+			"maxTokens": 102400
 		},
 		"morph/morph-v3-fast": {
 			"id": "morph/morph-v3-fast",
@@ -269204,7 +269264,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 8192,
-			"maxTokens": 4096
+			"maxTokens": 3686
 		},
 		"google/gemini-2.5-flash-image": {
 			"id": "google/gemini-2.5-flash-image",
@@ -269346,7 +269406,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 65536,
-			"maxTokens": 65536
+			"maxTokens": 58982
 		},
 		"writer/palmyra-x5": {
 			"id": "writer/palmyra-x5",
@@ -269424,7 +269484,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 16384,
-			"maxTokens": 16384
+			"maxTokens": 14745
 		},
 		"microsoft/phi-4-mini-instruct": {
 			"id": "microsoft/phi-4-mini-instruct",
@@ -269462,7 +269522,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 32768,
-			"maxTokens": 32768
+			"maxTokens": 29491
 		},
 		"qwen/qwen2.5-vl-72b-instruct": {
 			"id": "qwen/qwen2.5-vl-72b-instruct",
@@ -269482,7 +269542,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 128000,
-			"maxTokens": 128000
+			"maxTokens": 28800
 		},
 		"deepseek/deepseek-r1-distill-llama-70b": {
 			"id": "deepseek/deepseek-r1-distill-llama-70b",
@@ -269501,7 +269561,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 8192,
-			"maxTokens": 8192
+			"maxTokens": 7372
 		},
 		"undi95/remm-slerp-l2-13b": {
 			"id": "undi95/remm-slerp-l2-13b",
@@ -269540,7 +269600,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 65536,
-			"maxTokens": 65536
+			"maxTokens": 58982
 		},
 		"relace/relace-apply-3": {
 			"id": "relace/relace-apply-3",
@@ -269618,7 +269678,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 32768,
-			"maxTokens": 32768
+			"maxTokens": 29491
 		},
 		"perplexity/sonar": {
 			"id": "perplexity/sonar",
@@ -304842,6 +304902,103 @@
 			}
 		}
 	},
+	"yolo-auto": {
+		"deepseek-flash-v4": {
+			"id": "deepseek-flash-v4",
+			"name": "DeepSeek Flash V4",
+			"api": "openai-completions",
+			"provider": "yolo-auto",
+			"baseUrl": "https://yolo-auto.com/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"thinking": {
+				"mode": "effort",
+				"efforts": [
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max"
+				],
+				"effortMap": {
+					"minimal": "low",
+					"low": "low",
+					"medium": "high",
+					"high": "high",
+					"xhigh": "max",
+					"max": "max"
+				}
+			},
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 131072,
+			"maxTokens": null,
+			"compat": {
+				"supportsStore": false,
+				"supportsDeveloperRole": false,
+				"supportsMultipleSystemMessages": true,
+				"supportsReasoningEffort": true,
+				"supportsReasoningParams": true,
+				"supportsSamplingParams": true,
+				"supportsPenaltyAndStopParams": true,
+				"reasoningEffortMap": {},
+				"supportsUsageInStreaming": true,
+				"alwaysSendMaxTokens": false,
+				"disableReasoningOnForcedToolChoice": false,
+				"disableReasoningOnToolChoice": true,
+				"supportsToolChoice": true,
+				"supportsForcedToolChoice": true,
+				"supportsNamedToolChoice": true,
+				"maxTokensField": "max_completion_tokens",
+				"requiresToolResultName": false,
+				"requiresAssistantAfterToolResult": false,
+				"requiresThinkingAsText": false,
+				"requiresMistralToolIds": false,
+				"thinkingFormat": "chat-template",
+				"reasoningDisableMode": "chat-template-thinking-false",
+				"omitReasoningEffort": false,
+				"includeEncryptedReasoning": true,
+				"filterReasoningHistory": false,
+				"reasoningContentField": "reasoning_content",
+				"requiresReasoningContentForToolCalls": true,
+				"requiresReasoningContentForAllAssistantTurns": true,
+				"allowsSyntheticReasoningContentForToolCalls": false,
+				"replayReasoningContent": false,
+				"qwenPreserveThinking": false,
+				"qwenTemplateReasoningEffort": false,
+				"requiresAssistantContentForToolCalls": false,
+				"supportsPromptCacheBreakpoints": false,
+				"isOpenRouterHost": false,
+				"wireModelIdMode": "raw",
+				"isVercelGatewayHost": false,
+				"supportsStrictMode": false,
+				"toolStrictMode": "mixed",
+				"stripDeepseekSpecialTokens": false,
+				"streamMarkupHealingPattern": "thinking",
+				"reasoningDeltasMayBeCumulative": false,
+				"emptyLengthFinishIsContextError": false,
+				"usesOpenAIToolCallIdLimit": false,
+				"dropThinkingWhenReasoningEffort": false
+			},
+			"requiresGlyphTokenization": false,
+			"tokenizer": "deepseek-v3",
+			"supportsComputerUse": false,
+			"compatConfig": {
+				"supportsDeveloperRole": false,
+				"supportsStore": false,
+				"supportsReasoningEffort": true,
+				"thinkingFormat": "chat-template"
+			}
+		}
+	},
 	"zai": {
 		"glm-4.5": {
 			"id": "glm-4.5",
@@ -326740,8 +326897,7 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image",
-				"pdf"
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -327753,6 +327909,49 @@
 			},
 			"contextWindow": 512000,
 			"maxTokens": 65536
+		},
+		"agnes-2.5-pro-alpha": {
+			"id": "agnes-2.5-pro-alpha",
+			"name": "Agnes 2.5 Pro Alpha",
+			"api": "openai-completions",
+			"provider": "agnes",
+			"baseUrl": "https://apihub.agnes-ai.com/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 65536
+		}
+	},
+	"aixy": {
+		"openai/gpt-4.1-mini": {
+			"id": "openai/gpt-4.1-mini",
+			"name": "GPT-4.1 mini",
+			"api": "openai-completions",
+			"provider": "aixy",
+			"baseUrl": "https://api.aixy-gateway.com/v1",
+			"reasoning": false,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1047576,
+			"maxTokens": 32768
 		}
 	},
 	"alibaba": {
@@ -331529,7 +331728,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 262144
+			"maxTokens": 209715
 		},
 		"openai/gpt-4.1": {
 			"id": "openai/gpt-4.1",
@@ -331829,7 +332028,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 262144
+			"maxTokens": 209715
 		},
 		"perplexity/sonar-pro": {
 			"id": "perplexity/sonar-pro",
@@ -351094,6 +351293,25 @@
 			"contextWindow": 262144,
 			"maxTokens": 65536
 		},
+		"qwen/qwen3-coder-next@eu": {
+			"id": "qwen/qwen3-coder-next@eu",
+			"name": "Qwen3 Coder Next (EU)",
+			"api": "openai-completions",
+			"provider": "edenai",
+			"baseUrl": "https://api.edenai.run/v3",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 65536
+		},
 		"qwen/qwen3-coder-plus": {
 			"id": "qwen/qwen3-coder-plus",
 			"name": "Qwen3 Coder Plus",
@@ -351116,6 +351334,25 @@
 		"qwen/qwen3-max": {
 			"id": "qwen/qwen3-max",
 			"name": "Qwen3 Max",
+			"api": "openai-completions",
+			"provider": "edenai",
+			"baseUrl": "https://api.edenai.run/v3",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 65536
+		},
+		"qwen/qwen3-max@eu": {
+			"id": "qwen/qwen3-max@eu",
+			"name": "Qwen3 Max (EU)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -351208,7 +351445,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 262144
+			"maxTokens": 235929
 		},
 		"qwen/qwen3-next-80b-a3b-instruct": {
 			"id": "qwen/qwen3-next-80b-a3b-instruct",
@@ -355197,6 +355434,46 @@
 			"contextWindow": 262144,
 			"maxTokens": 262144
 		},
+		"MiniMaxAI/MiniMax-M2.7": {
+			"id": "MiniMaxAI/MiniMax-M2.7",
+			"name": "MiniMax-M2.7",
+			"api": "openai-completions",
+			"provider": "gmicloud",
+			"baseUrl": "https://api.gmi-serving.com/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 196608,
+			"maxTokens": 131072
+		},
+		"MiniMaxAI/MiniMax-M3": {
+			"id": "MiniMaxAI/MiniMax-M3",
+			"name": "MiniMax-M3",
+			"api": "openai-completions",
+			"provider": "gmicloud",
+			"baseUrl": "https://api.gmi-serving.com/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 524288,
+			"maxTokens": 128000
+		},
 		"Qwen/Qwen3.7-Max": {
 			"id": "Qwen/Qwen3.7-Max",
 			"name": "Qwen3.7 Max",
@@ -355953,7 +356230,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 16384,
-			"maxTokens": 16384
+			"maxTokens": 14745
 		},
 		"microsoft/phi-4-multimodal-instruct": {
 			"id": "microsoft/phi-4-multimodal-instruct",
@@ -366699,6 +366976,25 @@
 			"contextWindow": 1000000,
 			"maxTokens": 131072
 		},
+		"baidu/glm-5.3": {
+			"id": "baidu/glm-5.3",
+			"name": "GLM-5.3 (Baidu)",
+			"api": "openai-completions",
+			"provider": "llmgateway-providers",
+			"baseUrl": "https://api.llmgateway.io/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 131072
+		},
 		"zai/glm-5.3": {
 			"id": "zai/glm-5.3",
 			"name": "GLM-5.3 (Z AI)",
@@ -372026,6 +372322,27 @@
 			},
 			"contextWindow": 200000,
 			"maxTokens": 100000
+		}
+	},
+	"llmtech": {
+		"unsloth/Qwen3.8-27B-NVFP4": {
+			"id": "unsloth/Qwen3.8-27B-NVFP4",
+			"name": "Qwen3.8 27B",
+			"api": "openai-completions",
+			"provider": "llmtech",
+			"baseUrl": "https://api.llmtech.eu/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 32768
 		}
 	},
 	"llmtr": {
@@ -378506,7 +378823,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 512000,
-			"maxTokens": 512000
+			"maxTokens": 460800
 		},
 		"doubao-1.5-pro-256k": {
 			"id": "doubao-1.5-pro-256k",
@@ -382297,7 +382614,7 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 131072,
+			"contextWindow": 262144,
 			"maxTokens": 32768
 		},
 		"TEE/gemma-4-26b-a4b-uncensored": {
@@ -382337,7 +382654,7 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 131072,
+			"contextWindow": 262144,
 			"maxTokens": 32768
 		},
 		"TEE/gemma4-31b": {
@@ -382642,7 +382959,7 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 65536,
+			"contextWindow": 262144,
 			"maxTokens": 32768
 		},
 		"Gemma-4-31B-MeroMero-v2:thinking": {
@@ -382662,7 +382979,7 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 65536,
+			"contextWindow": 262144,
 			"maxTokens": 32768
 		},
 		"Gemma-4-31B-Musica-v1": {
@@ -386423,7 +386740,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 65536,
-			"maxTokens": 65536
+			"maxTokens": 58982
 		},
 		"ReadyArt/MS3.2-The-Omega-Directive-24B-Unslop-v2.0": {
 			"id": "ReadyArt/MS3.2-The-Omega-Directive-24B-Unslop-v2.0",
@@ -386655,7 +386972,7 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 131072,
+			"contextWindow": 262144,
 			"maxTokens": 32768
 		},
 		"ornith-ai/ornith-1.5-9b:thinking": {
@@ -386675,7 +386992,7 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 131072,
+			"contextWindow": 262144,
 			"maxTokens": 32768
 		},
 		"stealth/ox-alpha": {
@@ -387137,7 +387454,7 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 65536,
+			"contextWindow": 262144,
 			"maxTokens": 32768
 		},
 		"qwen/qwen3.6-35b-a3b-uncensored:thinking": {
@@ -387157,7 +387474,7 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 65536,
+			"contextWindow": 262144,
 			"maxTokens": 32768
 		},
 		"qwen-3.6-plus": {
@@ -387227,7 +387544,7 @@
 			"api": "openai-completions",
 			"provider": "nano-gpt",
 			"baseUrl": "https://nano-gpt.com/api/v1",
-			"reasoning": false,
+			"reasoning": true,
 			"input": [
 				"text",
 				"image"
@@ -387238,7 +387555,27 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 131072,
+			"contextWindow": 262144,
+			"maxTokens": 32768
+		},
+		"qwen/qwen3.8-27b-uncensored:thinking": {
+			"id": "qwen/qwen3.8-27b-uncensored:thinking",
+			"name": "Qwen 3.8 27B Uncensored Thinking",
+			"api": "openai-completions",
+			"provider": "nano-gpt",
+			"baseUrl": "https://nano-gpt.com/api/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
 			"maxTokens": 32768
 		},
 		"qwen-long": {
@@ -390483,7 +390820,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 131072
+			"maxTokens": 117964
 		},
 		"NousResearch/Hermes-4-405B": {
 			"id": "NousResearch/Hermes-4-405B",
@@ -393305,7 +393642,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 131072
+			"maxTokens": 117964
 		},
 		"google/gemma-4-26b-a4b-it": {
 			"id": "google/gemma-4-26b-a4b-it",
@@ -393964,7 +394301,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 8192,
-			"maxTokens": 4096
+			"maxTokens": 3686
 		},
 		"paddlepaddle/paddleocr-vl": {
 			"id": "paddlepaddle/paddleocr-vl",
@@ -394061,7 +394398,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 128000,
-			"maxTokens": 128000
+			"maxTokens": 28800
 		},
 		"qwen/qwen3-235b-a22b-fp8": {
 			"id": "qwen/qwen3-235b-a22b-fp8",
@@ -394433,7 +394770,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 262144
+			"maxTokens": 235929
 		},
 		"qwen/qwen3-next-80b-a3b-instruct": {
 			"id": "qwen/qwen3-next-80b-a3b-instruct",
@@ -394566,7 +394903,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 8192,
-			"maxTokens": 8192
+			"maxTokens": 7372
 		},
 		"sao10K/l3-8b-lunaris": {
 			"id": "sao10K/l3-8b-lunaris",
@@ -399678,6 +400015,123 @@
 			"maxTokens": 128000
 		}
 	},
+	"pendra": {
+		"deepseek-v4-flash": {
+			"id": "deepseek-v4-flash",
+			"name": "DeepSeek V4 Flash",
+			"api": "openai-completions",
+			"provider": "pendra",
+			"baseUrl": "https://api.pendra.ai/api/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048560,
+			"maxTokens": 65536
+		},
+		"glm-4.7-flash": {
+			"id": "glm-4.7-flash",
+			"name": "GLM-4.7-Flash",
+			"api": "openai-completions",
+			"provider": "pendra",
+			"baseUrl": "https://api.pendra.ai/api/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 203000,
+			"maxTokens": 203000
+		},
+		"llama3.3:70b": {
+			"id": "llama3.3:70b",
+			"name": "Llama-3.3-70B-Instruct",
+			"api": "openai-completions",
+			"provider": "pendra",
+			"baseUrl": "https://api.pendra.ai/api/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 128000,
+			"maxTokens": 4096
+		},
+		"qwen3-coder:30b": {
+			"id": "qwen3-coder:30b",
+			"name": "Qwen3-Coder 30B-A3B Instruct",
+			"api": "openai-completions",
+			"provider": "pendra",
+			"baseUrl": "https://api.pendra.ai/api/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 65536
+		},
+		"qwen3.6:27b": {
+			"id": "qwen3.6:27b",
+			"name": "Qwen3.6 27B",
+			"api": "openai-completions",
+			"provider": "pendra",
+			"baseUrl": "https://api.pendra.ai/api/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 65536
+		},
+		"gpt-oss:120b": {
+			"id": "gpt-oss:120b",
+			"name": "gpt-oss:120b",
+			"api": "openai-completions",
+			"provider": "pendra",
+			"baseUrl": "https://api.pendra.ai/api/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 131072,
+			"maxTokens": 32768
+		}
+	},
 	"pioneer": {
 		"claude-opus-4-1": {
 			"id": "claude-opus-4-1",
@@ -402197,7 +402651,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 4095,
-			"maxTokens": 4096
+			"maxTokens": 3685
 		},
 		"openai/gpt-3.5-turbo-raw": {
 			"id": "openai/gpt-3.5-turbo-raw",
@@ -408684,8 +409138,7 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image",
-				"pdf"
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -410606,7 +411059,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 131072
+			"maxTokens": 117964
 		},
 		"neuralmagic/Meta-Llama-3.1-8B-Instruct-FP8": {
 			"id": "neuralmagic/Meta-Llama-3.1-8B-Instruct-FP8",
@@ -415439,7 +415892,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 163840,
-			"maxTokens": 161000
+			"maxTokens": 144900
 		},
 		"deepseek/deepseek-v3.2": {
 			"id": "deepseek/deepseek-v3.2",
@@ -415811,7 +416264,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 262144
+			"maxTokens": 235929
 		},
 		"qwen/qwen3.5-122b-a10b": {
 			"id": "qwen/qwen3.5-122b-a10b",
@@ -419615,6 +420068,26 @@
 			"contextWindow": 256000,
 			"maxTokens": 32768
 		},
+		"Qwen/Qwen3.6-35B-A3B": {
+			"id": "Qwen/Qwen3.6-35B-A3B",
+			"name": "Qwen3.6 35B A3B",
+			"api": "openai-completions",
+			"provider": "evroc",
+			"baseUrl": "https://models.think.evroc.com/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 131056,
+			"maxTokens": 131056
+		},
 		"Qwen/Qwen3.6-35B-A3B-FP8": {
 			"id": "Qwen/Qwen3.6-35B-A3B-FP8",
 			"name": "Qwen3.6 35B A3B FP8",
@@ -419634,6 +420107,26 @@
 			},
 			"contextWindow": 262144,
 			"maxTokens": 262144
+		},
+		"Qwen/Qwen3.8-27B": {
+			"id": "Qwen/Qwen3.8-27B",
+			"name": "Qwen3.8 27B",
+			"api": "openai-completions",
+			"provider": "evroc",
+			"baseUrl": "https://models.think.evroc.com/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 32768
 		},
 		"mistralai/Voxtral-Small-24B-2507": {
 			"id": "mistralai/Voxtral-Small-24B-2507",
