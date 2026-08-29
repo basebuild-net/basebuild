@@ -79108,6 +79108,25 @@
 				"dropThinkingWhenReasoningEffort": false
 			}
 		},
+		"zai-org/GLM-5.3": {
+			"id": "zai-org/GLM-5.3",
+			"name": "GLM-5.3",
+			"api": "openai-completions",
+			"provider": "huggingface",
+			"baseUrl": "https://router.huggingface.co/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 131072
+		},
 		"zai-org/GLM-5.3-Flash": {
 			"id": "zai-org/GLM-5.3-Flash",
 			"name": "GLM-5.3-Flash",
@@ -336683,6 +336702,25 @@
 			"contextWindow": 202752,
 			"maxTokens": 202752
 		},
+		"glm-5.3": {
+			"id": "glm-5.3",
+			"name": "GLM-5.3",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 131072
+		},
 		"glm-5.3-flash": {
 			"id": "glm-5.3-flash",
 			"name": "GLM-5.3-Flash",
@@ -345622,6 +345660,26 @@
 			"contextWindow": 991808,
 			"maxTokens": 65536
 		},
+		"qwen3.8-27b": {
+			"id": "qwen3.8-27b",
+			"name": "Qwen3.8 27B",
+			"api": "openai-completions",
+			"provider": "llmgateway",
+			"baseUrl": "https://api.llmgateway.io/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 262144
+		},
 		"qwen3.8-flash": {
 			"id": "qwen3.8-flash",
 			"name": "Qwen3.8 Flash",
@@ -348464,7 +348522,7 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1048576,
+			"contextWindow": 1024000,
 			"maxTokens": 384000
 		},
 		"qwen/deepseek-v4-flash-0731": {
@@ -348656,6 +348714,25 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 1000000,
+			"maxTokens": 384000
+		},
+		"tensorx/deepseek/deepseek-v4-pro-0813": {
+			"id": "tensorx/deepseek/deepseek-v4-pro-0813",
+			"name": "DeepSeek V4 Pro 0813",
+			"api": "openai-completions",
+			"provider": "edenai",
+			"baseUrl": "https://api.edenai.run/v3",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
 			"maxTokens": 384000
 		},
 		"together_ai/deepseek-ai/DeepSeek-V4-Pro-0813": {
@@ -355014,6 +355091,25 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 1048575,
+			"maxTokens": 131072
+		},
+		"accounts/fireworks/models/glm-5p3": {
+			"id": "accounts/fireworks/models/glm-5p3",
+			"name": "GLM 5.3",
+			"api": "openai-completions",
+			"provider": "fireworks-ai",
+			"baseUrl": "https://api.fireworks.ai/inference/v1/",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
 			"maxTokens": 131072
 		},
 		"accounts/fireworks/models/gpt-oss-120b": {
@@ -368456,6 +368552,25 @@
 			"contextWindow": 1048576,
 			"maxTokens": 131072
 		},
+		"novita/glm-5.3": {
+			"id": "novita/glm-5.3",
+			"name": "GLM-5.3 (NovitaAI)",
+			"api": "openai-completions",
+			"provider": "llmgateway-providers",
+			"baseUrl": "https://api.llmgateway.io/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 131072
+		},
 		"zai/glm-5.3": {
 			"id": "zai/glm-5.3",
 			"name": "GLM-5.3 (Z AI)",
@@ -368474,6 +368589,25 @@
 			},
 			"contextWindow": 1000000,
 			"maxTokens": 128000
+		},
+		"scx-ai-gp/glm-5.3-flash": {
+			"id": "scx-ai-gp/glm-5.3-flash",
+			"name": "GLM-5.3 Flash (SCX.ai)",
+			"api": "openai-completions",
+			"provider": "llmgateway-providers",
+			"baseUrl": "https://api.llmgateway.io/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 131072
 		},
 		"zai/glm-5.3-flash": {
 			"id": "zai/glm-5.3-flash",
@@ -373502,6 +373636,25 @@
 			"contextWindow": 1000000,
 			"maxTokens": 64000
 		},
+		"novita/qwen3.8-27b": {
+			"id": "novita/qwen3.8-27b",
+			"name": "Qwen3.8 27B (NovitaAI)",
+			"api": "openai-completions",
+			"provider": "llmgateway-providers",
+			"baseUrl": "https://api.llmgateway.io/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 131072
+		},
 		"alibaba/qwen3.8-flash": {
 			"id": "alibaba/qwen3.8-flash",
 			"name": "Qwen3.8 Flash",
@@ -373513,6 +373666,25 @@
 				"text",
 				"image",
 				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 131072
+		},
+		"novita/qwen3.8-flash": {
+			"id": "novita/qwen3.8-flash",
+			"name": "Qwen3.8 Flash (NovitaAI)",
+			"api": "openai-completions",
+			"provider": "llmgateway-providers",
+			"baseUrl": "https://api.llmgateway.io/v1",
+			"reasoning": true,
+			"input": [
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -384965,6 +385137,26 @@
 			},
 			"contextWindow": 131072,
 			"maxTokens": 16384
+		},
+		"google/gemma-4-31b-it-gemsicle": {
+			"id": "google/gemma-4-31b-it-gemsicle",
+			"name": "Gemsicle",
+			"api": "openai-completions",
+			"provider": "nano-gpt",
+			"baseUrl": "https://nano-gpt.com/api/v1",
+			"reasoning": false,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 32768
 		},
 		"ibm-granite/granite-4.1-8b": {
 			"id": "ibm-granite/granite-4.1-8b",
@@ -396931,7 +397123,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 32768
+			"maxTokens": 16384
 		},
 		"qwen/qwen3-vl-30b-a3b-thinking": {
 			"id": "qwen/qwen3-vl-30b-a3b-thinking",
@@ -410943,6 +411135,25 @@
 			"contextWindow": 1000000,
 			"maxTokens": 131072
 		},
+		"glm-5.3@eu": {
+			"id": "glm-5.3@eu",
+			"name": "GLM-5.3 (EU)",
+			"api": "openai-completions",
+			"provider": "requesty",
+			"baseUrl": "https://router.requesty.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 1048576
+		},
 		"glm-5.3-flash": {
 			"id": "glm-5.3-flash",
 			"name": "GLM-5.3-Flash",
@@ -422787,6 +422998,25 @@
 			},
 			"contextWindow": 1048576,
 			"maxTokens": 16384
+		},
+		"deepseek-ai/DeepSeek-V4-Pro-0813": {
+			"id": "deepseek-ai/DeepSeek-V4-Pro-0813",
+			"name": "DeepSeek V4 Pro 0813",
+			"api": "openai-completions",
+			"provider": "wandb",
+			"baseUrl": "https://api.inference.wandb.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 384000
 		},
 		"zai-org/GLM-5-FP8": {
 			"id": "zai-org/GLM-5-FP8",
