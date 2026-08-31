@@ -385428,6 +385428,47 @@
 			"contextWindow": 1048576,
 			"maxTokens": 32768
 		},
+		"zai-org/GLM-5.3": {
+			"id": "zai-org/GLM-5.3",
+			"name": "GLM-5.3",
+			"api": "openai-completions",
+			"provider": "berget",
+			"baseUrl": "https://api.berget.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 131072
+		},
+		"zai-org/GLM-5.3-Flash": {
+			"id": "zai-org/GLM-5.3-Flash",
+			"name": "GLM-5.3-Flash",
+			"api": "openai-completions",
+			"provider": "berget",
+			"baseUrl": "https://api.berget.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 131072
+		},
 		"openai/gpt-oss-120b": {
 			"id": "openai/gpt-oss-120b",
 			"name": "GPT OSS 120B",
@@ -388493,6 +388534,25 @@
 			"contextWindow": 1048560,
 			"maxTokens": 1048560
 		},
+		"glm-5.3": {
+			"id": "glm-5.3",
+			"name": "GLM 5.3",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048560,
+			"maxTokens": 1048560
+		},
 		"glm-4.7": {
 			"id": "glm-4.7",
 			"name": "GLM-4.7",
@@ -388587,25 +388647,6 @@
 			},
 			"contextWindow": 202752,
 			"maxTokens": 202752
-		},
-		"glm-5.3": {
-			"id": "glm-5.3",
-			"name": "GLM-5.3",
-			"api": "openai-completions",
-			"provider": "cortecs",
-			"baseUrl": "https://api.cortecs.ai/v1",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1000000,
-			"maxTokens": 131072
 		},
 		"glm-5.3-flash": {
 			"id": "glm-5.3-flash",
@@ -390603,6 +390644,25 @@
 			"contextWindow": 1048560,
 			"maxTokens": 1048560
 		},
+		"glm-5.3": {
+			"id": "glm-5.3",
+			"name": "GLM 5.3",
+			"api": "openai-completions",
+			"provider": "crof",
+			"baseUrl": "https://crof.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048560,
+			"maxTokens": 1048560
+		},
 		"glm-4.7": {
 			"id": "glm-4.7",
 			"name": "GLM-4.7",
@@ -390678,25 +390738,6 @@
 			},
 			"contextWindow": 202752,
 			"maxTokens": 202752
-		},
-		"glm-5.3": {
-			"id": "glm-5.3",
-			"name": "GLM-5.3",
-			"api": "openai-completions",
-			"provider": "crof",
-			"baseUrl": "https://crof.ai/v1",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1000000,
-			"maxTokens": 131072
 		},
 		"glm-5.3-flash": {
 			"id": "glm-5.3-flash",
@@ -391905,6 +391946,25 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 256000,
+			"maxTokens": 64000
+		},
+		"tencent/hy4-preview": {
+			"id": "tencent/hy4-preview",
+			"name": "Hy4 preview",
+			"api": "openai-completions",
+			"provider": "crossmodel",
+			"baseUrl": "https://api.crossmodel.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1024000,
 			"maxTokens": 64000
 		},
 		"moonshot/kimi-k2.5": {
@@ -394169,6 +394229,25 @@
 			"contextWindow": 1048560,
 			"maxTokens": 1048560
 		},
+		"glm-5.3": {
+			"id": "glm-5.3",
+			"name": "GLM 5.3",
+			"api": "openai-completions",
+			"provider": "llmgateway",
+			"baseUrl": "https://api.llmgateway.io/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048560,
+			"maxTokens": 1048560
+		},
 		"glm-4-32b-0414-128k": {
 			"id": "glm-4-32b-0414-128k",
 			"name": "GLM-4 32B (0414-128k)",
@@ -394425,25 +394504,6 @@
 		"glm-5-2": {
 			"id": "glm-5-2",
 			"name": "GLM-5.2",
-			"api": "openai-completions",
-			"provider": "llmgateway",
-			"baseUrl": "https://api.llmgateway.io/v1",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1000000,
-			"maxTokens": 131072
-		},
-		"glm-5.3": {
-			"id": "glm-5.3",
-			"name": "GLM-5.3",
 			"api": "openai-completions",
 			"provider": "llmgateway",
 			"baseUrl": "https://api.llmgateway.io/v1",
@@ -398774,6 +398834,25 @@
 			"contextWindow": 1048560,
 			"maxTokens": 1048560
 		},
+		"glm-5.3": {
+			"id": "glm-5.3",
+			"name": "GLM 5.3",
+			"api": "openai-completions",
+			"provider": "digitalocean",
+			"baseUrl": "https://inference.do-ai.run/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048560,
+			"maxTokens": 1048560
+		},
 		"glm-5": {
 			"id": "glm-5",
 			"name": "GLM-5",
@@ -398811,25 +398890,6 @@
 			},
 			"contextWindow": 202752,
 			"maxTokens": 202752
-		},
-		"glm-5.3": {
-			"id": "glm-5.3",
-			"name": "GLM-5.3",
-			"api": "openai-completions",
-			"provider": "digitalocean",
-			"baseUrl": "https://inference.do-ai.run/v1",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1000000,
-			"maxTokens": 131072
 		},
 		"glm-5.3-flash": {
 			"id": "glm-5.3-flash",
@@ -434729,6 +434789,25 @@
 			"contextWindow": 1048576,
 			"maxTokens": 131072
 		},
+		"TEE/glm-5.3": {
+			"id": "TEE/glm-5.3",
+			"name": "GLM 5.3 TEE",
+			"api": "openai-completions",
+			"provider": "nano-gpt",
+			"baseUrl": "https://nano-gpt.com/api/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 131072
+		},
 		"z-ai/glm-5.3:thinking": {
 			"id": "z-ai/glm-5.3:thinking",
 			"name": "GLM 5.3 Thinking",
@@ -439510,7 +439589,7 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 16384,
+			"contextWindow": 32768,
 			"maxTokens": 8192
 		},
 		"Sao10K/L3.1-70B-Euryale-v2.2": {
@@ -447810,6 +447889,25 @@
 			},
 			"contextWindow": 199984,
 			"maxTokens": 32000
+		},
+		"glm-5.3": {
+			"id": "glm-5.3",
+			"name": "GLM 5.3",
+			"api": "openai-completions",
+			"provider": "neuralwatt",
+			"baseUrl": "https://api.neuralwatt.com/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048560,
+			"maxTokens": 1048560
 		},
 		"gemma-4-31b": {
 			"id": "gemma-4-31b",
@@ -463981,6 +464079,25 @@
 			"contextWindow": 1048560,
 			"maxTokens": 1048560
 		},
+		"glm-5.3": {
+			"id": "glm-5.3",
+			"name": "GLM 5.3",
+			"api": "openai-completions",
+			"provider": "requesty",
+			"baseUrl": "https://router.requesty.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048560,
+			"maxTokens": 1048560
+		},
 		"glm-5.1": {
 			"id": "glm-5.1",
 			"name": "GLM-5.1",
@@ -464036,25 +464153,6 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 1048576,
-			"maxTokens": 131072
-		},
-		"glm-5.3": {
-			"id": "glm-5.3",
-			"name": "GLM-5.3",
-			"api": "openai-completions",
-			"provider": "requesty",
-			"baseUrl": "https://router.requesty.ai/v1",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1000000,
 			"maxTokens": 131072
 		},
 		"glm-5.3@eu": {
@@ -467929,6 +468027,66 @@
 			},
 			"contextWindow": 128000,
 			"maxTokens": 128000
+		}
+	},
+	"sensenova": {
+		"deepseek-v4-flash": {
+			"id": "deepseek-v4-flash",
+			"name": "DeepSeek V4 Flash",
+			"api": "openai-completions",
+			"provider": "sensenova",
+			"baseUrl": "https://token.sensenova.cn/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048560,
+			"maxTokens": 65536
+		},
+		"glm-5.2": {
+			"id": "glm-5.2",
+			"name": "GLM 5.2",
+			"api": "openai-completions",
+			"provider": "sensenova",
+			"baseUrl": "https://token.sensenova.cn/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048560,
+			"maxTokens": 1048560
+		},
+		"sensenova-6.8-flash-lite": {
+			"id": "sensenova-6.8-flash-lite",
+			"name": "SenseNova 6.8 Flash Lite",
+			"api": "openai-completions",
+			"provider": "sensenova",
+			"baseUrl": "https://token.sensenova.cn/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 65536
 		}
 	},
 	"siliconflow": {
@@ -473495,8 +473653,50 @@
 			"contextWindow": 1000000,
 			"maxTokens": 128000
 		},
+		"trustedrouter/auto": {
+			"id": "trustedrouter/auto",
+			"name": "Auto",
+			"api": "openai-completions",
+			"provider": "trustedrouter",
+			"baseUrl": "https://api.trustedrouter.com/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 131072
+		},
 		"cheap": {
 			"id": "cheap",
+			"name": "Cheap",
+			"api": "openai-completions",
+			"provider": "trustedrouter",
+			"baseUrl": "https://api.trustedrouter.com/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 131072
+		},
+		"trustedrouter/cheap": {
+			"id": "trustedrouter/cheap",
 			"name": "Cheap",
 			"api": "openai-completions",
 			"provider": "trustedrouter",
@@ -473537,8 +473737,50 @@
 			"contextWindow": 1000000,
 			"maxTokens": 131072
 		},
+		"trustedrouter/e2e": {
+			"id": "trustedrouter/e2e",
+			"name": "End-to-End Encrypted",
+			"api": "openai-completions",
+			"provider": "trustedrouter",
+			"baseUrl": "https://api.trustedrouter.com/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 131072
+		},
 		"fast": {
 			"id": "fast",
+			"name": "Fast",
+			"api": "openai-completions",
+			"provider": "trustedrouter",
+			"baseUrl": "https://api.trustedrouter.com/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 131072
+		},
+		"trustedrouter/fast": {
+			"id": "trustedrouter/fast",
 			"name": "Fast",
 			"api": "openai-completions",
 			"provider": "trustedrouter",
@@ -473579,9 +473821,72 @@
 			"contextWindow": 1000000,
 			"maxTokens": 131072
 		},
+		"trustedrouter/synth": {
+			"id": "trustedrouter/synth",
+			"name": "Synth",
+			"api": "openai-completions",
+			"provider": "trustedrouter",
+			"baseUrl": "https://api.trustedrouter.com/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 131072
+		},
 		"synth-code": {
 			"id": "synth-code",
 			"name": "Synth Code",
+			"api": "openai-completions",
+			"provider": "trustedrouter",
+			"baseUrl": "https://api.trustedrouter.com/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 131072
+		},
+		"trustedrouter/synth-code": {
+			"id": "trustedrouter/synth-code",
+			"name": "Synth Code",
+			"api": "openai-completions",
+			"provider": "trustedrouter",
+			"baseUrl": "https://api.trustedrouter.com/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 131072
+		},
+		"trustedrouter/zdr": {
+			"id": "trustedrouter/zdr",
+			"name": "Zero Data Retention",
 			"api": "openai-completions",
 			"provider": "trustedrouter",
 			"baseUrl": "https://api.trustedrouter.com/v1",
@@ -474406,7 +474711,7 @@
 		},
 		"glm-5.3": {
 			"id": "glm-5.3",
-			"name": "GLM-5.3",
+			"name": "GLM 5.3",
 			"api": "openai-completions",
 			"provider": "vancine",
 			"baseUrl": "https://vancine.com/v1",
@@ -474420,8 +474725,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1000000,
-			"maxTokens": 131072
+			"contextWindow": 1048560,
+			"maxTokens": 1048560
 		},
 		"glm-5.3-flash": {
 			"id": "glm-5.3-flash",
@@ -474609,7 +474914,7 @@
 		},
 		"glm-5.3": {
 			"id": "glm-5.3",
-			"name": "GLM-5.3",
+			"name": "GLM 5.3",
 			"api": "openai-responses",
 			"provider": "vivgrid",
 			"baseUrl": "https://api.vivgrid.com/v1",
@@ -474623,8 +474928,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1000000,
-			"maxTokens": 131072
+			"contextWindow": 1048560,
+			"maxTokens": 1048560
 		},
 		"glm-5.3-flash": {
 			"id": "glm-5.3-flash",
@@ -475347,7 +475652,7 @@
 		},
 		"glm-5.3": {
 			"id": "glm-5.3",
-			"name": "GLM-5.3",
+			"name": "GLM 5.3",
 			"api": "openai-completions",
 			"provider": "volcengine-coding-plan",
 			"baseUrl": "https://ark.cn-beijing.volces.com/api/coding/v3",
@@ -475361,8 +475666,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1000000,
-			"maxTokens": 131072
+			"contextWindow": 1048560,
+			"maxTokens": 1048560
 		},
 		"kimi-k2.7-code": {
 			"id": "kimi-k2.7-code",
@@ -477041,6 +477346,25 @@
 			"contextWindow": 1048560,
 			"maxTokens": 1048560
 		},
+		"glm-5.3": {
+			"id": "glm-5.3",
+			"name": "GLM 5.3",
+			"api": "openai-completions",
+			"provider": "zhipuai",
+			"baseUrl": "https://open.bigmodel.cn/api/paas/v4",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048560,
+			"maxTokens": 1048560
+		},
 		"glm-4.5-flash": {
 			"id": "glm-4.5-flash",
 			"name": "GLM-4.5-Flash",
@@ -477215,25 +477539,6 @@
 			},
 			"contextWindow": 202752,
 			"maxTokens": 202752
-		},
-		"glm-5.3": {
-			"id": "glm-5.3",
-			"name": "GLM-5.3",
-			"api": "openai-completions",
-			"provider": "zhipuai",
-			"baseUrl": "https://open.bigmodel.cn/api/paas/v4",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1000000,
-			"maxTokens": 131072
 		},
 		"glm-5.3-flash": {
 			"id": "glm-5.3-flash",
@@ -477415,6 +477720,28 @@
 			},
 			"contextWindow": 1048560,
 			"maxTokens": 1048560
+		},
+		"glm-5.3-flash": {
+			"id": "glm-5.3-flash",
+			"name": "GLM-5.3-Flash",
+			"api": "openai-completions",
+			"provider": "above",
+			"baseUrl": "https://api.above.dev/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 131072
 		},
 		"mimo-v2.5-pro-ultraspeed": {
 			"id": "mimo-v2.5-pro-ultraspeed",
