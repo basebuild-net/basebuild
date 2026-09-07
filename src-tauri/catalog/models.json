@@ -38000,6 +38000,46 @@
 			"contextWindow": 131072,
 			"maxTokens": 8192
 		},
+		"global.xai.grok-4.6": {
+			"id": "global.xai.grok-4.6",
+			"name": "Grok 4.6 (Global)",
+			"api": "bedrock",
+			"provider": "amazon-bedrock",
+			"baseUrl": "https://bedrock-runtime.us-east-1.amazonaws.com",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 500000,
+			"maxTokens": 500000
+		},
+		"us.xai.grok-4.6": {
+			"id": "us.xai.grok-4.6",
+			"name": "Grok 4.6 (US)",
+			"api": "bedrock",
+			"provider": "amazon-bedrock",
+			"baseUrl": "https://bedrock-runtime.us-east-1.amazonaws.com",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 500000,
+			"maxTokens": 500000
+		},
 		"meta.llama3-3-70b-instruct-v1:0": {
 			"id": "meta.llama3-3-70b-instruct-v1:0",
 			"name": "Llama 3.3 70B Instruct",
@@ -84105,7 +84145,8 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image"
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -84114,7 +84155,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 1050000,
-			"maxTokens": 1050000
+			"maxTokens": 128000
 		},
 		"gemini-3.8-flash": {
 			"id": "gemini-3.8-flash",
@@ -267746,7 +267787,8 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image"
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -267755,7 +267797,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 1050000,
-			"maxTokens": 1050000
+			"maxTokens": 128000
 		},
 		"gpt-image-1.5": {
 			"id": "gpt-image-1.5",
@@ -333085,27 +333127,6 @@
 			"contextWindow": 131072,
 			"maxTokens": 32768
 		},
-		"google/gemini-3.1-flash-image-preview": {
-			"id": "google/gemini-3.1-flash-image-preview",
-			"name": "Nano Banana 2",
-			"api": "openai-completions",
-			"provider": "openrouter",
-			"baseUrl": "https://openrouter.ai/api/v1",
-			"reasoning": true,
-			"input": [
-				"text",
-				"image",
-				"pdf"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 65536,
-			"maxTokens": 65536
-		},
 		"google/gemini-3.1-flash-lite-image": {
 			"id": "google/gemini-3.1-flash-lite-image",
 			"name": "Nano Banana 2 Lite",
@@ -333126,9 +333147,30 @@
 			"contextWindow": 65536,
 			"maxTokens": 4096
 		},
+		"google/gemini-3.1-flash-image-preview": {
+			"id": "google/gemini-3.1-flash-image-preview",
+			"name": "Nano Banana 2 Preview",
+			"api": "openai-completions",
+			"provider": "openrouter",
+			"baseUrl": "https://openrouter.ai/api/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 65536,
+			"maxTokens": 65536
+		},
 		"google/gemini-3-pro-image-preview": {
 			"id": "google/gemini-3-pro-image-preview",
-			"name": "Nano Banana Pro",
+			"name": "Nano Banana Pro Preview",
 			"api": "openai-completions",
 			"provider": "openrouter",
 			"baseUrl": "https://openrouter.ai/api/v1",
@@ -401631,44 +401673,6 @@
 			"contextWindow": 1048576,
 			"maxTokens": 65536
 		},
-		"kimi-k2-0905-preview": {
-			"id": "kimi-k2-0905-preview",
-			"name": "Kimi K2 0905",
-			"api": "openai-completions",
-			"provider": "302ai",
-			"baseUrl": "https://api.302.ai/v1",
-			"reasoning": false,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 262144,
-			"maxTokens": 262144
-		},
-		"kimi-k2-thinking-turbo": {
-			"id": "kimi-k2-thinking-turbo",
-			"name": "Kimi K2 Thinking Turbo",
-			"api": "openai-completions",
-			"provider": "302ai",
-			"baseUrl": "https://api.302.ai/v1",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 262144,
-			"maxTokens": 262144
-		},
 		"MiniMax-M1": {
 			"id": "MiniMax-M1",
 			"name": "MiniMax M1",
@@ -402460,6 +402464,44 @@
 			},
 			"contextWindow": 2000000,
 			"maxTokens": 30000
+		},
+		"kimi-k2-0905-preview": {
+			"id": "kimi-k2-0905-preview",
+			"name": "kimi-k2-0905-preview",
+			"api": "openai-completions",
+			"provider": "302ai",
+			"baseUrl": "https://api.302.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 262144
+		},
+		"kimi-k2-thinking-turbo": {
+			"id": "kimi-k2-thinking-turbo",
+			"name": "kimi-k2-thinking-turbo",
+			"api": "openai-completions",
+			"provider": "302ai",
+			"baseUrl": "https://api.302.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 262144
 		},
 		"qwen3-max-2025-09-23": {
 			"id": "qwen3-max-2025-09-23",
@@ -415442,6 +415484,26 @@
 			"contextWindow": 1000000,
 			"maxTokens": 384000
 		},
+		"deepseek-v4-flash-vision-exp": {
+			"id": "deepseek-v4-flash-vision-exp",
+			"name": "DeepSeek V4 Flash Vision (Exp)",
+			"api": "openai-completions",
+			"provider": "crof",
+			"baseUrl": "https://crof.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 384000
+		},
 		"deepseek-v4-pro": {
 			"id": "deepseek-v4-pro",
 			"name": "DeepSeek V4 Pro",
@@ -420166,7 +420228,8 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image"
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -420175,7 +420238,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 1050000,
-			"maxTokens": 1050000
+			"maxTokens": 128000
 		},
 		"gemini-2.0-flash": {
 			"id": "gemini-2.0-flash",
@@ -420895,25 +420958,6 @@
 			},
 			"contextWindow": 128000,
 			"maxTokens": 128000
-		},
-		"kimi-k2-thinking-turbo": {
-			"id": "kimi-k2-thinking-turbo",
-			"name": "Kimi K2 Thinking Turbo",
-			"api": "openai-completions",
-			"provider": "llmgateway",
-			"baseUrl": "https://api.llmgateway.io/v1",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 262144,
-			"maxTokens": 262144
 		},
 		"kimi-k2.5": {
 			"id": "kimi-k2.5",
@@ -423255,6 +423299,25 @@
 			"contextWindow": 128000,
 			"maxTokens": 128000
 		},
+		"kimi-k2-thinking-turbo": {
+			"id": "kimi-k2-thinking-turbo",
+			"name": "kimi-k2-thinking-turbo",
+			"api": "openai-completions",
+			"provider": "llmgateway",
+			"baseUrl": "https://api.llmgateway.io/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 262144
+		},
 		"minicpm-v-4.5": {
 			"id": "minicpm-v-4.5",
 			"name": "minicpm-v-4.5",
@@ -425562,7 +425625,7 @@
 		},
 		"deepinfra/deepseek-ai/DeepSeek-V3-0324": {
 			"id": "deepinfra/deepseek-ai/DeepSeek-V3-0324",
-			"name": "DeepSeek V3 0324",
+			"name": "DeepSeek V3 0324 (Deep Infra)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -425598,82 +425661,6 @@
 			"contextWindow": 1000000,
 			"maxTokens": 384000
 		},
-		"cloudflare/@cf/deepseek-ai/deepseek-v4-flash-0731": {
-			"id": "cloudflare/@cf/deepseek-ai/deepseek-v4-flash-0731",
-			"name": "DeepSeek V4 Flash 0731",
-			"api": "openai-completions",
-			"provider": "edenai",
-			"baseUrl": "https://api.edenai.run/v3",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1310720,
-			"maxTokens": 384000
-		},
-		"databricks/databricks-deepseek-v4-flash-0731": {
-			"id": "databricks/databricks-deepseek-v4-flash-0731",
-			"name": "DeepSeek V4 Flash 0731",
-			"api": "openai-completions",
-			"provider": "edenai",
-			"baseUrl": "https://api.edenai.run/v3",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1000000,
-			"maxTokens": 384000
-		},
-		"deepinfra/deepseek-ai/DeepSeek-V4-Flash-0731": {
-			"id": "deepinfra/deepseek-ai/DeepSeek-V4-Flash-0731",
-			"name": "DeepSeek V4 Flash 0731",
-			"api": "openai-completions",
-			"provider": "edenai",
-			"baseUrl": "https://api.edenai.run/v3",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1048576,
-			"maxTokens": 384000
-		},
-		"fireworks_ai/accounts/fireworks/models/deepseek-v4-flash-0731": {
-			"id": "fireworks_ai/accounts/fireworks/models/deepseek-v4-flash-0731",
-			"name": "DeepSeek V4 Flash 0731",
-			"api": "openai-completions",
-			"provider": "edenai",
-			"baseUrl": "https://api.edenai.run/v3",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1048576,
-			"maxTokens": 384000
-		},
 		"flexai/DeepSeek-V4-Flash-0731": {
 			"id": "flexai/DeepSeek-V4-Flash-0731",
 			"name": "DeepSeek V4 Flash 0731",
@@ -425693,9 +425680,104 @@
 			"contextWindow": 1000000,
 			"maxTokens": 384000
 		},
+		"qwen/deepseek-v4-flash-0731": {
+			"id": "qwen/deepseek-v4-flash-0731",
+			"name": "DeepSeek V4 Flash 0731 (Alibaba)",
+			"api": "openai-completions",
+			"provider": "edenai",
+			"baseUrl": "https://api.edenai.run/v3",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 384000
+		},
+		"cloudflare/@cf/deepseek-ai/deepseek-v4-flash-0731": {
+			"id": "cloudflare/@cf/deepseek-ai/deepseek-v4-flash-0731",
+			"name": "DeepSeek V4 Flash 0731 (Cloudflare)",
+			"api": "openai-completions",
+			"provider": "edenai",
+			"baseUrl": "https://api.edenai.run/v3",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1310720,
+			"maxTokens": 384000
+		},
+		"databricks/databricks-deepseek-v4-flash-0731": {
+			"id": "databricks/databricks-deepseek-v4-flash-0731",
+			"name": "DeepSeek V4 Flash 0731 (Databricks)",
+			"api": "openai-completions",
+			"provider": "edenai",
+			"baseUrl": "https://api.edenai.run/v3",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 384000
+		},
+		"deepinfra/deepseek-ai/DeepSeek-V4-Flash-0731": {
+			"id": "deepinfra/deepseek-ai/DeepSeek-V4-Flash-0731",
+			"name": "DeepSeek V4 Flash 0731 (Deep Infra)",
+			"api": "openai-completions",
+			"provider": "edenai",
+			"baseUrl": "https://api.edenai.run/v3",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 384000
+		},
+		"fireworks_ai/accounts/fireworks/models/deepseek-v4-flash-0731": {
+			"id": "fireworks_ai/accounts/fireworks/models/deepseek-v4-flash-0731",
+			"name": "DeepSeek V4 Flash 0731 (Fireworks AI)",
+			"api": "openai-completions",
+			"provider": "edenai",
+			"baseUrl": "https://api.edenai.run/v3",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 384000
+		},
 		"flexai/deepseek-v4-flash-0731": {
 			"id": "flexai/deepseek-v4-flash-0731",
-			"name": "DeepSeek V4 Flash 0731",
+			"name": "DeepSeek V4 Flash 0731 (FlexAI)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -425714,7 +425796,7 @@
 		},
 		"nebius/deepseek-ai/DeepSeek-V4-Flash-0731": {
 			"id": "nebius/deepseek-ai/DeepSeek-V4-Flash-0731",
-			"name": "DeepSeek V4 Flash 0731",
+			"name": "DeepSeek V4 Flash 0731 (Nebius)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -425731,28 +425813,9 @@
 			"contextWindow": 1024000,
 			"maxTokens": 384000
 		},
-		"qwen/deepseek-v4-flash-0731": {
-			"id": "qwen/deepseek-v4-flash-0731",
-			"name": "DeepSeek V4 Flash 0731",
-			"api": "openai-completions",
-			"provider": "edenai",
-			"baseUrl": "https://api.edenai.run/v3",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1000000,
-			"maxTokens": 384000
-		},
 		"scaleway/deepseek-v4-flash-0731": {
 			"id": "scaleway/deepseek-v4-flash-0731",
-			"name": "DeepSeek V4 Flash 0731",
+			"name": "DeepSeek V4 Flash 0731 (Scaleway)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -425771,7 +425834,7 @@
 		},
 		"tensorx/deepseek/deepseek-v4-flash-0731": {
 			"id": "tensorx/deepseek/deepseek-v4-flash-0731",
-			"name": "DeepSeek V4 Flash 0731",
+			"name": "DeepSeek V4 Flash 0731 (TensorX)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -425790,7 +425853,7 @@
 		},
 		"together_ai/deepseek-ai/DeepSeek-V4-Flash-0731": {
 			"id": "together_ai/deepseek-ai/DeepSeek-V4-Flash-0731",
-			"name": "DeepSeek V4 Flash 0731",
+			"name": "DeepSeek V4 Flash 0731 (Together AI)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -425846,9 +425909,28 @@
 			"contextWindow": 1000000,
 			"maxTokens": 384000
 		},
+		"qwen/deepseek-v4-pro-0813": {
+			"id": "qwen/deepseek-v4-pro-0813",
+			"name": "DeepSeek V4 Pro 0813 (Alibaba)",
+			"api": "openai-completions",
+			"provider": "edenai",
+			"baseUrl": "https://api.edenai.run/v3",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 384000
+		},
 		"cloudflare/@cf/deepseek-ai/deepseek-v4-pro-0813": {
 			"id": "cloudflare/@cf/deepseek-ai/deepseek-v4-pro-0813",
-			"name": "DeepSeek V4 Pro 0813",
+			"name": "DeepSeek V4 Pro 0813 (Cloudflare)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -425867,7 +425949,7 @@
 		},
 		"databricks/databricks-deepseek-v4-pro-0813": {
 			"id": "databricks/databricks-deepseek-v4-pro-0813",
-			"name": "DeepSeek V4 Pro 0813",
+			"name": "DeepSeek V4 Pro 0813 (Databricks)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -425886,7 +425968,7 @@
 		},
 		"deepinfra/deepseek-ai/DeepSeek-V4-Pro-0813": {
 			"id": "deepinfra/deepseek-ai/DeepSeek-V4-Pro-0813",
-			"name": "DeepSeek V4 Pro 0813",
+			"name": "DeepSeek V4 Pro 0813 (Deep Infra)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -425905,7 +425987,7 @@
 		},
 		"fireworks_ai/accounts/fireworks/models/deepseek-v4-pro-0813": {
 			"id": "fireworks_ai/accounts/fireworks/models/deepseek-v4-pro-0813",
-			"name": "DeepSeek V4 Pro 0813",
+			"name": "DeepSeek V4 Pro 0813 (Fireworks AI)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -425922,28 +426004,9 @@
 			"contextWindow": 1048576,
 			"maxTokens": 384000
 		},
-		"qwen/deepseek-v4-pro-0813": {
-			"id": "qwen/deepseek-v4-pro-0813",
-			"name": "DeepSeek V4 Pro 0813",
-			"api": "openai-completions",
-			"provider": "edenai",
-			"baseUrl": "https://api.edenai.run/v3",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1000000,
-			"maxTokens": 384000
-		},
 		"tensorx/deepseek/deepseek-v4-pro-0813": {
 			"id": "tensorx/deepseek/deepseek-v4-pro-0813",
-			"name": "DeepSeek V4 Pro 0813",
+			"name": "DeepSeek V4 Pro 0813 (TensorX)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -425962,7 +426025,7 @@
 		},
 		"together_ai/deepseek-ai/DeepSeek-V4-Pro-0813": {
 			"id": "together_ai/deepseek-ai/DeepSeek-V4-Pro-0813",
-			"name": "DeepSeek V4 Pro 0813",
+			"name": "DeepSeek V4 Pro 0813 (Together AI)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -425981,7 +426044,7 @@
 		},
 		"deepinfra/deepseek-ai/DeepSeek-R1": {
 			"id": "deepinfra/deepseek-ai/DeepSeek-R1",
-			"name": "DeepSeek-R1",
+			"name": "DeepSeek-R1 (Deep Infra)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -426000,7 +426063,7 @@
 		},
 		"deepinfra/deepseek-ai/DeepSeek-V3": {
 			"id": "deepinfra/deepseek-ai/DeepSeek-V3",
-			"name": "DeepSeek-V3",
+			"name": "DeepSeek-V3 (Deep Infra)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -426137,7 +426200,26 @@
 		},
 		"amazon/zai.glm-4.7-flash": {
 			"id": "amazon/zai.glm-4.7-flash",
-			"name": "GLM-4.7-Flash",
+			"name": "GLM-4.7-Flash (Amazon Bedrock)",
+			"api": "openai-completions",
+			"provider": "edenai",
+			"baseUrl": "https://api.edenai.run/v3",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 200000,
+			"maxTokens": 131072
+		},
+		"amazon/zai.glm-4.7-flash@us": {
+			"id": "amazon/zai.glm-4.7-flash@us",
+			"name": "GLM-4.7-Flash (Amazon Bedrock, US)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -426156,7 +426238,7 @@
 		},
 		"cloudflare/@cf/zai-org/glm-4.7-flash": {
 			"id": "cloudflare/@cf/zai-org/glm-4.7-flash",
-			"name": "GLM-4.7-Flash",
+			"name": "GLM-4.7-Flash (Cloudflare)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -426175,7 +426257,7 @@
 		},
 		"deepinfra/zai-org/GLM-4.7-Flash": {
 			"id": "deepinfra/zai-org/GLM-4.7-Flash",
-			"name": "GLM-4.7-Flash",
+			"name": "GLM-4.7-Flash (Deep Infra)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -426190,25 +426272,6 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 202752,
-			"maxTokens": 131072
-		},
-		"amazon/zai.glm-4.7-flash@us": {
-			"id": "amazon/zai.glm-4.7-flash@us",
-			"name": "GLM-4.7-Flash (US)",
-			"api": "openai-completions",
-			"provider": "edenai",
-			"baseUrl": "https://api.edenai.run/v3",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 200000,
 			"maxTokens": 131072
 		},
 		"zai/glm-5": {
@@ -426349,65 +426412,29 @@
 			"contextWindow": 1050000,
 			"maxTokens": 128000
 		},
+		"openai/gpt-mini-latest": {
+			"id": "openai/gpt-mini-latest",
+			"name": "GPT Mini Latest (GPT-5.4 mini)",
+			"api": "openai-completions",
+			"provider": "edenai",
+			"baseUrl": "https://api.edenai.run/v3",
+			"reasoning": true,
+			"input": [
+				"pdf",
+				"image",
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 400000,
+			"maxTokens": 128000
+		},
 		"cerebras/gpt-oss-120b": {
 			"id": "cerebras/gpt-oss-120b",
-			"name": "GPT OSS 120B",
-			"api": "openai-completions",
-			"provider": "edenai",
-			"baseUrl": "https://api.edenai.run/v3",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 131072,
-			"maxTokens": 32768
-		},
-		"cloudflare/@cf/openai/gpt-oss-120b": {
-			"id": "cloudflare/@cf/openai/gpt-oss-120b",
-			"name": "GPT OSS 120B",
-			"api": "openai-completions",
-			"provider": "edenai",
-			"baseUrl": "https://api.edenai.run/v3",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 128000,
-			"maxTokens": 32768
-		},
-		"databricks/databricks-gpt-oss-120b": {
-			"id": "databricks/databricks-gpt-oss-120b",
-			"name": "GPT OSS 120B",
-			"api": "openai-completions",
-			"provider": "edenai",
-			"baseUrl": "https://api.edenai.run/v3",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 131072,
-			"maxTokens": 32768
-		},
-		"deepinfra/openai/gpt-oss-120b": {
-			"id": "deepinfra/openai/gpt-oss-120b",
 			"name": "GPT OSS 120B",
 			"api": "openai-completions",
 			"provider": "edenai",
@@ -426444,123 +426471,9 @@
 			"contextWindow": 131072,
 			"maxTokens": 32768
 		},
-		"fireworks_ai/gpt-oss-120b": {
-			"id": "fireworks_ai/gpt-oss-120b",
-			"name": "GPT OSS 120B",
-			"api": "openai-completions",
-			"provider": "edenai",
-			"baseUrl": "https://api.edenai.run/v3",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 131072,
-			"maxTokens": 32768
-		},
-		"flexai/gpt-oss-120b": {
-			"id": "flexai/gpt-oss-120b",
-			"name": "GPT OSS 120B",
-			"api": "openai-completions",
-			"provider": "edenai",
-			"baseUrl": "https://api.edenai.run/v3",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 131072,
-			"maxTokens": 32768
-		},
-		"groq/openai/gpt-oss-120b": {
-			"id": "groq/openai/gpt-oss-120b",
-			"name": "GPT OSS 120B",
-			"api": "openai-completions",
-			"provider": "edenai",
-			"baseUrl": "https://api.edenai.run/v3",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 131072,
-			"maxTokens": 32768
-		},
-		"ionos/openai/gpt-oss-120b": {
-			"id": "ionos/openai/gpt-oss-120b",
-			"name": "GPT OSS 120B",
-			"api": "openai-completions",
-			"provider": "edenai",
-			"baseUrl": "https://api.edenai.run/v3",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 131072,
-			"maxTokens": 32768
-		},
-		"nebius/openai/gpt-oss-120b": {
-			"id": "nebius/openai/gpt-oss-120b",
-			"name": "GPT OSS 120B",
-			"api": "openai-completions",
-			"provider": "edenai",
-			"baseUrl": "https://api.edenai.run/v3",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 131072,
-			"maxTokens": 32768
-		},
-		"ovhcloud/gpt-oss-120b": {
-			"id": "ovhcloud/gpt-oss-120b",
-			"name": "GPT OSS 120B",
-			"api": "openai-completions",
-			"provider": "edenai",
-			"baseUrl": "https://api.edenai.run/v3",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 131072,
-			"maxTokens": 32768
-		},
-		"scaleway/gpt-oss-120b": {
-			"id": "scaleway/gpt-oss-120b",
-			"name": "GPT OSS 120B",
+		"cloudflare/@cf/openai/gpt-oss-120b": {
+			"id": "cloudflare/@cf/openai/gpt-oss-120b",
+			"name": "GPT OSS 120B (Cloudflare)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -426577,9 +426490,9 @@
 			"contextWindow": 128000,
 			"maxTokens": 32768
 		},
-		"together_ai/openai/gpt-oss-120b": {
-			"id": "together_ai/openai/gpt-oss-120b",
-			"name": "GPT OSS 120B",
+		"databricks/databricks-gpt-oss-120b": {
+			"id": "databricks/databricks-gpt-oss-120b",
+			"name": "GPT OSS 120B (Databricks)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -426598,7 +426511,7 @@
 		},
 		"databricks/databricks-gpt-oss-120b@eu": {
 			"id": "databricks/databricks-gpt-oss-120b@eu",
-			"name": "GPT OSS 120B (EU)",
+			"name": "GPT OSS 120B (Databricks, EU)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -426615,9 +426528,142 @@
 			"contextWindow": 131072,
 			"maxTokens": 32768
 		},
-		"cloudflare/@cf/openai/gpt-oss-20b": {
-			"id": "cloudflare/@cf/openai/gpt-oss-20b",
-			"name": "GPT OSS 20B",
+		"deepinfra/openai/gpt-oss-120b": {
+			"id": "deepinfra/openai/gpt-oss-120b",
+			"name": "GPT OSS 120B (Deep Infra)",
+			"api": "openai-completions",
+			"provider": "edenai",
+			"baseUrl": "https://api.edenai.run/v3",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 131072,
+			"maxTokens": 32768
+		},
+		"fireworks_ai/gpt-oss-120b": {
+			"id": "fireworks_ai/gpt-oss-120b",
+			"name": "GPT OSS 120B (Fireworks AI)",
+			"api": "openai-completions",
+			"provider": "edenai",
+			"baseUrl": "https://api.edenai.run/v3",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 131072,
+			"maxTokens": 32768
+		},
+		"flexai/gpt-oss-120b": {
+			"id": "flexai/gpt-oss-120b",
+			"name": "GPT OSS 120B (FlexAI)",
+			"api": "openai-completions",
+			"provider": "edenai",
+			"baseUrl": "https://api.edenai.run/v3",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 131072,
+			"maxTokens": 32768
+		},
+		"groq/openai/gpt-oss-120b": {
+			"id": "groq/openai/gpt-oss-120b",
+			"name": "GPT OSS 120B (Groq)",
+			"api": "openai-completions",
+			"provider": "edenai",
+			"baseUrl": "https://api.edenai.run/v3",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 131072,
+			"maxTokens": 32768
+		},
+		"ionos/openai/gpt-oss-120b": {
+			"id": "ionos/openai/gpt-oss-120b",
+			"name": "GPT OSS 120B (IONOS)",
+			"api": "openai-completions",
+			"provider": "edenai",
+			"baseUrl": "https://api.edenai.run/v3",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 131072,
+			"maxTokens": 32768
+		},
+		"nebius/openai/gpt-oss-120b": {
+			"id": "nebius/openai/gpt-oss-120b",
+			"name": "GPT OSS 120B (Nebius)",
+			"api": "openai-completions",
+			"provider": "edenai",
+			"baseUrl": "https://api.edenai.run/v3",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 131072,
+			"maxTokens": 32768
+		},
+		"ovhcloud/gpt-oss-120b": {
+			"id": "ovhcloud/gpt-oss-120b",
+			"name": "GPT OSS 120B (OVHcloud)",
+			"api": "openai-completions",
+			"provider": "edenai",
+			"baseUrl": "https://api.edenai.run/v3",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 131072,
+			"maxTokens": 32768
+		},
+		"scaleway/gpt-oss-120b": {
+			"id": "scaleway/gpt-oss-120b",
+			"name": "GPT OSS 120B (Scaleway)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -426634,28 +426680,9 @@
 			"contextWindow": 128000,
 			"maxTokens": 32768
 		},
-		"databricks/databricks-gpt-oss-20b": {
-			"id": "databricks/databricks-gpt-oss-20b",
-			"name": "GPT OSS 20B",
-			"api": "openai-completions",
-			"provider": "edenai",
-			"baseUrl": "https://api.edenai.run/v3",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 131072,
-			"maxTokens": 32768
-		},
-		"deepinfra/openai/gpt-oss-20b": {
-			"id": "deepinfra/openai/gpt-oss-20b",
-			"name": "GPT OSS 20B",
+		"together_ai/openai/gpt-oss-120b": {
+			"id": "together_ai/openai/gpt-oss-120b",
+			"name": "GPT OSS 120B (Together AI)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -426710,9 +426737,9 @@
 			"contextWindow": 131072,
 			"maxTokens": 32768
 		},
-		"flexai/gpt-oss-20b": {
-			"id": "flexai/gpt-oss-20b",
-			"name": "GPT OSS 20B",
+		"cloudflare/@cf/openai/gpt-oss-20b": {
+			"id": "cloudflare/@cf/openai/gpt-oss-20b",
+			"name": "GPT OSS 20B (Cloudflare)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -426726,50 +426753,12 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 131072,
+			"contextWindow": 128000,
 			"maxTokens": 32768
 		},
-		"groq/openai/gpt-oss-20b": {
-			"id": "groq/openai/gpt-oss-20b",
-			"name": "GPT OSS 20B",
-			"api": "openai-completions",
-			"provider": "edenai",
-			"baseUrl": "https://api.edenai.run/v3",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 131072,
-			"maxTokens": 32768
-		},
-		"ovhcloud/gpt-oss-20b": {
-			"id": "ovhcloud/gpt-oss-20b",
-			"name": "GPT OSS 20B",
-			"api": "openai-completions",
-			"provider": "edenai",
-			"baseUrl": "https://api.edenai.run/v3",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 131072,
-			"maxTokens": 32768
-		},
-		"together_ai/openai/gpt-oss-20b": {
-			"id": "together_ai/openai/gpt-oss-20b",
-			"name": "GPT OSS 20B",
+		"databricks/databricks-gpt-oss-20b": {
+			"id": "databricks/databricks-gpt-oss-20b",
+			"name": "GPT OSS 20B (Databricks)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -426788,7 +426777,7 @@
 		},
 		"databricks/databricks-gpt-oss-20b@eu": {
 			"id": "databricks/databricks-gpt-oss-20b@eu",
-			"name": "GPT OSS 20B (EU)",
+			"name": "GPT OSS 20B (Databricks, EU)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -426804,6 +426793,122 @@
 			},
 			"contextWindow": 131072,
 			"maxTokens": 32768
+		},
+		"deepinfra/openai/gpt-oss-20b": {
+			"id": "deepinfra/openai/gpt-oss-20b",
+			"name": "GPT OSS 20B (Deep Infra)",
+			"api": "openai-completions",
+			"provider": "edenai",
+			"baseUrl": "https://api.edenai.run/v3",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 131072,
+			"maxTokens": 32768
+		},
+		"flexai/gpt-oss-20b": {
+			"id": "flexai/gpt-oss-20b",
+			"name": "GPT OSS 20B (FlexAI)",
+			"api": "openai-completions",
+			"provider": "edenai",
+			"baseUrl": "https://api.edenai.run/v3",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 131072,
+			"maxTokens": 32768
+		},
+		"groq/openai/gpt-oss-20b": {
+			"id": "groq/openai/gpt-oss-20b",
+			"name": "GPT OSS 20B (Groq)",
+			"api": "openai-completions",
+			"provider": "edenai",
+			"baseUrl": "https://api.edenai.run/v3",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 131072,
+			"maxTokens": 32768
+		},
+		"ovhcloud/gpt-oss-20b": {
+			"id": "ovhcloud/gpt-oss-20b",
+			"name": "GPT OSS 20B (OVHcloud)",
+			"api": "openai-completions",
+			"provider": "edenai",
+			"baseUrl": "https://api.edenai.run/v3",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 131072,
+			"maxTokens": 32768
+		},
+		"together_ai/openai/gpt-oss-20b": {
+			"id": "together_ai/openai/gpt-oss-20b",
+			"name": "GPT OSS 20B (Together AI)",
+			"api": "openai-completions",
+			"provider": "edenai",
+			"baseUrl": "https://api.edenai.run/v3",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 131072,
+			"maxTokens": 32768
+		},
+		"openai/gpt-pro-latest": {
+			"id": "openai/gpt-pro-latest",
+			"name": "GPT Pro Latest (GPT-5.5 Pro)",
+			"api": "openai-completions",
+			"provider": "edenai",
+			"baseUrl": "https://api.edenai.run/v3",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
 		},
 		"openai/gpt-3.5-turbo": {
 			"id": "openai/gpt-3.5-turbo",
@@ -427129,7 +427234,7 @@
 		},
 		"azure/gpt-5.1-codex-max": {
 			"id": "azure/gpt-5.1-codex-max",
-			"name": "GPT-5.1 Codex Max",
+			"name": "GPT-5.1 Codex Max (Azure)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -427311,27 +427416,6 @@
 			"contextWindow": 400000,
 			"maxTokens": 128000
 		},
-		"openai/gpt-mini-latest": {
-			"id": "openai/gpt-mini-latest",
-			"name": "GPT-5.4 mini",
-			"api": "openai-completions",
-			"provider": "edenai",
-			"baseUrl": "https://api.edenai.run/v3",
-			"reasoning": true,
-			"input": [
-				"pdf",
-				"image",
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 400000,
-			"maxTokens": 128000
-		},
 		"openai/gpt-5.4-nano": {
 			"id": "openai/gpt-5.4-nano",
 			"name": "GPT-5.4 nano",
@@ -427375,27 +427459,6 @@
 		},
 		"openai/gpt-5.5-pro": {
 			"id": "openai/gpt-5.5-pro",
-			"name": "GPT-5.5 Pro",
-			"api": "openai-completions",
-			"provider": "edenai",
-			"baseUrl": "https://api.edenai.run/v3",
-			"reasoning": true,
-			"input": [
-				"text",
-				"image",
-				"pdf"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1050000,
-			"maxTokens": 128000
-		},
-		"openai/gpt-pro-latest": {
-			"id": "openai/gpt-pro-latest",
 			"name": "GPT-5.5 Pro",
 			"api": "openai-completions",
 			"provider": "edenai",
@@ -427524,7 +427587,7 @@
 		},
 		"vertex/gemini-3-flash-preview": {
 			"id": "vertex/gemini-3-flash-preview",
-			"name": "Gemini 3 Flash Preview",
+			"name": "Gemini 3 Flash Preview (Vertex AI)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -427570,7 +427633,7 @@
 		},
 		"vertex/gemini-3.1-flash-lite": {
 			"id": "vertex/gemini-3.1-flash-lite",
-			"name": "Gemini 3.1 Flash Lite",
+			"name": "Gemini 3.1 Flash Lite (Vertex AI)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -427593,7 +427656,7 @@
 		},
 		"vertex/gemini-3.1-flash-lite@eu": {
 			"id": "vertex/gemini-3.1-flash-lite@eu",
-			"name": "Gemini 3.1 Flash Lite (EU)",
+			"name": "Gemini 3.1 Flash Lite (Vertex AI, EU)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -427616,7 +427679,7 @@
 		},
 		"vertex/gemini-3.1-flash-lite@us": {
 			"id": "vertex/gemini-3.1-flash-lite@us",
-			"name": "Gemini 3.1 Flash Lite (US)",
+			"name": "Gemini 3.1 Flash Lite (Vertex AI, US)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -427685,30 +427748,7 @@
 		},
 		"vertex/gemini-3.1-pro-preview": {
 			"id": "vertex/gemini-3.1-pro-preview",
-			"name": "Gemini 3.1 Pro Preview",
-			"api": "openai-completions",
-			"provider": "edenai",
-			"baseUrl": "https://api.edenai.run/v3",
-			"reasoning": true,
-			"input": [
-				"text",
-				"image",
-				"video",
-				"audio",
-				"pdf"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1048576,
-			"maxTokens": 65536
-		},
-		"vertex/gemini-pro-latest": {
-			"id": "vertex/gemini-pro-latest",
-			"name": "Gemini 3.1 Pro Preview",
+			"name": "Gemini 3.1 Pro Preview (Vertex AI)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -427777,7 +427817,7 @@
 		},
 		"vertex/gemini-3.5-flash": {
 			"id": "vertex/gemini-3.5-flash",
-			"name": "Gemini 3.5 Flash",
+			"name": "Gemini 3.5 Flash (Vertex AI)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -427800,7 +427840,7 @@
 		},
 		"vertex/gemini-3.5-flash@eu": {
 			"id": "vertex/gemini-3.5-flash@eu",
-			"name": "Gemini 3.5 Flash (EU)",
+			"name": "Gemini 3.5 Flash (Vertex AI, EU)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -427823,7 +427863,7 @@
 		},
 		"vertex/gemini-3.5-flash@us": {
 			"id": "vertex/gemini-3.5-flash@us",
-			"name": "Gemini 3.5 Flash (US)",
+			"name": "Gemini 3.5 Flash (Vertex AI, US)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -427869,7 +427909,7 @@
 		},
 		"vertex/gemini-3.5-flash-lite": {
 			"id": "vertex/gemini-3.5-flash-lite",
-			"name": "Gemini 3.5 Flash Lite",
+			"name": "Gemini 3.5 Flash Lite (Vertex AI)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -427892,7 +427932,7 @@
 		},
 		"vertex/gemini-3.5-flash-lite@eu": {
 			"id": "vertex/gemini-3.5-flash-lite@eu",
-			"name": "Gemini 3.5 Flash Lite (EU)",
+			"name": "Gemini 3.5 Flash Lite (Vertex AI, EU)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -427915,7 +427955,7 @@
 		},
 		"vertex/gemini-3.5-flash-lite@us": {
 			"id": "vertex/gemini-3.5-flash-lite@us",
-			"name": "Gemini 3.5 Flash Lite (US)",
+			"name": "Gemini 3.5 Flash Lite (Vertex AI, US)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -427961,7 +428001,7 @@
 		},
 		"vertex/gemini-3.6-flash": {
 			"id": "vertex/gemini-3.6-flash",
-			"name": "Gemini 3.6 Flash",
+			"name": "Gemini 3.6 Flash (Vertex AI)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -427984,7 +428024,7 @@
 		},
 		"vertex/gemini-3.6-flash@eu": {
 			"id": "vertex/gemini-3.6-flash@eu",
-			"name": "Gemini 3.6 Flash (EU)",
+			"name": "Gemini 3.6 Flash (Vertex AI, EU)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -428007,7 +428047,7 @@
 		},
 		"vertex/gemini-3.6-flash@us": {
 			"id": "vertex/gemini-3.6-flash@us",
-			"name": "Gemini 3.6 Flash (US)",
+			"name": "Gemini 3.6 Flash (Vertex AI, US)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -428053,7 +428093,7 @@
 		},
 		"vertex/gemini-3.7-flash": {
 			"id": "vertex/gemini-3.7-flash",
-			"name": "Gemini 3.7 Flash",
+			"name": "Gemini 3.7 Flash (Vertex AI)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -428076,7 +428116,7 @@
 		},
 		"vertex/gemini-3.7-flash@eu": {
 			"id": "vertex/gemini-3.7-flash@eu",
-			"name": "Gemini 3.7 Flash (EU)",
+			"name": "Gemini 3.7 Flash (Vertex AI, EU)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -428099,7 +428139,7 @@
 		},
 		"vertex/gemini-3.7-flash@us": {
 			"id": "vertex/gemini-3.7-flash@us",
-			"name": "Gemini 3.7 Flash (US)",
+			"name": "Gemini 3.7 Flash (Vertex AI, US)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -428145,30 +428185,7 @@
 		},
 		"vertex/gemini-3.8-flash": {
 			"id": "vertex/gemini-3.8-flash",
-			"name": "Gemini 3.8 Flash",
-			"api": "openai-completions",
-			"provider": "edenai",
-			"baseUrl": "https://api.edenai.run/v3",
-			"reasoning": true,
-			"input": [
-				"text",
-				"image",
-				"video",
-				"audio",
-				"pdf"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1048576,
-			"maxTokens": 65536
-		},
-		"vertex/gemini-flash-latest": {
-			"id": "vertex/gemini-flash-latest",
-			"name": "Gemini 3.8 Flash",
+			"name": "Gemini 3.8 Flash (Vertex AI)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -428191,7 +428208,7 @@
 		},
 		"vertex/gemini-3.8-flash@eu": {
 			"id": "vertex/gemini-3.8-flash@eu",
-			"name": "Gemini 3.8 Flash (EU)",
+			"name": "Gemini 3.8 Flash (Vertex AI, EU)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -428214,7 +428231,7 @@
 		},
 		"vertex/gemini-3.8-flash@us": {
 			"id": "vertex/gemini-3.8-flash@us",
-			"name": "Gemini 3.8 Flash (US)",
+			"name": "Gemini 3.8 Flash (Vertex AI, US)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -428258,6 +428275,29 @@
 			"contextWindow": 1048576,
 			"maxTokens": 65536
 		},
+		"vertex/gemini-flash-latest": {
+			"id": "vertex/gemini-flash-latest",
+			"name": "Gemini Flash Latest (Gemini 3.8 Flash, Vertex AI)",
+			"api": "openai-completions",
+			"provider": "edenai",
+			"baseUrl": "https://api.edenai.run/v3",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video",
+				"audio",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 65536
+		},
 		"google/gemini-pro-latest": {
 			"id": "google/gemini-pro-latest",
 			"name": "Gemini Pro Latest",
@@ -428279,9 +428319,32 @@
 			"contextWindow": 1048576,
 			"maxTokens": 65536
 		},
+		"vertex/gemini-pro-latest": {
+			"id": "vertex/gemini-pro-latest",
+			"name": "Gemini Pro Latest (Gemini 3.1 Pro Preview, Vertex AI)",
+			"api": "openai-completions",
+			"provider": "edenai",
+			"baseUrl": "https://api.edenai.run/v3",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video",
+				"audio",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 65536
+		},
 		"cloudflare/@cf/aisingapore/gemma-sea-lion-v4-27b-it": {
 			"id": "cloudflare/@cf/aisingapore/gemma-sea-lion-v4-27b-it",
-			"name": "Gemma-SEA-LION-v4-27B-IT",
+			"name": "Gemma-SEA-LION-v4-27B-IT (Cloudflare)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -428401,27 +428464,6 @@
 			"contextWindow": 500000,
 			"maxTokens": 500000
 		},
-		"xai/grok-latest": {
-			"id": "xai/grok-latest",
-			"name": "Grok 4.6",
-			"api": "openai-completions",
-			"provider": "edenai",
-			"baseUrl": "https://api.edenai.run/v3",
-			"reasoning": true,
-			"input": [
-				"text",
-				"image",
-				"pdf"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 500000,
-			"maxTokens": 500000
-		},
 		"xai/grok-build-0.1": {
 			"id": "xai/grok-build-0.1",
 			"name": "Grok Build 0.1",
@@ -428443,9 +428485,30 @@
 			"contextWindow": 256000,
 			"maxTokens": 256000
 		},
+		"xai/grok-latest": {
+			"id": "xai/grok-latest",
+			"name": "Grok Latest (Grok 4.6)",
+			"api": "openai-completions",
+			"provider": "edenai",
+			"baseUrl": "https://api.edenai.run/v3",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 500000,
+			"maxTokens": 500000
+		},
 		"deepinfra/tencent/Hy3": {
 			"id": "deepinfra/tencent/Hy3",
-			"name": "Hy3",
+			"name": "Hy3 (Deep Infra)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -428464,7 +428527,7 @@
 		},
 		"databricks/databricks-inkling": {
 			"id": "databricks/databricks-inkling",
-			"name": "Inkling",
+			"name": "Inkling (Databricks)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -428484,7 +428547,7 @@
 		},
 		"deepinfra/thinkingmachines/Inkling": {
 			"id": "deepinfra/thinkingmachines/Inkling",
-			"name": "Inkling",
+			"name": "Inkling (Deep Infra)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -428505,7 +428568,7 @@
 		},
 		"fireworks_ai/accounts/fireworks/models/inkling": {
 			"id": "fireworks_ai/accounts/fireworks/models/inkling",
-			"name": "Inkling",
+			"name": "Inkling (Fireworks AI)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -428525,7 +428588,7 @@
 		},
 		"together_ai/thinkingmachines/Inkling": {
 			"id": "together_ai/thinkingmachines/Inkling",
-			"name": "Inkling",
+			"name": "Inkling (Together AI)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -428546,7 +428609,7 @@
 		},
 		"deepinfra/thinkingmachines/Inkling-Small": {
 			"id": "deepinfra/thinkingmachines/Inkling-Small",
-			"name": "Inkling Small",
+			"name": "Inkling Small (Deep Infra)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -428567,7 +428630,7 @@
 		},
 		"together_ai/thinkingmachines/Inkling-Small": {
 			"id": "together_ai/thinkingmachines/Inkling-Small",
-			"name": "Inkling Small",
+			"name": "Inkling Small (Together AI)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -428588,7 +428651,7 @@
 		},
 		"amazon/moonshot.kimi-k2-thinking": {
 			"id": "amazon/moonshot.kimi-k2-thinking",
-			"name": "Kimi K2 Thinking",
+			"name": "Kimi K2 Thinking (Amazon Bedrock)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -428607,7 +428670,7 @@
 		},
 		"amazon/moonshotai.kimi-k2.5": {
 			"id": "amazon/moonshotai.kimi-k2.5",
-			"name": "Kimi K2.5",
+			"name": "Kimi K2.5 (Amazon Bedrock)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -428627,7 +428690,7 @@
 		},
 		"deepinfra/moonshotai/Kimi-K2.5": {
 			"id": "deepinfra/moonshotai/Kimi-K2.5",
-			"name": "Kimi K2.5",
+			"name": "Kimi K2.5 (Deep Infra)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -428647,7 +428710,7 @@
 		},
 		"tensorx/moonshotai/kimi-k2.5": {
 			"id": "tensorx/moonshotai/kimi-k2.5",
-			"name": "Kimi K2.5",
+			"name": "Kimi K2.5 (TensorX)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -428751,7 +428814,7 @@
 		},
 		"deepinfra/nvidia/Llama-3.1-Nemotron-70B-Instruct": {
 			"id": "deepinfra/nvidia/Llama-3.1-Nemotron-70B-Instruct",
-			"name": "Llama 3.1 Nemotron 70B Instruct",
+			"name": "Llama 3.1 Nemotron 70B Instruct (Deep Infra)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -428770,7 +428833,7 @@
 		},
 		"deepinfra/meta-llama/Llama-3.2-11B-Vision-Instruct": {
 			"id": "deepinfra/meta-llama/Llama-3.2-11B-Vision-Instruct",
-			"name": "Llama-3.2-11B-Vision-Instruct",
+			"name": "Llama-3.2-11B-Vision-Instruct (Deep Infra)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -428790,7 +428853,7 @@
 		},
 		"deepinfra/meta-llama/Llama-3.3-70B-Instruct": {
 			"id": "deepinfra/meta-llama/Llama-3.3-70B-Instruct",
-			"name": "Llama-3.3-70B-Instruct",
+			"name": "Llama-3.3-70B-Instruct (Deep Infra)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -428809,7 +428872,7 @@
 		},
 		"ionos/meta-llama/Llama-3.3-70B-Instruct": {
 			"id": "ionos/meta-llama/Llama-3.3-70B-Instruct",
-			"name": "Llama-3.3-70B-Instruct",
+			"name": "Llama-3.3-70B-Instruct (IONOS)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -428828,7 +428891,7 @@
 		},
 		"nebius/meta-llama/Llama-3.3-70B-Instruct": {
 			"id": "nebius/meta-llama/Llama-3.3-70B-Instruct",
-			"name": "Llama-3.3-70B-Instruct",
+			"name": "Llama-3.3-70B-Instruct (Nebius)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -428847,7 +428910,7 @@
 		},
 		"scaleway/llama-3.3-70b-instruct": {
 			"id": "scaleway/llama-3.3-70b-instruct",
-			"name": "Llama-3.3-70B-Instruct",
+			"name": "Llama-3.3-70B-Instruct (Scaleway)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -429142,7 +429205,7 @@
 		},
 		"deepinfra/meta-models/Muse-Glimmer-30B": {
 			"id": "deepinfra/meta-models/Muse-Glimmer-30B",
-			"name": "Muse Glimmer 30B",
+			"name": "Muse Glimmer 30B (Deep Infra)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -429162,7 +429225,7 @@
 		},
 		"fireworks_ai/accounts/fireworks/models/muse-glimmer-30b": {
 			"id": "fireworks_ai/accounts/fireworks/models/muse-glimmer-30b",
-			"name": "Muse Glimmer 30B",
+			"name": "Muse Glimmer 30B (Fireworks AI)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -429182,7 +429245,7 @@
 		},
 		"flexai/Muse-Glimmer-30B": {
 			"id": "flexai/Muse-Glimmer-30B",
-			"name": "Muse Glimmer 30B",
+			"name": "Muse Glimmer 30B (FlexAI)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -429202,7 +429265,7 @@
 		},
 		"together_ai/meta-models/Muse-Glimmer-30B": {
 			"id": "together_ai/meta-models/Muse-Glimmer-30B",
-			"name": "Muse Glimmer 30B",
+			"name": "Muse Glimmer 30B (Together AI)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -429242,7 +429305,7 @@
 		},
 		"vertex/gemini-2.5-flash-image": {
 			"id": "vertex/gemini-2.5-flash-image",
-			"name": "Nano Banana",
+			"name": "Nano Banana (Vertex AI)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -429282,30 +429345,9 @@
 			"contextWindow": 131072,
 			"maxTokens": 32768
 		},
-		"google/gemini-3.1-flash-image-preview": {
-			"id": "google/gemini-3.1-flash-image-preview",
-			"name": "Nano Banana 2",
-			"api": "openai-completions",
-			"provider": "edenai",
-			"baseUrl": "https://api.edenai.run/v3",
-			"reasoning": true,
-			"input": [
-				"text",
-				"image",
-				"pdf"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 65536,
-			"maxTokens": 65536
-		},
 		"vertex/gemini-3.1-flash-image": {
 			"id": "vertex/gemini-3.1-flash-image",
-			"name": "Nano Banana 2",
+			"name": "Nano Banana 2 (Vertex AI)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -429345,7 +429387,7 @@
 		},
 		"vertex/gemini-3.1-flash-lite-image": {
 			"id": "vertex/gemini-3.1-flash-lite-image",
-			"name": "Nano Banana 2 Lite",
+			"name": "Nano Banana 2 Lite (Vertex AI)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -429362,6 +429404,27 @@
 			},
 			"contextWindow": 65536,
 			"maxTokens": 4096
+		},
+		"google/gemini-3.1-flash-image-preview": {
+			"id": "google/gemini-3.1-flash-image-preview",
+			"name": "Nano Banana 2 Preview",
+			"api": "openai-completions",
+			"provider": "edenai",
+			"baseUrl": "https://api.edenai.run/v3",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 65536,
+			"maxTokens": 65536
 		},
 		"google/gemini-3-pro-image": {
 			"id": "google/gemini-3-pro-image",
@@ -429383,9 +429446,9 @@
 			"contextWindow": 65536,
 			"maxTokens": 32768
 		},
-		"google/gemini-3-pro-image-preview": {
-			"id": "google/gemini-3-pro-image-preview",
-			"name": "Nano Banana Pro",
+		"vertex/gemini-3-pro-image": {
+			"id": "vertex/gemini-3-pro-image",
+			"name": "Nano Banana Pro (Vertex AI)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -429403,9 +429466,9 @@
 			"contextWindow": 65536,
 			"maxTokens": 32768
 		},
-		"vertex/gemini-3-pro-image": {
-			"id": "vertex/gemini-3-pro-image",
-			"name": "Nano Banana Pro",
+		"google/gemini-3-pro-image-preview": {
+			"id": "google/gemini-3-pro-image-preview",
+			"name": "Nano Banana Pro Preview",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -429425,7 +429488,7 @@
 		},
 		"deepinfra/nvidia/Nemotron-3-Nano-30B-A3B": {
 			"id": "deepinfra/nvidia/Nemotron-3-Nano-30B-A3B",
-			"name": "Nemotron 3 Nano 30B A3B",
+			"name": "Nemotron 3 Nano 30B A3B (Deep Infra)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -429444,7 +429507,7 @@
 		},
 		"flexai/Nemotron-3-Super-120B-A12B": {
 			"id": "flexai/Nemotron-3-Super-120B-A12B",
-			"name": "Nemotron 3 Super 120B A12B",
+			"name": "Nemotron 3 Super 120B A12B (FlexAI)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -429463,7 +429526,7 @@
 		},
 		"nebius/nvidia/nemotron-3-super-120b-a12b": {
 			"id": "nebius/nvidia/nemotron-3-super-120b-a12b",
-			"name": "Nemotron 3 Super 120B A12B",
+			"name": "Nemotron 3 Super 120B A12B (Nebius)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -429479,44 +429542,6 @@
 			},
 			"contextWindow": 262144,
 			"maxTokens": 262144
-		},
-		"deepinfra/nemotron-3-ultra-550b-a55b": {
-			"id": "deepinfra/nemotron-3-ultra-550b-a55b",
-			"name": "Nemotron 3 Ultra 550B A55B",
-			"api": "openai-completions",
-			"provider": "edenai",
-			"baseUrl": "https://api.edenai.run/v3",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 262144,
-			"maxTokens": 128000
-		},
-		"nebius/nvidia/Nemotron-3-Ultra-550b-a55b": {
-			"id": "nebius/nvidia/Nemotron-3-Ultra-550b-a55b",
-			"name": "Nemotron 3 Ultra 550B A55B",
-			"api": "openai-completions",
-			"provider": "edenai",
-			"baseUrl": "https://api.edenai.run/v3",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1048576,
-			"maxTokens": 128000
 		},
 		"together_ai/nvidia/nemotron-3-ultra-550b-a55b": {
 			"id": "together_ai/nvidia/nemotron-3-ultra-550b-a55b",
@@ -429535,6 +429560,44 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 512288,
+			"maxTokens": 128000
+		},
+		"deepinfra/nemotron-3-ultra-550b-a55b": {
+			"id": "deepinfra/nemotron-3-ultra-550b-a55b",
+			"name": "Nemotron 3 Ultra 550B A55B (Deep Infra)",
+			"api": "openai-completions",
+			"provider": "edenai",
+			"baseUrl": "https://api.edenai.run/v3",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 128000
+		},
+		"nebius/nvidia/Nemotron-3-Ultra-550b-a55b": {
+			"id": "nebius/nvidia/Nemotron-3-Ultra-550b-a55b",
+			"name": "Nemotron 3 Ultra 550B A55B (Nebius)",
+			"api": "openai-completions",
+			"provider": "edenai",
+			"baseUrl": "https://api.edenai.run/v3",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
 			"maxTokens": 128000
 		},
 		"amazon/nvidia.nemotron-nano-9b-v2": {
@@ -429657,7 +429720,7 @@
 		},
 		"cloudflare/@cf/qwen/qwen2.5-coder-32b-instruct": {
 			"id": "cloudflare/@cf/qwen/qwen2.5-coder-32b-instruct",
-			"name": "Qwen2.5-Coder-32B-Instruct",
+			"name": "Qwen2.5-Coder-32B-Instruct (Cloudflare)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -430091,7 +430154,7 @@
 		},
 		"deepinfra/ByteDance/Seed-2.0-code": {
 			"id": "deepinfra/ByteDance/Seed-2.0-code",
-			"name": "Seed 2.0 Code",
+			"name": "Seed 2.0 Code (Deep Infra)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -430111,7 +430174,7 @@
 		},
 		"deepinfra/ByteDance/Seed-2.0-mini": {
 			"id": "deepinfra/ByteDance/Seed-2.0-mini",
-			"name": "Seed 2.0 Mini",
+			"name": "Seed 2.0 Mini (Deep Infra)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -430210,7 +430273,7 @@
 		},
 		"deepinfra/stepfun-ai/Step-3.5-Flash": {
 			"id": "deepinfra/stepfun-ai/Step-3.5-Flash",
-			"name": "Step 3.5 Flash",
+			"name": "Step 3.5 Flash (Deep Infra)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -430229,7 +430292,7 @@
 		},
 		"deepinfra/stepfun-ai/Step-3.7-Flash": {
 			"id": "deepinfra/stepfun-ai/Step-3.7-Flash",
-			"name": "Step 3.7 Flash",
+			"name": "Step 3.7 Flash (Deep Infra)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -430250,7 +430313,7 @@
 		},
 		"flexai/Step-3.7-Flash": {
 			"id": "flexai/Step-3.7-Flash",
-			"name": "Step 3.7 Flash",
+			"name": "Step 3.7 Flash (FlexAI)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -432327,7 +432390,7 @@
 		},
 		"google/gemini-3.1-flash-image-preview": {
 			"id": "google/gemini-3.1-flash-image-preview",
-			"name": "Nano Banana 2",
+			"name": "Nano Banana 2 Preview",
 			"api": "openai-completions",
 			"provider": "fastrouter",
 			"baseUrl": "https://go.fastrouter.ai/api/v1",
@@ -432348,7 +432411,7 @@
 		},
 		"google/gemini-3-pro-image-preview": {
 			"id": "google/gemini-3-pro-image-preview",
-			"name": "Nano Banana Pro",
+			"name": "Nano Banana Pro Preview",
 			"api": "openai-completions",
 			"provider": "fastrouter",
 			"baseUrl": "https://go.fastrouter.ai/api/v1",
@@ -454657,44 +454720,6 @@
 			"contextWindow": 131072,
 			"maxTokens": 16384
 		},
-		"kimi-k2-0905-preview": {
-			"id": "kimi-k2-0905-preview",
-			"name": "Kimi K2 0905",
-			"api": "openai-completions",
-			"provider": "moonshotai",
-			"baseUrl": "https://api.moonshot.ai/v1",
-			"reasoning": false,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 262144,
-			"maxTokens": 262144
-		},
-		"kimi-k2-thinking-turbo": {
-			"id": "kimi-k2-thinking-turbo",
-			"name": "Kimi K2 Thinking Turbo",
-			"api": "openai-completions",
-			"provider": "moonshotai",
-			"baseUrl": "https://api.moonshot.ai/v1",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 262144,
-			"maxTokens": 262144
-		},
 		"kimi-k2-turbo-preview": {
 			"id": "kimi-k2-turbo-preview",
 			"name": "Kimi K2 Turbo Preview",
@@ -454832,6 +454857,44 @@
 			},
 			"contextWindow": 262144,
 			"maxTokens": 16384
+		},
+		"kimi-k2-0905-preview": {
+			"id": "kimi-k2-0905-preview",
+			"name": "kimi-k2-0905-preview",
+			"api": "openai-completions",
+			"provider": "moonshotai",
+			"baseUrl": "https://api.moonshot.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 262144
+		},
+		"kimi-k2-thinking-turbo": {
+			"id": "kimi-k2-thinking-turbo",
+			"name": "kimi-k2-thinking-turbo",
+			"api": "openai-completions",
+			"provider": "moonshotai",
+			"baseUrl": "https://api.moonshot.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 262144
 		}
 	},
 	"moonshotai-cn": {
@@ -454854,44 +454917,6 @@
 			"contextWindow": 131072,
 			"maxTokens": 16384
 		},
-		"kimi-k2-0905-preview": {
-			"id": "kimi-k2-0905-preview",
-			"name": "Kimi K2 0905",
-			"api": "openai-completions",
-			"provider": "moonshotai-cn",
-			"baseUrl": "https://api.moonshot.cn/v1",
-			"reasoning": false,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 262144,
-			"maxTokens": 262144
-		},
-		"kimi-k2-thinking-turbo": {
-			"id": "kimi-k2-thinking-turbo",
-			"name": "Kimi K2 Thinking Turbo",
-			"api": "openai-completions",
-			"provider": "moonshotai-cn",
-			"baseUrl": "https://api.moonshot.cn/v1",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 262144,
-			"maxTokens": 262144
-		},
 		"kimi-k2-turbo-preview": {
 			"id": "kimi-k2-turbo-preview",
 			"name": "Kimi K2 Turbo Preview",
@@ -455029,6 +455054,44 @@
 			},
 			"contextWindow": 262144,
 			"maxTokens": 16384
+		},
+		"kimi-k2-0905-preview": {
+			"id": "kimi-k2-0905-preview",
+			"name": "kimi-k2-0905-preview",
+			"api": "openai-completions",
+			"provider": "moonshotai-cn",
+			"baseUrl": "https://api.moonshot.cn/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 262144
+		},
+		"kimi-k2-thinking-turbo": {
+			"id": "kimi-k2-thinking-turbo",
+			"name": "kimi-k2-thinking-turbo",
+			"api": "openai-completions",
+			"provider": "moonshotai-cn",
+			"baseUrl": "https://api.moonshot.cn/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 262144
 		}
 	},
 	"morph": {
@@ -461964,8 +462027,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1000000,
-			"maxTokens": 32768
+			"contextWindow": 400000,
+			"maxTokens": 128000
 		},
 		"openai/gpt-5.1-codex": {
 			"id": "openai/gpt-5.1-codex",
@@ -471627,6 +471690,26 @@
 			"contextWindow": 32768,
 			"maxTokens": 29491
 		},
+		"TheDrummer/Artemis-v1.1": {
+			"id": "TheDrummer/Artemis-v1.1",
+			"name": "TheDrummer/Artemis v1.1",
+			"api": "openai-completions",
+			"provider": "nano-gpt",
+			"baseUrl": "https://nano-gpt.com/api/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 32768
+		},
 		"Alibaba-NLP/Tongyi-DeepResearch-30B-A3B": {
 			"id": "Alibaba-NLP/Tongyi-DeepResearch-30B-A3B",
 			"name": "Tongyi DeepResearch 30B A3B",
@@ -473032,6 +473115,27 @@
 			"contextWindow": 1000000,
 			"maxTokens": 128000
 		},
+		"claude-fable-5-1": {
+			"id": "claude-fable-5-1",
+			"name": "Claude Fable 5.1",
+			"api": "openai-completions",
+			"provider": "neon",
+			"baseUrl": "${NEON_AI_GATEWAY_BASE_URL}/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 128000
+		},
 		"claude-haiku-4-5": {
 			"id": "claude-haiku-4-5",
 			"name": "Claude Haiku 4.5",
@@ -473242,6 +473346,28 @@
 			"reasoning": true,
 			"input": [
 				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 131072
+		},
+		"glm-5-3-flash": {
+			"id": "glm-5-3-flash",
+			"name": "GLM-5.3-Flash",
+			"api": "openai-completions",
+			"provider": "neon",
+			"baseUrl": "${NEON_AI_GATEWAY_BASE_URL}/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -473578,6 +473704,27 @@
 			"contextWindow": 1050000,
 			"maxTokens": 128000
 		},
+		"gpt-6-astra": {
+			"id": "gpt-6-astra",
+			"name": "GPT-6 Astra",
+			"api": "openai-completions",
+			"provider": "neon",
+			"baseUrl": "${NEON_AI_GATEWAY_BASE_URL}/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
+		},
 		"gemini-2-5-flash": {
 			"id": "gemini-2-5-flash",
 			"name": "Gemini 2.5 Flash",
@@ -473799,6 +473946,26 @@
 			},
 			"contextWindow": 131072,
 			"maxTokens": 8192
+		},
+		"grok-4-6": {
+			"id": "grok-4-6",
+			"name": "Grok 4.6",
+			"api": "openai-completions",
+			"provider": "neon",
+			"baseUrl": "${NEON_AI_GATEWAY_BASE_URL}/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 500000,
+			"maxTokens": 500000
 		},
 		"inkling": {
 			"id": "inkling",
@@ -478013,6 +478180,27 @@
 			"contextWindow": 1050000,
 			"maxTokens": 128000
 		},
+		"openai/gpt-6-astra": {
+			"id": "openai/gpt-6-astra",
+			"name": "GPT-6 Astra",
+			"api": "openai-completions",
+			"provider": "ofox",
+			"baseUrl": "https://api.ofox.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
+		},
 		"google/gemini-2.5-flash": {
 			"id": "google/gemini-2.5-flash",
 			"name": "Gemini 2.5 Flash",
@@ -480321,7 +480509,8 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image"
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -480330,7 +480519,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 1050000,
-			"maxTokens": 1050000
+			"maxTokens": 128000
 		},
 		"gemini-3-flash": {
 			"id": "gemini-3-flash",
@@ -496887,6 +497076,25 @@
 			"contextWindow": 1000000,
 			"maxTokens": 384000
 		},
+		"deepseek-v4-pro": {
+			"id": "deepseek-v4-pro",
+			"name": "DeepSeek V4 Pro",
+			"api": "openai-completions",
+			"provider": "sensenova",
+			"baseUrl": "https://token.sensenova.cn/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 384000
+		},
 		"glm-5.2": {
 			"id": "glm-5.2",
 			"name": "GLM-5.2",
@@ -496904,6 +497112,26 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 1000000,
+			"maxTokens": 131072
+		},
+		"kimi-k3": {
+			"id": "kimi-k3",
+			"name": "Kimi K3",
+			"api": "openai-completions",
+			"provider": "sensenova",
+			"baseUrl": "https://token.sensenova.cn/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
 			"maxTokens": 131072
 		},
 		"sensenova-6.8-flash-lite": {
@@ -504115,6 +504343,27 @@
 		"gpt-5.6-sol": {
 			"id": "gpt-5.6-sol",
 			"name": "GPT-5.6 Sol",
+			"api": "openai-responses",
+			"provider": "vivgrid",
+			"baseUrl": "https://api.vivgrid.com/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
+		},
+		"gpt-6-astra": {
+			"id": "gpt-6-astra",
+			"name": "GPT-6 Astra",
 			"api": "openai-responses",
 			"provider": "vivgrid",
 			"baseUrl": "https://api.vivgrid.com/v1",
