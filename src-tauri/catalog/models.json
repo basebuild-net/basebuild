@@ -84178,7 +84178,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 1048576,
-			"maxTokens": 65536
+			"maxTokens": 128000
 		}
 	},
 	"gitlab-duo": {
@@ -420578,7 +420578,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 1048576,
-			"maxTokens": 65536
+			"maxTokens": 128000
 		},
 		"gemini-pro-latest": {
 			"id": "gemini-pro-latest",
@@ -425661,25 +425661,6 @@
 			"contextWindow": 1000000,
 			"maxTokens": 384000
 		},
-		"flexai/DeepSeek-V4-Flash-0731": {
-			"id": "flexai/DeepSeek-V4-Flash-0731",
-			"name": "DeepSeek V4 Flash 0731",
-			"api": "openai-completions",
-			"provider": "edenai",
-			"baseUrl": "https://api.edenai.run/v3",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1000000,
-			"maxTokens": 384000
-		},
 		"qwen/deepseek-v4-flash-0731": {
 			"id": "qwen/deepseek-v4-flash-0731",
 			"name": "DeepSeek V4 Flash 0731 (Alibaba)",
@@ -425773,6 +425754,25 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 1048576,
+			"maxTokens": 384000
+		},
+		"flexai/DeepSeek-V4-Flash-0731": {
+			"id": "flexai/DeepSeek-V4-Flash-0731",
+			"name": "DeepSeek V4 Flash 0731 (FlexAI)",
+			"api": "openai-completions",
+			"provider": "edenai",
+			"baseUrl": "https://api.edenai.run/v3",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 786432,
 			"maxTokens": 384000
 		},
 		"flexai/deepseek-v4-flash-0731": {
@@ -432676,8 +432676,27 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1000000,
-			"maxTokens": 131072
+			"contextWindow": 1048573,
+			"maxTokens": 262144
+		},
+		"accounts/fireworks/routers/glm-5p3-fast": {
+			"id": "accounts/fireworks/routers/glm-5p3-fast",
+			"name": "GLM 5.3 Fast",
+			"api": "openai-completions",
+			"provider": "fireworks-ai",
+			"baseUrl": "https://api.fireworks.ai/inference/v1/",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048572,
+			"maxTokens": 262144
 		},
 		"accounts/fireworks/models/glm-5p3-flash": {
 			"id": "accounts/fireworks/models/glm-5p3-flash",
@@ -432698,7 +432717,7 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1000000,
+			"contextWindow": 1048573,
 			"maxTokens": 131072
 		},
 		"accounts/fireworks/models/gpt-oss-120b": {
@@ -446308,7 +446327,10 @@
 			"baseUrl": "https://api.llmgateway.io/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image",
+				"video",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -451611,7 +451633,8 @@
 			"baseUrl": "https://api.llmgateway.io/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -458656,6 +458679,26 @@
 			"contextWindow": 1000000,
 			"maxTokens": 384000
 		},
+		"deepseek/deepseek-v4-flash-vision-exp-uncensored": {
+			"id": "deepseek/deepseek-v4-flash-vision-exp-uncensored",
+			"name": "DeepSeek V4 Flash Vision Exp Uncensored",
+			"api": "openai-completions",
+			"provider": "nano-gpt",
+			"baseUrl": "https://nano-gpt.com/api/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 524288,
+			"maxTokens": 32768
+		},
 		"deepseek/deepseek-v4-pro": {
 			"id": "deepseek/deepseek-v4-pro",
 			"name": "DeepSeek V4 Pro",
@@ -465611,6 +465654,25 @@
 			},
 			"contextWindow": 1048576,
 			"maxTokens": 131072
+		},
+		"poolside/laguna-xs-2.1": {
+			"id": "poolside/laguna-xs-2.1",
+			"name": "Laguna XS 2.1",
+			"api": "openai-completions",
+			"provider": "nano-gpt",
+			"baseUrl": "https://nano-gpt.com/api/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 32768
 		},
 		"poolside/laguna-xs.2": {
 			"id": "poolside/laguna-xs.2",
@@ -480702,7 +480764,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 1048576,
-			"maxTokens": 65536
+			"maxTokens": 128000
 		},
 		"grok-4.5": {
 			"id": "grok-4.5",
@@ -489546,6 +489608,44 @@
 			"contextWindow": 4000,
 			"maxTokens": 4000
 		},
+		"glm-latest": {
+			"id": "glm-latest",
+			"name": "GLM (latest)",
+			"api": "openai-completions",
+			"provider": "privatemode-ai",
+			"baseUrl": "http://localhost:8080/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 256000,
+			"maxTokens": 131072
+		},
+		"glm-5.3": {
+			"id": "glm-5.3",
+			"name": "GLM5.3",
+			"api": "openai-completions",
+			"provider": "privatemode-ai",
+			"baseUrl": "http://localhost:8080/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 1048576
+		},
 		"gpt-oss-120b": {
 			"id": "gpt-oss-120b",
 			"name": "GPT OSS 120B",
@@ -494300,7 +494400,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 1048576,
-			"maxTokens": 65536
+			"maxTokens": 128000
 		},
 		"gemini-3.8-flash@eu": {
 			"id": "gemini-3.8-flash@eu",
@@ -503998,6 +504098,48 @@
 		}
 	},
 	"vivgrid": {
+		"claude-fable-5": {
+			"id": "claude-fable-5",
+			"name": "Claude Fable 5",
+			"api": "openai-responses",
+			"provider": "vivgrid",
+			"baseUrl": "https://api.vivgrid.com/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 128000
+		},
+		"claude-fable-5-1": {
+			"id": "claude-fable-5-1",
+			"name": "Claude Fable 5.1",
+			"api": "openai-responses",
+			"provider": "vivgrid",
+			"baseUrl": "https://api.vivgrid.com/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 128000
+		},
 		"deepseek-v4-flash": {
 			"id": "deepseek-v4-flash",
 			"name": "DeepSeek V4 Flash",
@@ -504035,6 +504177,25 @@
 			},
 			"contextWindow": 1000000,
 			"maxTokens": 384000
+		},
+		"deepseek-v4-pro-0813": {
+			"id": "deepseek-v4-pro-0813",
+			"name": "DeepSeek V4 Pro 0813",
+			"api": "openai-responses",
+			"provider": "vivgrid",
+			"baseUrl": "https://api.vivgrid.com/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 1048576
 		},
 		"deepseek-v3.2": {
 			"id": "deepseek-v3.2",
@@ -504450,6 +504611,29 @@
 			},
 			"contextWindow": 1048576,
 			"maxTokens": 65536
+		},
+		"gemini-3.8-flash": {
+			"id": "gemini-3.8-flash",
+			"name": "Gemini 3.8 Flash",
+			"api": "openai-responses",
+			"provider": "vivgrid",
+			"baseUrl": "https://api.vivgrid.com/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video",
+				"audio",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 128000
 		},
 		"kimi-k3": {
 			"id": "kimi-k3",
