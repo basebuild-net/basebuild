@@ -159222,6 +159222,26 @@
 			"contextWindow": 128000,
 			"maxTokens": 4096
 		},
+		"prism-ml/ternary-bonsai-2-27b": {
+			"id": "prism-ml/ternary-bonsai-2-27b",
+			"name": "Ternary Bonsai 2 27B",
+			"api": "openai-completions",
+			"provider": "kilo",
+			"baseUrl": "https://api.kilo.ai/api/gateway",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 32768
+		},
 		"stealth/union-alpha": {
 			"id": "stealth/union-alpha",
 			"name": "Union Alpha",
@@ -159240,6 +159260,27 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
+			"maxTokens": 131072
+		},
+		"z-ai/glm-5.3-flashx": {
+			"id": "z-ai/glm-5.3-flashx",
+			"name": "Z.ai: GLM 5.3 FlashX",
+			"api": "openai-completions",
+			"provider": "kilo",
+			"baseUrl": "https://api.kilo.ai/api/gateway",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
 			"maxTokens": 131072
 		}
 	},
@@ -361474,6 +361515,26 @@
 			"contextWindow": 8192,
 			"maxTokens": 4096
 		},
+		"prism-ml/ternary-bonsai-2-27b": {
+			"id": "prism-ml/ternary-bonsai-2-27b",
+			"name": "Ternary Bonsai 2 27B",
+			"api": "openai-completions",
+			"provider": "openrouter",
+			"baseUrl": "https://openrouter.ai/api/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 32768
+		},
 		"thedrummer/cydonia-24b-v4.1": {
 			"id": "thedrummer/cydonia-24b-v4.1",
 			"name": "TheDrummer: Cydonia 24B V4.1",
@@ -361589,6 +361650,27 @@
 			},
 			"contextWindow": 65536,
 			"maxTokens": 8192
+		},
+		"z-ai/glm-5.3-flashx": {
+			"id": "z-ai/glm-5.3-flashx",
+			"name": "Z.ai: GLM 5.3 FlashX",
+			"api": "openai-completions",
+			"provider": "openrouter",
+			"baseUrl": "https://openrouter.ai/api/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 131072
 		},
 		"openai/o1-pro": {
 			"id": "openai/o1-pro",
@@ -409569,6 +409651,28 @@
 				"injectClaudeCodeInstruction": true,
 				"stripImageInput": false
 			}
+		},
+		"glm-5.3-flashx": {
+			"id": "glm-5.3-flashx",
+			"name": "GLM-5.3-FlashX",
+			"api": "openai-completions",
+			"provider": "zai",
+			"baseUrl": "https://api.z.ai/api/paas/v4",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 131072
 		}
 	},
 	"zenmux": {
@@ -434231,7 +434335,8 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image"
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -437564,7 +437669,8 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image"
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -441105,6 +441211,26 @@
 			"contextWindow": 1000000,
 			"maxTokens": 384000
 		},
+		"deepseek-v4.1-flash": {
+			"id": "deepseek-v4.1-flash",
+			"name": "DeepSeek V4.1 Flash",
+			"api": "openai-completions",
+			"provider": "alibaba-cn",
+			"baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 384000
+		},
 		"deepseek-r1": {
 			"id": "deepseek-r1",
 			"name": "DeepSeek-R1",
@@ -444140,8 +444266,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1048576,
-			"maxTokens": 384000
+			"contextWindow": 1000000,
+			"maxTokens": 131072
 		},
 		"deepseek/deepseek-v4-pro": {
 			"id": "deepseek/deepseek-v4-pro",
@@ -448654,7 +448780,8 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image"
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -450982,7 +451109,7 @@
 		},
 		"deepseek-v4-flash-vision-exp": {
 			"id": "deepseek-v4-flash-vision-exp",
-			"name": "DeepSeek V4 Flash Vision (Exp)",
+			"name": "DeepSeek V4 Flash Vision Exp",
 			"api": "openai-completions",
 			"provider": "crof",
 			"baseUrl": "https://crof.ai/v1",
@@ -454477,7 +454604,8 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image"
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -454548,7 +454676,7 @@
 		},
 		"deepseek-v4-flash-vision-exp": {
 			"id": "deepseek-v4-flash-vision-exp",
-			"name": "DeepSeek V4 Flash Vision (Exp)",
+			"name": "DeepSeek V4 Flash Vision Exp",
 			"api": "openai-completions",
 			"provider": "llmgateway",
 			"baseUrl": "https://api.llmgateway.io/v1",
@@ -461502,7 +461630,7 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 786432,
+			"contextWindow": 1048576,
 			"maxTokens": 384000
 		},
 		"flexai/deepseek-v4-flash-0731": {
@@ -479728,7 +479856,8 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image"
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -480935,6 +481064,176 @@
 			"name": "kimi-for-coding",
 			"api": "anthropic-messages",
 			"provider": "kimi-for-coding",
+			"baseUrl": "https://api.kimi.com/coding/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 32768
+		}
+	},
+	"kimi-code-plan-global": {
+		"kimi-for-coding-highspeed": {
+			"id": "kimi-for-coding-highspeed",
+			"name": "Kimi For Coding HighSpeed",
+			"api": "openai-completions",
+			"provider": "kimi-code-plan-global",
+			"baseUrl": "https://api.kimi.ai/coding/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 32768
+		},
+		"k3": {
+			"id": "k3",
+			"name": "Kimi K3",
+			"api": "openai-completions",
+			"provider": "kimi-code-plan-global",
+			"baseUrl": "https://api.kimi.ai/coding/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 131072
+		},
+		"k3-256k": {
+			"id": "k3-256k",
+			"name": "Kimi K3-256K",
+			"api": "openai-completions",
+			"provider": "kimi-code-plan-global",
+			"baseUrl": "https://api.kimi.ai/coding/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 131072
+		},
+		"kimi-for-coding": {
+			"id": "kimi-for-coding",
+			"name": "kimi-for-coding",
+			"api": "openai-completions",
+			"provider": "kimi-code-plan-global",
+			"baseUrl": "https://api.kimi.ai/coding/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 32768
+		}
+	},
+	"kimi-code-plan-cn": {
+		"kimi-for-coding-highspeed": {
+			"id": "kimi-for-coding-highspeed",
+			"name": "Kimi For Coding HighSpeed",
+			"api": "openai-completions",
+			"provider": "kimi-code-plan-cn",
+			"baseUrl": "https://api.kimi.com/coding/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 32768
+		},
+		"k3": {
+			"id": "k3",
+			"name": "Kimi K3",
+			"api": "openai-completions",
+			"provider": "kimi-code-plan-cn",
+			"baseUrl": "https://api.kimi.com/coding/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 131072
+		},
+		"k3-256k": {
+			"id": "k3-256k",
+			"name": "Kimi K3-256K",
+			"api": "openai-completions",
+			"provider": "kimi-code-plan-cn",
+			"baseUrl": "https://api.kimi.com/coding/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 131072
+		},
+		"kimi-for-coding": {
+			"id": "kimi-for-coding",
+			"name": "kimi-for-coding",
+			"api": "openai-completions",
+			"provider": "kimi-code-plan-cn",
 			"baseUrl": "https://api.kimi.com/coding/v1",
 			"reasoning": true,
 			"input": [
@@ -485144,7 +485443,7 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 278528,
+			"contextWindow": 921600,
 			"maxTokens": 128000
 		},
 		"azure/gpt-5.6-luna": {
@@ -485207,7 +485506,7 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 278528,
+			"contextWindow": 921600,
 			"maxTokens": 128000
 		},
 		"azure/gpt-5.6-sol": {
@@ -485270,7 +485569,7 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 278528,
+			"contextWindow": 921600,
 			"maxTokens": 128000
 		},
 		"azure/gpt-5.6-terra": {
@@ -492293,7 +492592,8 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image"
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -497162,8 +497462,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1048576,
-			"maxTokens": 384000
+			"contextWindow": 1000000,
+			"maxTokens": 131072
 		},
 		"TEE/deepseek-v4-flash": {
 			"id": "TEE/deepseek-v4-flash",
@@ -506094,7 +506394,7 @@
 		},
 		"mistralai/mistral-large-3-675b-instruct-2512": {
 			"id": "mistralai/mistral-large-3-675b-instruct-2512",
-			"name": "Mistral Large 3 675B",
+			"name": "Mistral Large 3 675B Instruct 2512",
 			"api": "openai-completions",
 			"provider": "nano-gpt",
 			"baseUrl": "https://nano-gpt.com/api/v1",
@@ -506110,7 +506410,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 256000
+			"maxTokens": 262144
 		},
 		"mistralai/mistral-medium-3": {
 			"id": "mistralai/mistral-medium-3",
@@ -507511,6 +507811,26 @@
 			},
 			"contextWindow": 1000000,
 			"maxTokens": 32768
+		},
+		"unbiased/pareto": {
+			"id": "unbiased/pareto",
+			"name": "Pareto",
+			"api": "openai-completions",
+			"provider": "nano-gpt",
+			"baseUrl": "https://nano-gpt.com/api/v1",
+			"reasoning": false,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 131072
 		},
 		"perceptron/perceptron-mk1": {
 			"id": "perceptron/perceptron-mk1",
@@ -511589,6 +511909,26 @@
 			"contextWindow": 65536,
 			"maxTokens": 8192
 		},
+		"prism-ml/ternary-bonsai-2-27b": {
+			"id": "prism-ml/ternary-bonsai-2-27b",
+			"name": "Ternary Bonsai 2 27B",
+			"api": "openai-completions",
+			"provider": "nano-gpt",
+			"baseUrl": "https://nano-gpt.com/api/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 32768
+		},
 		"TheDrummer/Cydonia-24B-v2": {
 			"id": "TheDrummer/Cydonia-24B-v2",
 			"name": "The Drummer Cydonia 24B v2",
@@ -513519,7 +513859,8 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image"
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -520829,7 +521170,8 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image"
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -520880,7 +521222,7 @@
 		},
 		"deepseek-v4-flash-vision-exp": {
 			"id": "deepseek-v4-flash-vision-exp",
-			"name": "DeepSeek V4 Flash Vision (Exp)",
+			"name": "DeepSeek V4 Flash Vision Exp",
 			"api": "openai-completions",
 			"provider": "opencode",
 			"baseUrl": "https://opencode.ai/zen/v1",
@@ -520907,6 +521249,26 @@
 			"reasoning": true,
 			"input": [
 				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 384000
+		},
+		"deepseek-v4.1-flash": {
+			"id": "deepseek-v4.1-flash",
+			"name": "DeepSeek V4.1 Flash",
+			"api": "openai-completions",
+			"provider": "opencode",
+			"baseUrl": "https://opencode.ai/zen/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -521798,6 +522160,44 @@
 			"contextWindow": 64000,
 			"maxTokens": 0
 		},
+		"jev-1.13": {
+			"id": "jev-1.13",
+			"name": "Jev 1.13",
+			"api": "openai-completions",
+			"provider": "opencode",
+			"baseUrl": "https://opencode.ai/zen/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 64000,
+			"maxTokens": 0
+		},
+		"jev-1.13-free": {
+			"id": "jev-1.13-free",
+			"name": "Jev 1.13 Free",
+			"api": "openai-completions",
+			"provider": "opencode",
+			"baseUrl": "https://opencode.ai/zen/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 64000,
+			"maxTokens": 0
+		},
 		"kimi-k2": {
 			"id": "kimi-k2",
 			"name": "Kimi K2",
@@ -522520,6 +522920,27 @@
 			},
 			"contextWindow": 262144,
 			"maxTokens": 65536
+		},
+		"qwen3.8-flash": {
+			"id": "qwen3.8-flash",
+			"name": "Qwen3.8 Flash",
+			"api": "openai-completions",
+			"provider": "opencode",
+			"baseUrl": "https://opencode.ai/zen/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 131072
 		},
 		"ring-2.6-1t-free": {
 			"id": "ring-2.6-1t-free",
@@ -526503,7 +526924,8 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image"
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -533918,7 +534340,8 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image"
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -541897,7 +542320,8 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image"
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -544703,7 +545127,8 @@
 			"reasoning": true,
 			"input": [
 				"text",
-				"image"
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -545214,7 +545639,7 @@
 		},
 		"deepseek-v4-flash-vision-exp": {
 			"id": "deepseek-v4-flash-vision-exp",
-			"name": "DeepSeek V4 Flash Vision (Exp)",
+			"name": "DeepSeek V4 Flash Vision Exp",
 			"api": "openai-completions",
 			"provider": "vancine",
 			"baseUrl": "https://vancine.com/v1",
@@ -545569,6 +545994,48 @@
 		"claude-fable-5-1": {
 			"id": "claude-fable-5-1",
 			"name": "Claude Fable 5.1",
+			"api": "openai-responses",
+			"provider": "vivgrid",
+			"baseUrl": "https://api.vivgrid.com/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 128000
+		},
+		"claude-opus-5": {
+			"id": "claude-opus-5",
+			"name": "Claude Opus 5",
+			"api": "openai-responses",
+			"provider": "vivgrid",
+			"baseUrl": "https://api.vivgrid.com/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 128000
+		},
+		"claude-sonnet-5": {
+			"id": "claude-sonnet-5",
+			"name": "Claude Sonnet 5",
 			"api": "openai-responses",
 			"provider": "vivgrid",
 			"baseUrl": "https://api.vivgrid.com/v1",
@@ -546082,6 +546549,25 @@
 			},
 			"contextWindow": 1048576,
 			"maxTokens": 128000
+		},
+		"jev": {
+			"id": "jev",
+			"name": "Jev",
+			"api": "openai-responses",
+			"provider": "vivgrid",
+			"baseUrl": "https://api.vivgrid.com/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 64000,
+			"maxTokens": 0
 		},
 		"kimi-k3": {
 			"id": "kimi-k3",
@@ -547723,6 +548209,28 @@
 			},
 			"contextWindow": 1000000,
 			"maxTokens": 131072
+		},
+		"glm-5.3-flashx": {
+			"id": "glm-5.3-flashx",
+			"name": "GLM-5.3-FlashX",
+			"api": "openai-completions",
+			"provider": "zhipuai",
+			"baseUrl": "https://open.bigmodel.cn/api/paas/v4",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 131072
 		}
 	},
 	"abliteration-ai": {
@@ -547807,7 +548315,7 @@
 		},
 		"deepseek-v4-flash-vision-exp": {
 			"id": "deepseek-v4-flash-vision-exp",
-			"name": "DeepSeek V4 Flash Vision (Exp)",
+			"name": "DeepSeek V4 Flash Vision Exp",
 			"api": "openai-completions",
 			"provider": "above",
 			"baseUrl": "https://api.above.dev/v1",
