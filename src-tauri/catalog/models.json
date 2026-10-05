@@ -474268,7 +474268,7 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 262000,
+			"contextWindow": 131072,
 			"maxTokens": 32768
 		},
 		"Qwen3.8-Flash-Next": {
@@ -482195,6 +482195,25 @@
 		}
 	},
 	"blueclaw": {
+		"Qwen/Qwen3.6-35B-A3B-FP8": {
+			"id": "Qwen/Qwen3.6-35B-A3B-FP8",
+			"name": "Qwen 3.6 35B A3B FP8",
+			"api": "openai-completions",
+			"provider": "blueclaw",
+			"baseUrl": "https://openai.blueclaw.network/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 8192
+		},
 		"Qwen3.6-27B": {
 			"id": "Qwen3.6-27B",
 			"name": "Qwen3.6 27B",
@@ -482214,9 +482233,9 @@
 			"contextWindow": 196608,
 			"maxTokens": 65536
 		},
-		"Qwen/Qwen3.6-35B-A3B-FP8": {
-			"id": "Qwen/Qwen3.6-35B-A3B-FP8",
-			"name": "Qwen3.6 35B A3B FP8",
+		"Qwen3.8-27B": {
+			"id": "Qwen3.8-27B",
+			"name": "Qwen3.8 27B",
 			"api": "openai-completions",
 			"provider": "blueclaw",
 			"baseUrl": "https://openai.blueclaw.network/v1",
@@ -482231,7 +482250,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 131072,
-			"maxTokens": 65536
+			"maxTokens": 32768
 		}
 	},
 	"bothub": {
@@ -484874,6 +484893,26 @@
 		}
 	},
 	"coralbricks": {
+		"deepseek-v4.1-flash-fast": {
+			"id": "deepseek-v4.1-flash-fast",
+			"name": "DeepSeek V4.1 Flash",
+			"api": "openai-completions",
+			"provider": "coralbricks",
+			"baseUrl": "https://inference.coralbricks.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 131072
+		},
 		"deepseek-v4.1-flash-fast-fp4": {
 			"id": "deepseek-v4.1-flash-fast-fp4",
 			"name": "DeepSeek V4.1 Flash FP4",
@@ -484943,6 +484982,25 @@
 				"text",
 				"image",
 				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 131072
+		},
+		"glm-5.3-fast": {
+			"id": "glm-5.3-fast",
+			"name": "GLM-5.3",
+			"api": "openai-completions",
+			"provider": "coralbricks",
+			"baseUrl": "https://inference.coralbricks.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
 			],
 			"cost": {
 				"input": 0,
@@ -492350,6 +492408,26 @@
 			"contextWindow": 1000000,
 			"maxTokens": 393216
 		},
+		"deepseek-ai/DeepSeek-V4.1-Flash": {
+			"id": "deepseek-ai/DeepSeek-V4.1-Flash",
+			"name": "DeepSeek V4.1 Flash",
+			"api": "openai-completions",
+			"provider": "llmgateway",
+			"baseUrl": "https://api.llmgateway.io/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 384000
+		},
 		"deepseek-v4-1-flash": {
 			"id": "deepseek-v4-1-flash",
 			"name": "DeepSeek V4.1 Flash",
@@ -496622,7 +496700,7 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 262000,
+			"contextWindow": 131072,
 			"maxTokens": 32768
 		},
 		"qwen3.8-27b": {
@@ -501064,7 +501142,7 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 131072,
+			"contextWindow": 32768,
 			"maxTokens": 32768
 		},
 		"groq/openai/gpt-oss-20b": {
@@ -513502,7 +513580,7 @@
 		},
 		"Qwen/Qwen3.6-35B-A3B-FP8": {
 			"id": "Qwen/Qwen3.6-35B-A3B-FP8",
-			"name": "Qwen3.6 35B A3B FP8",
+			"name": "Qwen 3.6 35B A3B FP8",
 			"api": "openai-completions",
 			"provider": "hetzner",
 			"baseUrl": "https://inference.hetzner.com/api/v1",
@@ -513516,8 +513594,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 131072,
-			"maxTokens": 65536
+			"contextWindow": 262144,
+			"maxTokens": 8192
 		},
 		"Qwen3.8-27B": {
 			"id": "Qwen3.8-27B",
@@ -513535,7 +513613,7 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 262000,
+			"contextWindow": 131072,
 			"maxTokens": 32768
 		}
 	},
@@ -521692,6 +521770,26 @@
 			"contextWindow": 1048576,
 			"maxTokens": 393216
 		},
+		"luminal/deepseek-v4.1-flash": {
+			"id": "luminal/deepseek-v4.1-flash",
+			"name": "DeepSeek V4.1 Flash (luminal)",
+			"api": "openai-completions",
+			"provider": "llmgateway-providers",
+			"baseUrl": "https://api.llmgateway.io/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 384000
+		},
 		"novita/deepseek-v3.2": {
 			"id": "novita/deepseek-v3.2",
 			"name": "DeepSeek-V3.2",
@@ -529759,6 +529857,26 @@
 			"contextWindow": 205000,
 			"maxTokens": 131072
 		},
+		"luminal/deepseek-ai/DeepSeek-V4.1-Flash": {
+			"id": "luminal/deepseek-ai/DeepSeek-V4.1-Flash",
+			"name": "luminal/DeepSeek-V4.1-Flash (luminal)",
+			"api": "openai-completions",
+			"provider": "llmgateway-providers",
+			"baseUrl": "https://api.llmgateway.io/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 1000000
+		},
 		"novita/minimax-m2.1": {
 			"id": "novita/minimax-m2.1",
 			"name": "minimax-m2.1",
@@ -533955,6 +534073,25 @@
 			"contextWindow": 262144,
 			"maxTokens": 32768
 		},
+		"Qwen/Qwen3.6-35B-A3B-FP8": {
+			"id": "Qwen/Qwen3.6-35B-A3B-FP8",
+			"name": "Qwen 3.6 35B A3B FP8",
+			"api": "openai-completions",
+			"provider": "nearai",
+			"baseUrl": "https://cloud-api.near.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 8192
+		},
 		"Qwen/Qwen3-30B-A3B-Instruct-2507": {
 			"id": "Qwen/Qwen3-30B-A3B-Instruct-2507",
 			"name": "Qwen3 30B A3B Instruct 2507",
@@ -534014,25 +534151,6 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 65536
-		},
-		"Qwen/Qwen3.6-35B-A3B-FP8": {
-			"id": "Qwen/Qwen3.6-35B-A3B-FP8",
-			"name": "Qwen3.6 35B A3B FP8",
-			"api": "openai-completions",
-			"provider": "nearai",
-			"baseUrl": "https://cloud-api.near.ai/v1",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 131072,
 			"maxTokens": 65536
 		},
 		"openai/o3": {
@@ -534701,6 +534819,46 @@
 			},
 			"contextWindow": 32000,
 			"maxTokens": 16384
+		},
+		"z-ai/glm-5.3-flash-apex": {
+			"id": "z-ai/glm-5.3-flash-apex",
+			"name": "Apex Flash 1",
+			"api": "openai-completions",
+			"provider": "nano-gpt",
+			"baseUrl": "https://nano-gpt.com/api/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 32768
+		},
+		"z-ai/glm-5.3-flash-apex-abliterated": {
+			"id": "z-ai/glm-5.3-flash-apex-abliterated",
+			"name": "Apex Flash 1 Abliterated",
+			"api": "openai-completions",
+			"provider": "nano-gpt",
+			"baseUrl": "https://nano-gpt.com/api/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 32768
 		},
 		"auto-model": {
 			"id": "auto-model",
@@ -586097,6 +586255,26 @@
 		}
 	},
 	"subconscious": {
+		"subconscious/deepseek-v4.1-flash-marathon": {
+			"id": "subconscious/deepseek-v4.1-flash-marathon",
+			"name": "DeepSeek V4.1 Flash Marathon",
+			"api": "anthropic-messages",
+			"provider": "subconscious",
+			"baseUrl": "https://api.subconscious.dev/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 5000000,
+			"maxTokens": 384000
+		},
 		"subconscious/glm-5.2": {
 			"id": "subconscious/glm-5.2",
 			"name": "GLM-5.2",
@@ -586114,6 +586292,25 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 1000000,
+			"maxTokens": 131072
+		},
+		"subconscious/glm-5.3-marathon": {
+			"id": "subconscious/glm-5.3-marathon",
+			"name": "GLM-5.3 Marathon",
+			"api": "anthropic-messages",
+			"provider": "subconscious",
+			"baseUrl": "https://api.subconscious.dev/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 5000000,
 			"maxTokens": 131072
 		},
 		"subconscious/tim-qwen3.6-27b": {
@@ -594254,6 +594451,25 @@
 			"contextWindow": 32000,
 			"maxTokens": 32000
 		},
+		"Qwen/Qwen3.6-35B-A3B-FP8": {
+			"id": "Qwen/Qwen3.6-35B-A3B-FP8",
+			"name": "Qwen 3.6 35B A3B FP8",
+			"api": "openai-completions",
+			"provider": "evroc",
+			"baseUrl": "https://models.think.evroc.com/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 8192
+		},
 		"Qwen/Qwen3-30B-A3B-Instruct-2507-FP8": {
 			"id": "Qwen/Qwen3-30B-A3B-Instruct-2507-FP8",
 			"name": "Qwen3 30B 2507",
@@ -594313,25 +594529,6 @@
 			},
 			"contextWindow": 262144,
 			"maxTokens": 81920
-		},
-		"Qwen/Qwen3.6-35B-A3B-FP8": {
-			"id": "Qwen/Qwen3.6-35B-A3B-FP8",
-			"name": "Qwen3.6 35B A3B FP8",
-			"api": "openai-completions",
-			"provider": "evroc",
-			"baseUrl": "https://models.think.evroc.com/v1",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 131072,
-			"maxTokens": 65536
 		},
 		"Qwen/Qwen3.8-27B": {
 			"id": "Qwen/Qwen3.8-27B",
