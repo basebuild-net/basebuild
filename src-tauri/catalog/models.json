@@ -612,7 +612,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"compat": {
@@ -12910,7 +12911,8 @@
 			"maxTokens": 16384,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "3.0.0"
 			},
 			"compat": {
 				"supportsStore": true,
@@ -12989,7 +12991,8 @@
 			"maxTokens": 8192,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "3.0.0"
 			},
 			"compat": {
 				"supportsStore": true,
@@ -13068,7 +13071,8 @@
 			"maxTokens": 16384,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "3.0.0"
 			},
 			"compat": {
 				"supportsStore": true,
@@ -13237,7 +13241,8 @@
 			},
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"compat": {
 				"supportsStore": true,
@@ -35876,8 +35881,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1000000,
-			"maxTokens": 384000
+			"contextWindow": 1048576,
+			"maxTokens": 65536
 		},
 		"glm-5": {
 			"id": "glm-5",
@@ -54640,7 +54645,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"compat": {
@@ -62911,7 +62917,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -75178,7 +75185,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -75268,7 +75276,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -86653,7 +86662,8 @@
 			"maxTokens": 16384,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "3.0.0"
 			},
 			"compat": {
 				"supportsStore": true,
@@ -86733,7 +86743,8 @@
 			"maxTokens": 131072,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "3.0.0"
 			},
 			"compat": {
 				"supportsStore": true,
@@ -86813,7 +86824,8 @@
 			"maxTokens": 16384,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "3.0.0"
 			},
 			"compat": {
 				"supportsStore": true,
@@ -86903,7 +86915,8 @@
 			},
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"compat": {
 				"supportsStore": true,
@@ -86993,7 +87006,8 @@
 			},
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"compat": {
 				"supportsStore": true,
@@ -87083,7 +87097,8 @@
 			},
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"compat": {
 				"supportsStore": true,
@@ -87173,7 +87188,8 @@
 			},
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"compat": {
 				"supportsStore": true,
@@ -93958,13 +93974,15 @@
 		},
 		"claude-haiku-4-5": {
 			"id": "claude-haiku-4-5",
-			"name": "Claude Haiku 4.5",
+			"name": "Claude Haiku 4.5 (latest)",
 			"api": "devin-agent",
 			"provider": "devin",
 			"baseUrl": "https://server.codeium.com",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -93972,8 +93990,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 200000,
+			"maxTokens": 64000
 		},
 		"claude-opus-4-1": {
 			"id": "claude-opus-4-1",
@@ -93998,13 +94016,15 @@
 		},
 		"claude-opus-4-5": {
 			"id": "claude-opus-4-5",
-			"name": "Claude Opus 4.5",
+			"name": "Claude Opus 4.5 (latest)",
 			"api": "devin-agent",
 			"provider": "devin",
 			"baseUrl": "https://server.codeium.com",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -94012,8 +94032,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 200000,
+			"maxTokens": 64000
 		},
 		"claude-opus-4-5-thinking": {
 			"id": "claude-opus-4-5-thinking",
@@ -94042,7 +94062,9 @@
 			"baseUrl": "https://server.codeium.com",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -94050,8 +94072,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 1000000,
+			"maxTokens": 128000
 		},
 		"claude-opus-4-6-1m": {
 			"id": "claude-opus-4-6-1m",
@@ -94884,7 +94906,8 @@
 			"baseUrl": "https://server.codeium.com",
 			"reasoning": false,
 			"input": [
-				"text"
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -94892,8 +94915,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 128000,
+			"maxTokens": 16384
 		},
 		"gpt-5-high-thinking": {
 			"id": "gpt-5-high-thinking",
@@ -96747,7 +96770,8 @@
 			"baseUrl": "https://server.codeium.com",
 			"reasoning": false,
 			"input": [
-				"text"
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -96755,8 +96779,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 256000,
+			"maxTokens": 16384
 		},
 		"hybrid-arena": {
 			"id": "hybrid-arena",
@@ -96999,7 +97023,8 @@
 			"baseUrl": "https://server.codeium.com",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -97007,8 +97032,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 200000,
+			"maxTokens": 100000
 		},
 		"o3-high-reasoning": {
 			"id": "o3-high-reasoning",
@@ -106007,9 +106032,8 @@
 			"input": [
 				"text",
 				"image",
-				"video",
 				"audio",
-				"pdf"
+				"video"
 			],
 			"cost": {
 				"input": 0,
@@ -106017,8 +106041,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1048576,
-			"maxTokens": 32768
+			"contextWindow": 1000000,
+			"maxTokens": 65536
 		}
 	},
 	"gitlab-duo": {
@@ -109698,7 +109722,8 @@
 			"maxTokens": 8192,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "3.0.0"
 			},
 			"webSearch": "gemini",
 			"compat": {
@@ -109745,7 +109770,8 @@
 			},
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"webSearch": "gemini",
 			"compat": {
@@ -109791,7 +109817,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -109839,7 +109866,8 @@
 			},
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"webSearch": "gemini",
 			"compat": {
@@ -109886,7 +109914,8 @@
 			},
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"int": 29.7,
 			"tps": 35,
@@ -109934,7 +109963,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -109982,7 +110012,8 @@
 			},
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"webSearch": "gemini",
 			"compat": {
@@ -110029,7 +110060,8 @@
 			},
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"webSearch": "gemini",
 			"compat": {
@@ -110091,9 +110123,8 @@
 			"input": [
 				"text",
 				"image",
-				"video",
 				"audio",
-				"pdf"
+				"video"
 			],
 			"cost": {
 				"input": 0,
@@ -110101,8 +110132,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1048576,
-			"maxTokens": 32768
+			"contextWindow": 1000000,
+			"maxTokens": 65536
 		},
 		"lyria-3-clip-preview": {
 			"id": "lyria-3-clip-preview",
@@ -113329,7 +113360,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -114604,9 +114636,8 @@
 			"input": [
 				"text",
 				"image",
-				"video",
 				"audio",
-				"pdf"
+				"video"
 			],
 			"cost": {
 				"input": 0,
@@ -114614,8 +114645,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1048576,
-			"maxTokens": 32768
+			"contextWindow": 1000000,
+			"maxTokens": 65536
 		},
 		"gemini-flash-latest": {
 			"id": "gemini-flash-latest",
@@ -118031,7 +118062,8 @@
 			"contextWindow": 131072,
 			"maxTokens": 131072,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "3.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -118111,7 +118143,8 @@
 			"contextWindow": 131072,
 			"maxTokens": 131072,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "3.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -118191,7 +118224,8 @@
 			"contextWindow": 131072,
 			"maxTokens": 131072,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "3.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -118281,7 +118315,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -118371,7 +118406,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -137915,7 +137951,8 @@
 			"maxTokens": 4096,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "2.0.0"
 			},
 			"compat": {
 				"supportsStore": false,
@@ -137994,7 +138031,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "2.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -138074,7 +138112,8 @@
 			"contextWindow": 131072,
 			"maxTokens": 16384,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "3.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -138154,7 +138193,8 @@
 			"contextWindow": 131072,
 			"maxTokens": 117964,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "3.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -138235,7 +138275,8 @@
 			"maxTokens": 16384,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "3.0.0"
 			},
 			"compat": {
 				"supportsStore": false,
@@ -138404,7 +138445,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -138494,7 +138536,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -178306,7 +178349,8 @@
 			"contextWindow": null,
 			"maxTokens": null,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "3.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -178442,6 +178486,32 @@
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
 			"kind": "tiny"
+		},
+		"nemotron-streaming-en-0.6b": {
+			"id": "nemotron-streaming-en-0.6b",
+			"name": "Nemotron Speech 0.6B (Streaming English)",
+			"api": "local-inference",
+			"provider": "local",
+			"baseUrl": "local://inference",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"supportsTools": false,
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": null,
+			"maxTokens": null,
+			"identity": {
+				"class": "unknown"
+			},
+			"requiresGlyphTokenization": false,
+			"supportsComputerUse": false,
+			"kind": "stt"
 		},
 		"parakeet-tdt-0.6b-v3": {
 			"id": "parakeet-tdt-0.6b-v3",
@@ -207728,7 +207798,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "unknown"
+				"class": "meta",
+				"family": "llama"
 			},
 			"thinking": {
 				"mode": "effort",
@@ -210055,7 +210126,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "3.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -210135,7 +210207,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "3.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -210215,7 +210288,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "3.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -210295,7 +210369,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "3.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -210375,7 +210450,8 @@
 			"maxTokens": 8192,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "3.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -210455,7 +210531,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "3.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -210535,7 +210612,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "3.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -210615,7 +210693,8 @@
 			"contextWindow": 131072,
 			"maxTokens": 32768,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -210705,7 +210784,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -210795,7 +210875,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -210885,7 +210966,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -210975,7 +211057,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -211065,7 +211148,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -211145,7 +211229,8 @@
 			"contextWindow": 262144,
 			"maxTokens": 32768,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -211235,7 +211320,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -211325,7 +211411,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -211415,7 +211502,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -211505,7 +211593,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -211595,7 +211684,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -211685,7 +211775,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -211775,7 +211866,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"compat": {
@@ -211865,7 +211957,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"compat": {
@@ -211945,7 +212038,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -212025,7 +212119,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -212105,7 +212200,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -212289,7 +212385,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -212369,7 +212466,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -212459,7 +212557,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -212539,7 +212638,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -212619,7 +212719,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -212699,7 +212800,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -212779,7 +212881,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -212869,7 +212972,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -212949,7 +213053,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -213029,7 +213134,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -213109,7 +213215,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -213189,7 +213296,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -213269,7 +213377,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -213349,7 +213458,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -213429,7 +213539,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -213509,7 +213620,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -213589,7 +213701,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -213669,7 +213782,8 @@
 			"maxTokens": 32768,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -213759,7 +213873,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -213849,7 +213964,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -213939,7 +214055,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -214029,7 +214146,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -214119,7 +214237,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -214209,7 +214328,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -214299,7 +214419,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -214389,7 +214510,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -214469,7 +214591,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -214549,7 +214672,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -214629,7 +214753,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -214709,7 +214834,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -214789,7 +214915,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -214869,7 +214996,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -214949,7 +215077,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -215029,7 +215158,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -215119,7 +215249,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -215209,7 +215340,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -215289,7 +215421,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -215369,7 +215502,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -215449,7 +215583,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -215539,7 +215674,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -215619,7 +215755,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -215699,7 +215836,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -215779,7 +215917,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -215859,7 +215998,8 @@
 			"contextWindow": 131072,
 			"maxTokens": 16384,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"compat": {
@@ -215939,7 +216079,8 @@
 			"contextWindow": 131072,
 			"maxTokens": 16384,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"compat": {
@@ -219402,7 +219543,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -219493,7 +219635,8 @@
 			},
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"compat": {
 				"supportsStore": true,
@@ -219582,7 +219725,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -219673,7 +219817,8 @@
 			},
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"compat": {
 				"supportsStore": true,
@@ -219753,7 +219898,8 @@
 			"maxTokens": 32768,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"compat": {
 				"supportsStore": true,
@@ -219843,7 +219989,8 @@
 			},
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"compat": {
 				"supportsStore": true,
@@ -219933,7 +220080,8 @@
 			},
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"compat": {
 				"supportsStore": true,
@@ -220023,7 +220171,8 @@
 			},
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"compat": {
 				"supportsStore": true,
@@ -220113,7 +220262,8 @@
 			},
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"compat": {
 				"supportsStore": true,
@@ -220202,7 +220352,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -220293,7 +220444,8 @@
 			},
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"compat": {
 				"supportsStore": true,
@@ -220383,7 +220535,8 @@
 			},
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"compat": {
 				"supportsStore": true,
@@ -220472,7 +220625,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -220563,7 +220717,8 @@
 			},
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"compat": {
 				"supportsStore": true,
@@ -220653,7 +220808,8 @@
 			},
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"compat": {
 				"supportsStore": true,
@@ -220743,7 +220899,8 @@
 			},
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"compat": {
 				"supportsStore": true,
@@ -220833,7 +220990,8 @@
 			},
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"compat": {
 				"supportsStore": true,
@@ -220913,7 +221071,8 @@
 			"maxTokens": 32768,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"compat": {
 				"supportsStore": true,
@@ -221003,7 +221162,8 @@
 			},
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"compat": {
 				"supportsStore": true,
@@ -221093,7 +221253,8 @@
 			},
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"compat": {
 				"supportsStore": true,
@@ -221182,7 +221343,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -231439,7 +231601,8 @@
 			"maxTokens": null,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "unknown"
+				"class": "meta",
+				"family": "llama"
 			},
 			"thinking": {
 				"mode": "effort",
@@ -270274,7 +270437,8 @@
 			"maxTokens": 8192,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "3.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -270353,7 +270517,8 @@
 			"contextWindow": 65536,
 			"maxTokens": 65536,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -270442,7 +270607,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -276784,7 +276950,8 @@
 			"maxTokens": 16384,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "3.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -276864,7 +277031,8 @@
 			"maxTokens": 4096,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "3.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -276944,7 +277112,8 @@
 			"maxTokens": 8192,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "3.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -277024,7 +277193,8 @@
 			"maxTokens": 16384,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "3.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -289075,7 +289245,8 @@
 			"supportsTools": false,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "3.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -289157,7 +289328,8 @@
 			"supportsTools": false,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "3.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -289249,7 +289421,8 @@
 			},
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -289341,7 +289514,8 @@
 			},
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -297710,7 +297884,8 @@
 			"maxTokens": 4096,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "2.0.0"
 			},
 			"compat": {
 				"supportsStore": true,
@@ -297788,7 +297963,8 @@
 			"contextWindow": 128000,
 			"maxTokens": 4096,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "2.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -297947,7 +298123,8 @@
 			"contextWindow": 131072,
 			"maxTokens": 16384,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "3.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -298028,7 +298205,8 @@
 			"maxTokens": 4096,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "3.0.0"
 			},
 			"compat": {
 				"supportsStore": true,
@@ -298108,7 +298286,8 @@
 			"maxTokens": 8192,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "3.0.0"
 			},
 			"compat": {
 				"supportsStore": true,
@@ -298187,7 +298366,8 @@
 			"contextWindow": 131072,
 			"maxTokens": 16384,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "3.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -298437,7 +298617,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -310087,6 +310268,27 @@
 			"contextWindow": 131072,
 			"maxTokens": 32768
 		},
+		"nvidia/nemotron-3.5-super-vl-120b-a12b": {
+			"id": "nvidia/nemotron-3.5-super-vl-120b-a12b",
+			"name": "Nemotron 3.5 Super VL 120B A12B",
+			"api": "openai-completions",
+			"provider": "nvidia",
+			"baseUrl": "https://integrate.api.nvidia.com/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 8192
+		},
 		"nvidia/bevformer": {
 			"id": "nvidia/bevformer",
 			"name": "bevformer",
@@ -320077,12 +320279,156 @@
 		}
 	},
 	"opencode-go": {
+		"cat-jam-free": {
+			"id": "cat-jam-free",
+			"name": "Cat Jam Free",
+			"api": "openai-completions",
+			"provider": "opencode-go",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 131072,
+			"thinking": {
+				"mode": "effort",
+				"efforts": [
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh"
+				]
+			},
+			"identity": {
+				"class": "unknown"
+			},
+			"requiresGlyphTokenization": false,
+			"supportsComputerUse": false,
+			"compat": {
+				"supportsStore": false,
+				"supportsDeveloperRole": false,
+				"supportsMultipleSystemMessages": false,
+				"supportsReasoningEffort": true,
+				"supportsReasoningParams": true,
+				"supportsSamplingParams": true,
+				"supportsPenaltyAndStopParams": true,
+				"reasoningEffortMap": {},
+				"supportsUsageInStreaming": true,
+				"alwaysSendMaxTokens": false,
+				"disableReasoningOnForcedToolChoice": false,
+				"disableReasoningOnToolChoice": false,
+				"disableReasoningWithTools": false,
+				"supportsToolChoice": true,
+				"supportsForcedToolChoice": true,
+				"supportsNamedToolChoice": true,
+				"maxTokensField": "max_completion_tokens",
+				"requiresToolResultName": false,
+				"requiresAssistantAfterToolResult": false,
+				"requiresThinkingAsText": false,
+				"requiresMistralToolIds": false,
+				"thinkingFormat": "openai",
+				"reasoningDisableMode": "lowest-effort",
+				"omitReasoningEffort": false,
+				"includeEncryptedReasoning": true,
+				"filterReasoningHistory": false,
+				"reasoningContentField": "reasoning_content",
+				"requiresReasoningContentForToolCalls": false,
+				"requiresReasoningContentForAllAssistantTurns": false,
+				"allowsSyntheticReasoningContentForToolCalls": true,
+				"replayReasoningContent": false,
+				"qwenPreserveThinking": false,
+				"qwenTemplateReasoningEffort": false,
+				"requiresAssistantContentForToolCalls": false,
+				"supportsPromptCacheBreakpoints": false,
+				"isOpenRouterHost": false,
+				"wireModelIdMode": "raw",
+				"isVercelGatewayHost": false,
+				"supportsStrictMode": false,
+				"toolStrictMode": "mixed",
+				"stripDeepseekSpecialTokens": false,
+				"streamMarkupHealingPattern": "thinking",
+				"reasoningDeltasMayBeCumulative": false,
+				"emptyLengthFinishIsContextError": false,
+				"usesOpenAIToolCallIdLimit": false,
+				"dropThinkingWhenReasoningEffort": false,
+				"nativeKimiK3Reasoning": false,
+				"zaiReasoningEffortDialect": false,
+				"clampOutputToModelMax": false,
+				"stripImageInput": false,
+				"rejectRootObjectUnion": false,
+				"retryWithoutStrictOnGrammarError": false,
+				"supportsPromptCacheKey": false,
+				"whenThinking": {
+					"supportsStore": false,
+					"supportsDeveloperRole": false,
+					"supportsMultipleSystemMessages": false,
+					"supportsReasoningEffort": true,
+					"supportsReasoningParams": true,
+					"supportsSamplingParams": true,
+					"supportsPenaltyAndStopParams": true,
+					"reasoningEffortMap": {},
+					"supportsUsageInStreaming": true,
+					"alwaysSendMaxTokens": false,
+					"disableReasoningOnForcedToolChoice": false,
+					"disableReasoningOnToolChoice": false,
+					"disableReasoningWithTools": false,
+					"supportsToolChoice": true,
+					"supportsForcedToolChoice": true,
+					"supportsNamedToolChoice": true,
+					"maxTokensField": "max_completion_tokens",
+					"requiresToolResultName": false,
+					"requiresAssistantAfterToolResult": false,
+					"requiresThinkingAsText": false,
+					"requiresMistralToolIds": false,
+					"thinkingFormat": "openai",
+					"reasoningDisableMode": "lowest-effort",
+					"omitReasoningEffort": false,
+					"includeEncryptedReasoning": true,
+					"filterReasoningHistory": false,
+					"reasoningContentField": "reasoning_content",
+					"requiresReasoningContentForToolCalls": true,
+					"requiresReasoningContentForAllAssistantTurns": false,
+					"allowsSyntheticReasoningContentForToolCalls": false,
+					"replayReasoningContent": false,
+					"qwenPreserveThinking": false,
+					"qwenTemplateReasoningEffort": false,
+					"requiresAssistantContentForToolCalls": false,
+					"supportsPromptCacheBreakpoints": false,
+					"isOpenRouterHost": false,
+					"wireModelIdMode": "raw",
+					"isVercelGatewayHost": false,
+					"supportsStrictMode": false,
+					"toolStrictMode": "mixed",
+					"stripDeepseekSpecialTokens": false,
+					"streamMarkupHealingPattern": "thinking",
+					"reasoningDeltasMayBeCumulative": false,
+					"emptyLengthFinishIsContextError": false,
+					"usesOpenAIToolCallIdLimit": false,
+					"dropThinkingWhenReasoningEffort": false,
+					"nativeKimiK3Reasoning": false,
+					"zaiReasoningEffortDialect": false,
+					"clampOutputToModelMax": false,
+					"stripImageInput": false,
+					"rejectRootObjectUnion": false,
+					"retryWithoutStrictOnGrammarError": false,
+					"supportsPromptCacheKey": false
+				}
+			}
+		},
 		"claude-haiku-5-5": {
 			"id": "claude-haiku-5-5",
 			"name": "Claude Haiku 5.5",
 			"api": "anthropic-messages",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go",
+			"baseUrl": "https://opencode.ai/inference/go",
 			"reasoning": true,
 			"input": [
 				"text",
@@ -320161,7 +320507,7 @@
 			"name": "DeepSeek V4 Flash",
 			"api": "openai-responses",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text"
@@ -320258,7 +320604,7 @@
 			"name": "DeepSeek V4 Flash Vision Exp",
 			"api": "openai-completions",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text",
@@ -320406,7 +320752,7 @@
 			"name": "DeepSeek V4 Pro (New)",
 			"api": "openai-completions",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text"
@@ -320555,7 +320901,7 @@
 			"name": "DeepSeek V4.1 Flash",
 			"api": "openai-completions",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text",
@@ -320700,12 +321046,63 @@
 				}
 			}
 		},
+		"gemini-4-argon-contributor": {
+			"id": "gemini-4-argon-contributor",
+			"name": "Gemini 4 Argon Contributor",
+			"api": "google-generative-ai",
+			"provider": "opencode-go",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 4,
+				"output": 20,
+				"cacheRead": 0.2,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 65536,
+			"thinking": {
+				"mode": "google-level",
+				"efforts": [
+					"low",
+					"medium",
+					"high"
+				],
+				"requiresEffort": true
+			},
+			"identity": {
+				"class": "gemini",
+				"revision": "4.0.0"
+			},
+			"requiresGlyphTokenization": false,
+			"supportsComputerUse": false,
+			"compat": {
+				"supportsFunctionPartId": true,
+				"requiresSkipThoughtSignature": true,
+				"requiresSkipThoughtSignatureOnFirstFunctionCall": false,
+				"dropUnsignedThinking": false,
+				"ccaLegacyParametersSchema": false,
+				"multimodalFunctionResponse": true,
+				"flashStreamLeakWorkaround": false,
+				"claudeThinkingBetaHeader": false,
+				"antigravityClaudeToolMode": false,
+				"stripImageInput": false,
+				"thinkingLoopGuard": "gemini"
+			},
+			"webSearch": "gemini",
+			"webSearchModel": "gemini-2.5-flash",
+			"imageModel": "gemini-3-pro-image"
+		},
 		"glm-5": {
 			"id": "glm-5",
 			"name": "GLM-5",
 			"api": "openai-completions",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text"
@@ -320855,7 +321252,7 @@
 			"name": "GLM-5.1",
 			"api": "openai-completions",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text"
@@ -321005,7 +321402,7 @@
 			"name": "GLM-5.2",
 			"api": "openai-completions",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text"
@@ -321155,7 +321552,7 @@
 			"name": "GLM-5.3",
 			"api": "openai-completions",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text"
@@ -321305,7 +321702,7 @@
 			"name": "GLM-5.3-Flash",
 			"api": "openai-completions",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text",
@@ -321457,7 +321854,7 @@
 			"name": "GPT-5.6 Luna",
 			"api": "openai-responses",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text",
@@ -321560,7 +321957,7 @@
 			"name": "GPT-6 Luna",
 			"api": "openai-responses",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text",
@@ -321663,7 +322060,7 @@
 			"name": "Grok 4.5",
 			"api": "openai-responses",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text",
@@ -321764,7 +322161,7 @@
 			"name": "Grok 4.6",
 			"api": "openai-responses",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text",
@@ -321865,7 +322262,7 @@
 			"name": "Grok 4.7",
 			"api": "openai-responses",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text",
@@ -321966,7 +322363,7 @@
 			"name": "Hy3",
 			"api": "openai-completions",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text"
@@ -322112,7 +322509,7 @@
 			"name": "Hy4 preview",
 			"api": "openai-completions",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text"
@@ -322256,7 +322653,7 @@
 			"name": "kimi-k2.5",
 			"api": "openai-completions",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text",
@@ -322409,7 +322806,7 @@
 			"name": "Kimi K2.6",
 			"api": "openai-completions",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text",
@@ -322564,7 +322961,7 @@
 			"name": "Kimi K2.7 Code",
 			"api": "openai-completions",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text",
@@ -322717,7 +323114,7 @@
 			"name": "Kimi K3",
 			"api": "openai-completions",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text",
@@ -322883,7 +323280,7 @@
 			"name": "LongCat-2.0",
 			"api": "openai-completions",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text"
@@ -323029,7 +323426,7 @@
 			"name": "LongCat 2.5 Preview Free",
 			"api": "openai-completions",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text",
@@ -323164,7 +323561,7 @@
 			"name": "MiMo-V2-Omni",
 			"api": "openai-completions",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text",
@@ -323318,7 +323715,7 @@
 			"name": "MiMo-V2-Pro",
 			"api": "openai-completions",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text"
@@ -323471,7 +323868,7 @@
 			"name": "MiMo V2.5",
 			"api": "openai-completions",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text",
@@ -323621,7 +324018,7 @@
 			"name": "MiMo V2.5 Pro",
 			"api": "openai-completions",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text"
@@ -323772,7 +324169,7 @@
 			"name": "MiMo-V2.6-Flash",
 			"api": "openai-completions",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text",
@@ -323924,7 +324321,7 @@
 			"name": "MiMo-V2.6-Pro",
 			"api": "openai-completions",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text",
@@ -324077,7 +324474,7 @@
 			"name": "MiniMax-M2.5",
 			"api": "anthropic-messages",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go",
+			"baseUrl": "https://opencode.ai/inference/go",
 			"reasoning": true,
 			"input": [
 				"text"
@@ -324145,7 +324542,7 @@
 			"name": "MiniMax-M2.7",
 			"api": "openai-completions",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text"
@@ -324291,7 +324688,7 @@
 			"name": "MiniMax-M3",
 			"api": "openai-completions",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text",
@@ -324439,7 +324836,7 @@
 			"name": "Muse Spark 1.2 Contributor",
 			"api": "openai-responses",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text",
@@ -324535,7 +324932,7 @@
 			"name": "Muse Spark 1.3 Contributor",
 			"api": "openai-responses",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text",
@@ -324632,7 +325029,7 @@
 			"name": "Ox Alpha Free (Unlimited)",
 			"api": "openai-completions",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text",
@@ -324776,7 +325173,7 @@
 			"name": "Qwen3.5 Plus",
 			"api": "openai-completions",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text",
@@ -324922,7 +325319,7 @@
 			"name": "Qwen3.6 Plus",
 			"api": "openai-completions",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text",
@@ -325070,7 +325467,7 @@
 			"name": "Qwen3.7 Max",
 			"api": "openai-completions",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text"
@@ -325217,7 +325614,7 @@
 			"name": "Qwen3.7 Plus",
 			"api": "anthropic-messages",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go",
+			"baseUrl": "https://opencode.ai/inference/go",
 			"reasoning": true,
 			"input": [
 				"text",
@@ -325283,7 +325680,7 @@
 			"name": "Qwen3.8 Flash",
 			"api": "anthropic-messages",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go",
+			"baseUrl": "https://opencode.ai/inference/go",
 			"reasoning": true,
 			"input": [
 				"text",
@@ -325348,7 +325745,7 @@
 			"name": "Qwen3.8 Max",
 			"api": "anthropic-messages",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go",
+			"baseUrl": "https://opencode.ai/inference/go",
 			"reasoning": true,
 			"input": [
 				"text",
@@ -325414,7 +325811,7 @@
 			"name": "Space Bunny",
 			"api": "openai-completions",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text",
@@ -325559,7 +325956,7 @@
 			"name": "Space Bunny Free",
 			"api": "openai-completions",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text",
@@ -325704,7 +326101,7 @@
 			"name": "Step 5 Preview Free",
 			"api": "openai-completions",
 			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/zen/go/v1",
+			"baseUrl": "https://opencode.ai/inference/go/v1",
 			"reasoning": true,
 			"input": [
 				"text",
@@ -325845,25 +326242,6 @@
 				}
 			}
 		},
-		"cat-jam-free": {
-			"id": "cat-jam-free",
-			"name": "Cat Jam Free",
-			"api": "openai-completions",
-			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/inference/go/v1",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 262144,
-			"maxTokens": 131072
-		},
 		"deepseek-flash": {
 			"id": "deepseek-flash",
 			"name": "DeepSeek V4.1 Flash",
@@ -325883,29 +326261,6 @@
 			},
 			"contextWindow": 1000000,
 			"maxTokens": 393216
-		},
-		"gemini-4-argon-contributor": {
-			"id": "gemini-4-argon-contributor",
-			"name": "Gemini 4 Argon Contributor",
-			"api": "openai-completions",
-			"provider": "opencode-go",
-			"baseUrl": "https://opencode.ai/inference/go/v1",
-			"reasoning": true,
-			"input": [
-				"text",
-				"image",
-				"video",
-				"audio",
-				"pdf"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1048576,
-			"maxTokens": 65536
 		},
 		"muse-spark-1.2": {
 			"id": "muse-spark-1.2",
@@ -356080,7 +356435,8 @@
 			"maxTokens": 16384,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "3.0.0"
 			},
 			"webSearch": "openrouter",
 			"supportsComputerUse": false,
@@ -356175,7 +356531,8 @@
 			"maxTokens": 117964,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "3.0.0"
 			},
 			"webSearch": "openrouter",
 			"supportsComputerUse": false,
@@ -356270,7 +356627,8 @@
 			"maxTokens": 8192,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "3.0.0"
 			},
 			"webSearch": "openrouter",
 			"supportsComputerUse": false,
@@ -356374,7 +356732,8 @@
 			},
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"webSearch": "openrouter",
 			"supportsComputerUse": false,
@@ -356478,7 +356837,8 @@
 			},
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"webSearch": "openrouter",
 			"supportsComputerUse": false,
@@ -356582,7 +356942,8 @@
 			},
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"webSearch": "openrouter",
 			"supportsComputerUse": false,
@@ -356686,7 +357047,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"webSearch": "openrouter",
 			"compat": {
@@ -356789,7 +357151,8 @@
 			},
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"webSearch": "openrouter",
 			"supportsComputerUse": false,
@@ -405664,6 +406027,195 @@
 			"maxTokens": 65536
 		}
 	},
+	"sambanova": {
+		"gpt-oss-120b": {
+			"id": "gpt-oss-120b",
+			"name": "GPT OSS 120B",
+			"api": "openai-completions",
+			"provider": "sambanova",
+			"baseUrl": "https://api.sambanova.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0.22,
+				"output": 0.59,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 131072,
+			"maxTokens": null,
+			"thinking": {
+				"mode": "effort",
+				"efforts": [
+					"low",
+					"medium",
+					"high"
+				]
+			},
+			"identity": {
+				"class": "gpt-oss",
+				"family": "120b"
+			},
+			"requiresGlyphTokenization": false,
+			"supportsComputerUse": false,
+			"compat": {
+				"supportsStore": true,
+				"supportsDeveloperRole": false,
+				"supportsMultipleSystemMessages": false,
+				"supportsReasoningEffort": true,
+				"supportsReasoningParams": true,
+				"supportsSamplingParams": true,
+				"supportsPenaltyAndStopParams": true,
+				"reasoningEffortMap": {},
+				"supportsUsageInStreaming": true,
+				"alwaysSendMaxTokens": false,
+				"disableReasoningOnForcedToolChoice": false,
+				"disableReasoningOnToolChoice": false,
+				"disableReasoningWithTools": false,
+				"supportsToolChoice": true,
+				"supportsForcedToolChoice": true,
+				"supportsNamedToolChoice": true,
+				"maxTokensField": "max_completion_tokens",
+				"requiresToolResultName": false,
+				"requiresAssistantAfterToolResult": false,
+				"requiresThinkingAsText": false,
+				"requiresMistralToolIds": false,
+				"thinkingFormat": "openai",
+				"reasoningDisableMode": "lowest-effort",
+				"omitReasoningEffort": false,
+				"includeEncryptedReasoning": true,
+				"filterReasoningHistory": false,
+				"reasoningContentField": "reasoning_content",
+				"requiresReasoningContentForToolCalls": false,
+				"requiresReasoningContentForAllAssistantTurns": false,
+				"allowsSyntheticReasoningContentForToolCalls": true,
+				"replayReasoningContent": false,
+				"qwenPreserveThinking": false,
+				"qwenTemplateReasoningEffort": false,
+				"requiresAssistantContentForToolCalls": false,
+				"supportsPromptCacheBreakpoints": false,
+				"isOpenRouterHost": false,
+				"wireModelIdMode": "raw",
+				"isVercelGatewayHost": false,
+				"supportsStrictMode": false,
+				"toolStrictMode": "mixed",
+				"stripDeepseekSpecialTokens": false,
+				"streamMarkupHealingPattern": "thinking",
+				"reasoningDeltasMayBeCumulative": false,
+				"emptyLengthFinishIsContextError": false,
+				"usesOpenAIToolCallIdLimit": false,
+				"dropThinkingWhenReasoningEffort": false,
+				"nativeKimiK3Reasoning": false,
+				"zaiReasoningEffortDialect": false,
+				"clampOutputToModelMax": false,
+				"stripImageInput": false,
+				"rejectRootObjectUnion": false,
+				"retryWithoutStrictOnGrammarError": false,
+				"supportsPromptCacheKey": false
+			}
+		},
+		"DeepSeek-V3.2": {
+			"id": "DeepSeek-V3.2",
+			"name": "DeepSeek V3.2",
+			"api": "openai-completions",
+			"provider": "sambanova",
+			"baseUrl": "https://api.sambanova.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 32768,
+			"maxTokens": 7168
+		},
+		"DeepSeek-V3.1": {
+			"id": "DeepSeek-V3.1",
+			"name": "DeepSeek-V3.1",
+			"api": "openai-completions",
+			"provider": "sambanova",
+			"baseUrl": "https://api.sambanova.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 131072,
+			"maxTokens": 7168
+		},
+		"gemma-4-31B-it": {
+			"id": "gemma-4-31B-it",
+			"name": "Gemma 4 31B IT",
+			"api": "openai-completions",
+			"provider": "sambanova",
+			"baseUrl": "https://api.sambanova.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 131072,
+			"maxTokens": 131072
+		},
+		"Meta-Llama-3.3-70B-Instruct": {
+			"id": "Meta-Llama-3.3-70B-Instruct",
+			"name": "Llama-3.3-70B-Instruct",
+			"api": "openai-completions",
+			"provider": "sambanova",
+			"baseUrl": "https://api.sambanova.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 131072,
+			"maxTokens": 3072
+		},
+		"MiniMax-M3": {
+			"id": "MiniMax-M3",
+			"name": "MiniMax-M3",
+			"api": "openai-completions",
+			"provider": "sambanova",
+			"baseUrl": "https://api.sambanova.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 512000
+		}
+	},
 	"snowflake": {
 		"claude-haiku-4-5": {
 			"id": "claude-haiku-4-5",
@@ -409806,7 +410358,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"compat": {
@@ -419161,7 +419714,8 @@
 			"contextWindow": 256000,
 			"maxTokens": 8192,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"requiresGlyphTokenization": false,
 			"supportsComputerUse": false,
@@ -428301,6 +428855,28 @@
 				"retryWithoutStrictOnGrammarError": false,
 				"supportsPromptCacheKey": false
 			}
+		},
+		"gemini-4-argon": {
+			"id": "gemini-4-argon",
+			"name": "Gemini 4 Argon",
+			"api": "openai-completions",
+			"provider": "venice",
+			"baseUrl": "https://api.venice.ai/api/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"audio",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 65536
 		}
 	},
 	"vercel-ai-gateway": {
@@ -434863,7 +435439,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"compat": {
 				"officialEndpoint": false,
@@ -434926,7 +435503,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"compat": {
 				"officialEndpoint": false,
@@ -467789,7 +468367,8 @@
 			"maxTokens": 16384,
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "3.0.0"
 			},
 			"supportsComputerUse": false,
 			"compat": {
@@ -467880,7 +468459,8 @@
 			},
 			"requiresGlyphTokenization": false,
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"compat": {
 				"supportsStore": true,
@@ -467970,7 +468550,8 @@
 				]
 			},
 			"identity": {
-				"class": "gemma"
+				"class": "gemma",
+				"revision": "4.0.0"
 			},
 			"compat": {
 				"supportsStore": true,
@@ -488284,15 +488865,17 @@
 			"contextWindow": 1000000,
 			"maxTokens": 128000
 		},
-		"claude-haiku-4-5": {
-			"id": "claude-haiku-4-5",
+		"claude-haiku-4-5-20251001": {
+			"id": "claude-haiku-4-5-20251001",
 			"name": "Claude Haiku 4.5",
 			"api": "openai-completions",
 			"provider": "302ai",
 			"baseUrl": "https://api.302.ai/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -488300,12 +488883,12 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 200000,
+			"maxTokens": 64000
 		},
-		"claude-haiku-4-5-20251001": {
-			"id": "claude-haiku-4-5-20251001",
-			"name": "Claude Haiku 4.5",
+		"claude-haiku-4-5": {
+			"id": "claude-haiku-4-5",
+			"name": "Claude Haiku 4.5 (latest)",
 			"api": "openai-completions",
 			"provider": "302ai",
 			"baseUrl": "https://api.302.ai/v1",
@@ -488387,15 +488970,17 @@
 			"contextWindow": 200000,
 			"maxTokens": 32000
 		},
-		"claude-opus-4-5": {
-			"id": "claude-opus-4-5",
+		"claude-opus-4-5-20251101": {
+			"id": "claude-opus-4-5-20251101",
 			"name": "Claude Opus 4.5",
 			"api": "openai-completions",
 			"provider": "302ai",
 			"baseUrl": "https://api.302.ai/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -488403,12 +488988,12 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 200000,
+			"maxTokens": 64000
 		},
-		"claude-opus-4-5-20251101": {
-			"id": "claude-opus-4-5-20251101",
-			"name": "Claude Opus 4.5",
+		"claude-opus-4-5": {
+			"id": "claude-opus-4-5",
+			"name": "Claude Opus 4.5 (latest)",
 			"api": "openai-completions",
 			"provider": "302ai",
 			"baseUrl": "https://api.302.ai/v1",
@@ -488435,7 +489020,9 @@
 			"baseUrl": "https://api.302.ai/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -488443,8 +489030,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 1000000,
+			"maxTokens": 128000
 		},
 		"claude-opus-4-6-thinking": {
 			"id": "claude-opus-4-6-thinking",
@@ -489154,7 +489741,8 @@
 			"baseUrl": "https://api.302.ai/v1",
 			"reasoning": false,
 			"input": [
-				"text"
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -489162,8 +489750,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 128000,
+			"maxTokens": 16384
 		},
 		"gpt-5": {
 			"id": "gpt-5",
@@ -491271,7 +491859,8 @@
 			"baseUrl": "https://api.302.ai/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -491279,8 +491868,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 200000,
+			"maxTokens": 100000
 		},
 		"qwen3-coder-480b-a35b-instruct": {
 			"id": "qwen3-coder-480b-a35b-instruct",
@@ -491932,7 +492521,9 @@
 			"baseUrl": "https://routellm.abacus.ai/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -491940,8 +492531,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 1000000,
+			"maxTokens": 128000
 		},
 		"claude-opus-4-7": {
 			"id": "claude-opus-4-7",
@@ -492483,7 +493074,8 @@
 			"baseUrl": "https://routellm.abacus.ai/v1",
 			"reasoning": false,
 			"input": [
-				"text"
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -492491,8 +493083,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 128000,
+			"maxTokens": 16384
 		},
 		"gpt-4o-2024-11-20": {
 			"id": "gpt-4o-2024-11-20",
@@ -493342,7 +493934,8 @@
 			"baseUrl": "https://routellm.abacus.ai/v1",
 			"reasoning": false,
 			"input": [
-				"text"
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -493350,8 +493943,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 256000,
+			"maxTokens": 16384
 		},
 		"thinkingmachines/Inkling": {
 			"id": "thinkingmachines/Inkling",
@@ -494016,7 +494609,8 @@
 			"baseUrl": "https://routellm.abacus.ai/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -494024,8 +494618,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 200000,
+			"maxTokens": 100000
 		},
 		"o3-mini": {
 			"id": "o3-mini",
@@ -494249,9 +494843,113 @@
 			},
 			"contextWindow": 1000000,
 			"maxTokens": 65536
+		},
+		"agnes-3.0-flash": {
+			"id": "agnes-3.0-flash",
+			"name": "Agnes 3.0 Flash",
+			"api": "openai-completions",
+			"provider": "agnes",
+			"baseUrl": "https://apihub.agnes-ai.com/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 524288,
+			"maxTokens": 65536
 		}
 	},
 	"aixy": {
+		"anthropic/claude-fable-5-1": {
+			"id": "anthropic/claude-fable-5-1",
+			"name": "Claude Fable 5.1",
+			"api": "openai-completions",
+			"provider": "aixy",
+			"baseUrl": "https://api.aixy-gateway.com/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 128000
+		},
+		"anthropic/claude-haiku-5-5": {
+			"id": "anthropic/claude-haiku-5-5",
+			"name": "Claude Haiku 5.5",
+			"api": "openai-completions",
+			"provider": "aixy",
+			"baseUrl": "https://api.aixy-gateway.com/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 128000
+		},
+		"anthropic/claude-opus-5-5": {
+			"id": "anthropic/claude-opus-5-5",
+			"name": "Claude Opus 5.5",
+			"api": "openai-completions",
+			"provider": "aixy",
+			"baseUrl": "https://api.aixy-gateway.com/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 128000
+		},
+		"anthropic/claude-sonnet-5-5": {
+			"id": "anthropic/claude-sonnet-5-5",
+			"name": "Claude Sonnet 5.5",
+			"api": "openai-completions",
+			"provider": "aixy",
+			"baseUrl": "https://api.aixy-gateway.com/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 128000
+		},
 		"openai/gpt-4.1-mini": {
 			"id": "openai/gpt-4.1-mini",
 			"name": "GPT-4.1 mini",
@@ -495834,8 +496532,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1000000,
-			"maxTokens": 384000
+			"contextWindow": 1048576,
+			"maxTokens": 65536
 		},
 		"deepseek-r1-0528": {
 			"id": "deepseek-r1-0528",
@@ -497746,8 +498444,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1000000,
-			"maxTokens": 384000
+			"contextWindow": 1048576,
+			"maxTokens": 65536
 		},
 		"glm-5": {
 			"id": "glm-5",
@@ -499242,7 +499940,9 @@
 			"baseUrl": "https://api.auriko.ai/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -499250,8 +499950,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 1000000,
+			"maxTokens": 128000
 		},
 		"claude-opus-4-7": {
 			"id": "claude-opus-4-7",
@@ -500168,6 +500868,417 @@
 			"maxTokens": 128000
 		}
 	},
+	"boundless": {
+		"claude-fable-5.1": {
+			"id": "claude-fable-5.1",
+			"name": "Claude Fable 5.1",
+			"api": "openai-completions",
+			"provider": "boundless",
+			"baseUrl": "https://api.inference.boundless.network/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 128000
+		},
+		"claude-opus-5": {
+			"id": "claude-opus-5",
+			"name": "Claude Opus 5",
+			"api": "openai-completions",
+			"provider": "boundless",
+			"baseUrl": "https://api.inference.boundless.network/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 128000
+		},
+		"claude-opus-5.5": {
+			"id": "claude-opus-5.5",
+			"name": "Claude Opus 5.5",
+			"api": "openai-completions",
+			"provider": "boundless",
+			"baseUrl": "https://api.inference.boundless.network/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 128000
+		},
+		"dsv4": {
+			"id": "dsv4",
+			"name": "DeepSeek V4 Flash 0731",
+			"api": "openai-completions",
+			"provider": "boundless",
+			"baseUrl": "https://api.inference.boundless.network/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 384000
+		},
+		"deepseek-v4-pro-0813": {
+			"id": "deepseek-v4-pro-0813",
+			"name": "DeepSeek V4 Pro 0813",
+			"api": "openai-completions",
+			"provider": "boundless",
+			"baseUrl": "https://api.inference.boundless.network/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 393216
+		},
+		"deepseek-v4.1-flash": {
+			"id": "deepseek-v4.1-flash",
+			"name": "DeepSeek V4.1 Flash",
+			"api": "openai-completions",
+			"provider": "boundless",
+			"baseUrl": "https://api.inference.boundless.network/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 65536
+		},
+		"glm-5.2": {
+			"id": "glm-5.2",
+			"name": "GLM-5.2",
+			"api": "openai-completions",
+			"provider": "boundless",
+			"baseUrl": "https://api.inference.boundless.network/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 131072
+		},
+		"glm-5.3": {
+			"id": "glm-5.3",
+			"name": "GLM-5.3",
+			"api": "openai-completions",
+			"provider": "boundless",
+			"baseUrl": "https://api.inference.boundless.network/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 131072
+		},
+		"glm-5.3-flash": {
+			"id": "glm-5.3-flash",
+			"name": "GLM-5.3-Flash",
+			"api": "openai-completions",
+			"provider": "boundless",
+			"baseUrl": "https://api.inference.boundless.network/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 131072
+		},
+		"gpt-5.6-luna": {
+			"id": "gpt-5.6-luna",
+			"name": "GPT-5.6 Luna",
+			"api": "openai-completions",
+			"provider": "boundless",
+			"baseUrl": "https://api.inference.boundless.network/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
+		},
+		"gpt-5.6-sol": {
+			"id": "gpt-5.6-sol",
+			"name": "GPT-5.6 Sol",
+			"api": "openai-completions",
+			"provider": "boundless",
+			"baseUrl": "https://api.inference.boundless.network/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 128000
+		},
+		"gpt-6-luna": {
+			"id": "gpt-6-luna",
+			"name": "GPT-6 Luna",
+			"api": "openai-completions",
+			"provider": "boundless",
+			"baseUrl": "https://api.inference.boundless.network/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
+		},
+		"gpt-6-sol": {
+			"id": "gpt-6-sol",
+			"name": "GPT-6 Sol",
+			"api": "openai-completions",
+			"provider": "boundless",
+			"baseUrl": "https://api.inference.boundless.network/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
+		},
+		"kimi-k3": {
+			"id": "kimi-k3",
+			"name": "Kimi K3",
+			"api": "openai-completions",
+			"provider": "boundless",
+			"baseUrl": "https://api.inference.boundless.network/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 131072
+		},
+		"mimo-v2.6-flash": {
+			"id": "mimo-v2.6-flash",
+			"name": "MiMo-V2.6-Flash",
+			"api": "openai-completions",
+			"provider": "boundless",
+			"baseUrl": "https://api.inference.boundless.network/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"audio"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 131072
+		},
+		"mimo-v2.6-pro": {
+			"id": "mimo-v2.6-pro",
+			"name": "MiMo-V2.6-Pro",
+			"api": "openai-completions",
+			"provider": "boundless",
+			"baseUrl": "https://api.inference.boundless.network/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"audio",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 131072
+		},
+		"minimax-m3": {
+			"id": "minimax-m3",
+			"name": "MiniMax M3",
+			"api": "openai-completions",
+			"provider": "boundless",
+			"baseUrl": "https://api.inference.boundless.network/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 524288
+		},
+		"nemotron3-super": {
+			"id": "nemotron3-super",
+			"name": "Nemotron 3 Super 120B A12B",
+			"api": "openai-completions",
+			"provider": "boundless",
+			"baseUrl": "https://api.inference.boundless.network/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 262144
+		},
+		"qwen3.6": {
+			"id": "qwen3.6",
+			"name": "Qwen3.6 35B-A3B",
+			"api": "openai-completions",
+			"provider": "boundless",
+			"baseUrl": "https://api.inference.boundless.network/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 65536
+		},
+		"qwen3.8-flash": {
+			"id": "qwen3.8-flash",
+			"name": "Qwen3.8 Flash",
+			"api": "openai-completions",
+			"provider": "boundless",
+			"baseUrl": "https://api.inference.boundless.network/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 131072
+		}
+	},
 	"hyper": {
 		"deepseek-v4-flash": {
 			"id": "deepseek-v4-flash",
@@ -500262,8 +501373,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1000000,
-			"maxTokens": 384000
+			"contextWindow": 1048576,
+			"maxTokens": 65536
 		},
 		"glm-5": {
 			"id": "glm-5",
@@ -502951,13 +504062,15 @@
 		},
 		"claude-haiku-4-5": {
 			"id": "claude-haiku-4-5",
-			"name": "Claude Haiku 4.5",
+			"name": "Claude Haiku 4.5 (latest)",
 			"api": "openai-completions",
 			"provider": "cortecs",
 			"baseUrl": "https://api.cortecs.ai/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -502965,8 +504078,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 200000,
+			"maxTokens": 64000
 		},
 		"claude-haiku-5.5": {
 			"id": "claude-haiku-5.5",
@@ -503370,8 +504483,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1000000,
-			"maxTokens": 384000
+			"contextWindow": 1048576,
+			"maxTokens": 65536
 		},
 		"deepseek-r1-0528": {
 			"id": "deepseek-r1-0528",
@@ -503733,7 +504846,8 @@
 			"baseUrl": "https://api.cortecs.ai/v1",
 			"reasoning": false,
 			"input": [
-				"text"
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -503741,8 +504855,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 128000,
+			"maxTokens": 16384
 		},
 		"gpt-4o-mini": {
 			"id": "gpt-4o-mini",
@@ -504178,6 +505292,28 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 1048576,
+			"maxTokens": 65536
+		},
+		"gemini-4-argon": {
+			"id": "gemini-4-argon",
+			"name": "Gemini 4 Argon",
+			"api": "openai-completions",
+			"provider": "cortecs",
+			"baseUrl": "https://api.cortecs.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"audio",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
 			"maxTokens": 65536
 		},
 		"gemma-3-27b-it": {
@@ -507163,6 +508299,28 @@
 			"contextWindow": 1048576,
 			"maxTokens": 65536
 		},
+		"gemini/gemini-4-argon": {
+			"id": "gemini/gemini-4-argon",
+			"name": "Gemini 4 Argon",
+			"api": "openai-completions",
+			"provider": "crossmodel",
+			"baseUrl": "https://api.crossmodel.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"audio",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 65536
+		},
 		"x-ai/grok-4.3": {
 			"id": "x-ai/grok-4.3",
 			"name": "Grok 4.3",
@@ -509050,15 +510208,17 @@
 			"contextWindow": 200000,
 			"maxTokens": 8192
 		},
-		"claude-haiku-4-5": {
-			"id": "claude-haiku-4-5",
+		"claude-haiku-4-5-20251001": {
+			"id": "claude-haiku-4-5-20251001",
 			"name": "Claude Haiku 4.5",
 			"api": "openai-completions",
 			"provider": "llmgateway",
 			"baseUrl": "https://api.llmgateway.io/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -509066,12 +510226,12 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 200000,
+			"maxTokens": 64000
 		},
-		"claude-haiku-4-5-20251001": {
-			"id": "claude-haiku-4-5-20251001",
-			"name": "Claude Haiku 4.5",
+		"claude-haiku-4-5": {
+			"id": "claude-haiku-4-5",
+			"name": "Claude Haiku 4.5 (latest)",
 			"api": "openai-completions",
 			"provider": "llmgateway",
 			"baseUrl": "https://api.llmgateway.io/v1",
@@ -509202,7 +510362,9 @@
 			"baseUrl": "https://api.llmgateway.io/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -509210,8 +510372,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 1000000,
+			"maxTokens": 128000
 		},
 		"claude-opus-4-7": {
 			"id": "claude-opus-4-7",
@@ -509638,8 +510800,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1000000,
-			"maxTokens": 384000
+			"contextWindow": 1048576,
+			"maxTokens": 65536
 		},
 		"deepseek-r1-0528": {
 			"id": "deepseek-r1-0528",
@@ -510430,7 +511592,8 @@
 			"baseUrl": "https://api.llmgateway.io/v1",
 			"reasoning": false,
 			"input": [
-				"text"
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -510438,8 +511601,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 128000,
+			"maxTokens": 16384
 		},
 		"gpt-4o-mini-search-preview": {
 			"id": "gpt-4o-mini-search-preview",
@@ -511322,9 +512485,8 @@
 			"input": [
 				"text",
 				"image",
-				"video",
 				"audio",
-				"pdf"
+				"video"
 			],
 			"cost": {
 				"input": 0,
@@ -511332,8 +512494,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1048576,
-			"maxTokens": 32768
+			"contextWindow": 1000000,
+			"maxTokens": 65536
 		},
 		"gemini-pro-latest": {
 			"id": "gemini-pro-latest",
@@ -514666,7 +515828,8 @@
 			"baseUrl": "https://api.llmgateway.io/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -514674,8 +515837,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 200000,
+			"maxTokens": 100000
 		},
 		"o3-mini": {
 			"id": "o3-mini",
@@ -515289,8 +516452,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1000000,
-			"maxTokens": 384000
+			"contextWindow": 1048576,
+			"maxTokens": 65536
 		},
 		"deepseek-v3": {
 			"id": "deepseek-v3",
@@ -516692,6 +517855,27 @@
 			"contextWindow": 1000000,
 			"maxTokens": 128000
 		},
+		"anthropic/claude-haiku-latest": {
+			"id": "anthropic/claude-haiku-latest",
+			"name": "Claude Haiku Latest",
+			"api": "openai-completions",
+			"provider": "edenai",
+			"baseUrl": "https://api.edenai.run/v3",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 128000
+		},
 		"anthropic/claude-opus-4-5-20251101": {
 			"id": "anthropic/claude-opus-4-5-20251101",
 			"name": "Claude Opus 4.5",
@@ -517326,6 +518510,25 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 786432,
+			"maxTokens": 384000
+		},
+		"flexai/DeepSeek-V4-Flash-0731@eu": {
+			"id": "flexai/DeepSeek-V4-Flash-0731@eu",
+			"name": "DeepSeek V4 Flash 0731 (FlexAI, EU)",
+			"api": "openai-completions",
+			"provider": "edenai",
+			"baseUrl": "https://api.edenai.run/v3",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
 			"maxTokens": 384000
 		},
 		"greenpt/deepseek-v4-flash-0731": {
@@ -518224,15 +519427,15 @@
 		},
 		"openai/gpt-mini-latest": {
 			"id": "openai/gpt-mini-latest",
-			"name": "GPT Mini Latest (GPT-5.4 mini)",
+			"name": "GPT Mini Latest (GPT-5.6 Luna)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
 			"reasoning": true,
 			"input": [
-				"pdf",
+				"text",
 				"image",
-				"text"
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -518240,7 +519443,7 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 400000,
+			"contextWindow": 1050000,
 			"maxTokens": 128000
 		},
 		"cerebras/gpt-oss-120b": {
@@ -518449,7 +519652,7 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 131072,
+			"contextWindow": 128000,
 			"maxTokens": 32768
 		},
 		"nebius/openai/gpt-oss-120b": {
@@ -518739,7 +519942,7 @@
 		},
 		"openai/gpt-pro-latest": {
 			"id": "openai/gpt-pro-latest",
-			"name": "GPT Pro Latest (GPT-5.5 Pro)",
+			"name": "GPT Pro Latest (GPT-5.6 Sol)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -520348,7 +521551,7 @@
 		},
 		"vertex/gemini-pro-latest": {
 			"id": "vertex/gemini-pro-latest",
-			"name": "Gemini Pro Latest (Gemini 3.1 Pro Preview, Vertex AI)",
+			"name": "Gemini Pro Latest (Gemini 4 Argon, Vertex AI)",
 			"api": "openai-completions",
 			"provider": "edenai",
 			"baseUrl": "https://api.edenai.run/v3",
@@ -521491,7 +522694,8 @@
 			"baseUrl": "https://api.edenai.run/v3",
 			"reasoning": false,
 			"input": [
-				"text"
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -522819,7 +524023,7 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 262144,
+			"contextWindow": 128000,
 			"maxTokens": 65536
 		},
 		"qwen/qwen3-coder-plus": {
@@ -523495,6 +524699,27 @@
 			},
 			"contextWindow": 262144,
 			"maxTokens": 256000
+		},
+		"deepinfra/stepfun-ai/Step-5-Preview": {
+			"id": "deepinfra/stepfun-ai/Step-5-Preview",
+			"name": "Step 5 Preview (Deep Infra)",
+			"api": "openai-completions",
+			"provider": "edenai",
+			"baseUrl": "https://api.edenai.run/v3",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 1000000
 		},
 		"tencent/step-5-preview": {
 			"id": "tencent/step-5-preview",
@@ -526853,7 +528078,9 @@
 			"baseUrl": "https://cc.freemodel.dev/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -526861,8 +528088,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 1000000,
+			"maxTokens": 128000
 		},
 		"claude-opus-4-7": {
 			"id": "claude-opus-4-7",
@@ -527227,13 +528454,15 @@
 	"frogbot": {
 		"claude-haiku-4-5": {
 			"id": "claude-haiku-4-5",
-			"name": "Claude Haiku 4.5",
+			"name": "Claude Haiku 4.5 (latest)",
 			"api": "openai-completions",
 			"provider": "frogbot",
 			"baseUrl": "https://app.frogbot.ai/api/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -527241,8 +528470,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 200000,
+			"maxTokens": 64000
 		},
 		"claude-opus-4-6": {
 			"id": "claude-opus-4-6",
@@ -527252,7 +528481,9 @@
 			"baseUrl": "https://app.frogbot.ai/api/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -527260,8 +528491,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 1000000,
+			"maxTokens": 128000
 		},
 		"claude-opus-4-7": {
 			"id": "claude-opus-4-7",
@@ -527351,7 +528582,8 @@
 			"baseUrl": "https://app.frogbot.ai/api/v1",
 			"reasoning": false,
 			"input": [
-				"text"
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -527359,8 +528591,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 128000,
+			"maxTokens": 16384
 		},
 		"gpt-5-3-codex": {
 			"id": "gpt-5-3-codex",
@@ -527598,7 +528830,8 @@
 			"baseUrl": "https://app.frogbot.ai/api/v1",
 			"reasoning": false,
 			"input": [
-				"text"
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -527606,8 +528839,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 256000,
+			"maxTokens": 16384
 		},
 		"kimi-k2.5": {
 			"id": "kimi-k2.5",
@@ -529201,8 +530434,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1000000,
-			"maxTokens": 384000
+			"contextWindow": 1048576,
+			"maxTokens": 65536
 		},
 		"devstral-2-123b-instruct-2512": {
 			"id": "devstral-2-123b-instruct-2512",
@@ -530637,7 +531870,8 @@
 			"baseUrl": "https://ai-gateway.helicone.ai/v1",
 			"reasoning": false,
 			"input": [
-				"text"
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -530645,8 +531879,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 128000,
+			"maxTokens": 16384
 		},
 		"gpt-4o-mini": {
 			"id": "gpt-4o-mini",
@@ -531020,7 +532254,8 @@
 			"baseUrl": "https://ai-gateway.helicone.ai/v1",
 			"reasoning": false,
 			"input": [
-				"text"
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -531028,8 +532263,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 256000,
+			"maxTokens": 16384
 		},
 		"hermes-2-pro-llama-3-8b": {
 			"id": "hermes-2-pro-llama-3-8b",
@@ -531739,7 +532974,8 @@
 			"baseUrl": "https://ai-gateway.helicone.ai/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -531747,8 +532983,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 200000,
+			"maxTokens": 100000
 		},
 		"o3-mini": {
 			"id": "o3-mini",
@@ -535612,7 +536848,9 @@
 			"baseUrl": "https://api.jiekou.ai/openai",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -535620,8 +536858,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 1000000,
+			"maxTokens": 128000
 		},
 		"claude-sonnet-4-20250514": {
 			"id": "claude-sonnet-4-20250514",
@@ -536260,7 +537498,8 @@
 			"baseUrl": "https://api.jiekou.ai/openai",
 			"reasoning": false,
 			"input": [
-				"text"
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -536268,8 +537507,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 256000,
+			"maxTokens": 16384
 		},
 		"moonshotai/kimi-k2-instruct": {
 			"id": "moonshotai/kimi-k2-instruct",
@@ -536686,7 +537925,8 @@
 			"baseUrl": "https://api.jiekou.ai/openai",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -536694,8 +537934,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 200000,
+			"maxTokens": 100000
 		},
 		"o3-mini": {
 			"id": "o3-mini",
@@ -539621,7 +540861,7 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 524288,
+			"contextWindow": 1000000,
 			"maxTokens": 384000
 		},
 		"deepinfra/deepseek-v4-flash": {
@@ -541586,6 +542826,25 @@
 			},
 			"contextWindow": 1000000,
 			"maxTokens": 128000
+		},
+		"entrim/glm-5.3": {
+			"id": "entrim/glm-5.3",
+			"name": "GLM-5.3 (entrim)",
+			"api": "openai-completions",
+			"provider": "llmgateway-providers",
+			"baseUrl": "https://api.llmgateway.io/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 131072
 		},
 		"reka-ai/glm-5.3": {
 			"id": "reka-ai/glm-5.3",
@@ -546481,6 +547740,25 @@
 			"contextWindow": 512000,
 			"maxTokens": 80000
 		},
+		"consensusprotocol/minimax-m3": {
+			"id": "consensusprotocol/minimax-m3",
+			"name": "MiniMax M3 (Consensus Protocol)",
+			"api": "openai-completions",
+			"provider": "llmgateway-providers",
+			"baseUrl": "https://api.llmgateway.io/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 512000
+		},
 		"nebius/minimax-m3": {
 			"id": "nebius/minimax-m3",
 			"name": "MiniMax M3 (Nebius AI)",
@@ -549943,6 +551221,379 @@
 			"contextWindow": 131072,
 			"maxTokens": 32768
 		},
+		"auto/openai/gpt-4.1": {
+			"id": "auto/openai/gpt-4.1",
+			"name": "GPT-4.1",
+			"api": "openai-completions",
+			"provider": "lowrouter",
+			"baseUrl": "https://api.lowrouter.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1047576,
+			"maxTokens": 32768
+		},
+		"auto/openai/gpt-4.1-mini": {
+			"id": "auto/openai/gpt-4.1-mini",
+			"name": "GPT-4.1 mini",
+			"api": "openai-completions",
+			"provider": "lowrouter",
+			"baseUrl": "https://api.lowrouter.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1047576,
+			"maxTokens": 32768
+		},
+		"auto/openai/gpt-4o": {
+			"id": "auto/openai/gpt-4o",
+			"name": "GPT-4o",
+			"api": "openai-completions",
+			"provider": "lowrouter",
+			"baseUrl": "https://api.lowrouter.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 128000,
+			"maxTokens": 16384
+		},
+		"auto/openai/gpt-4o-mini": {
+			"id": "auto/openai/gpt-4o-mini",
+			"name": "GPT-4o mini",
+			"api": "openai-completions",
+			"provider": "lowrouter",
+			"baseUrl": "https://api.lowrouter.ai/v1",
+			"reasoning": false,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 128000,
+			"maxTokens": 16384
+		},
+		"auto/openai/gpt-5": {
+			"id": "auto/openai/gpt-5",
+			"name": "GPT-5",
+			"api": "openai-completions",
+			"provider": "lowrouter",
+			"baseUrl": "https://api.lowrouter.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 400000,
+			"maxTokens": 128000
+		},
+		"auto/openai/gpt-5-mini": {
+			"id": "auto/openai/gpt-5-mini",
+			"name": "GPT-5 Mini",
+			"api": "openai-completions",
+			"provider": "lowrouter",
+			"baseUrl": "https://api.lowrouter.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 400000,
+			"maxTokens": 128000
+		},
+		"auto/openai/gpt-5-nano": {
+			"id": "auto/openai/gpt-5-nano",
+			"name": "GPT-5 Nano",
+			"api": "openai-completions",
+			"provider": "lowrouter",
+			"baseUrl": "https://api.lowrouter.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 400000,
+			"maxTokens": 128000
+		},
+		"auto/openai/gpt-5.2": {
+			"id": "auto/openai/gpt-5.2",
+			"name": "GPT-5.2",
+			"api": "openai-completions",
+			"provider": "lowrouter",
+			"baseUrl": "https://api.lowrouter.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 400000,
+			"maxTokens": 128000
+		},
+		"auto/openai/gpt-5.4": {
+			"id": "auto/openai/gpt-5.4",
+			"name": "GPT-5.4",
+			"api": "openai-completions",
+			"provider": "lowrouter",
+			"baseUrl": "https://api.lowrouter.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
+		},
+		"auto/openai/gpt-5.4-mini": {
+			"id": "auto/openai/gpt-5.4-mini",
+			"name": "GPT-5.4 mini",
+			"api": "openai-completions",
+			"provider": "lowrouter",
+			"baseUrl": "https://api.lowrouter.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 400000,
+			"maxTokens": 128000
+		},
+		"auto/openai/gpt-5.5": {
+			"id": "auto/openai/gpt-5.5",
+			"name": "GPT-5.5",
+			"api": "openai-completions",
+			"provider": "lowrouter",
+			"baseUrl": "https://api.lowrouter.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
+		},
+		"auto/openai/gpt-5.6-luna": {
+			"id": "auto/openai/gpt-5.6-luna",
+			"name": "GPT-5.6 Luna",
+			"api": "openai-completions",
+			"provider": "lowrouter",
+			"baseUrl": "https://api.lowrouter.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
+		},
+		"auto/openai/gpt-5.6-sol": {
+			"id": "auto/openai/gpt-5.6-sol",
+			"name": "GPT-5.6 Sol",
+			"api": "openai-completions",
+			"provider": "lowrouter",
+			"baseUrl": "https://api.lowrouter.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
+		},
+		"auto/openai/gpt-5.6-terra": {
+			"id": "auto/openai/gpt-5.6-terra",
+			"name": "GPT-5.6 Terra",
+			"api": "openai-completions",
+			"provider": "lowrouter",
+			"baseUrl": "https://api.lowrouter.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
+		},
+		"auto/openai/gpt-6-astra": {
+			"id": "auto/openai/gpt-6-astra",
+			"name": "GPT-6 Astra",
+			"api": "openai-completions",
+			"provider": "lowrouter",
+			"baseUrl": "https://api.lowrouter.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
+		},
+		"auto/openai/gpt-6-luna": {
+			"id": "auto/openai/gpt-6-luna",
+			"name": "GPT-6 Luna",
+			"api": "openai-completions",
+			"provider": "lowrouter",
+			"baseUrl": "https://api.lowrouter.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
+		},
+		"auto/openai/gpt-6-sol": {
+			"id": "auto/openai/gpt-6-sol",
+			"name": "GPT-6 Sol",
+			"api": "openai-completions",
+			"provider": "lowrouter",
+			"baseUrl": "https://api.lowrouter.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
+		},
+		"auto/openai/gpt-6.1-sol": {
+			"id": "auto/openai/gpt-6.1-sol",
+			"name": "GPT-6.1 Sol",
+			"api": "openai-completions",
+			"provider": "lowrouter",
+			"baseUrl": "https://api.lowrouter.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1050000,
+			"maxTokens": 128000
+		},
 		"auto/mistralai/ministral-14b-2512": {
 			"id": "auto/mistralai/ministral-14b-2512",
 			"name": "Ministral 3 14B",
@@ -550082,6 +551733,27 @@
 			},
 			"contextWindow": 256000,
 			"maxTokens": 256000
+		},
+		"auto/openai/o3": {
+			"id": "auto/openai/o3",
+			"name": "o3",
+			"api": "openai-completions",
+			"provider": "lowrouter",
+			"baseUrl": "https://api.lowrouter.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 200000,
+			"maxTokens": 100000
 		}
 	},
 	"lucidquery": {
@@ -550647,8 +552319,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1000000,
-			"maxTokens": 384000
+			"contextWindow": 1048576,
+			"maxTokens": 65536
 		},
 		"deepseek-r1-0528": {
 			"id": "deepseek-r1-0528",
@@ -562657,9 +564329,7 @@
 			"reasoning": false,
 			"input": [
 				"text",
-				"image",
-				"video",
-				"audio"
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -574650,13 +576320,15 @@
 		},
 		"claude-haiku-4-5": {
 			"id": "claude-haiku-4-5",
-			"name": "Claude Haiku 4.5",
+			"name": "Claude Haiku 4.5 (latest)",
 			"api": "openai-completions",
 			"provider": "neon",
 			"baseUrl": "${NEON_AI_GATEWAY_BASE_URL}/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -574664,8 +576336,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 200000,
+			"maxTokens": 64000
 		},
 		"claude-haiku-5-5": {
 			"id": "claude-haiku-5-5",
@@ -574711,13 +576383,15 @@
 		},
 		"claude-opus-4-5": {
 			"id": "claude-opus-4-5",
-			"name": "Claude Opus 4.5",
+			"name": "Claude Opus 4.5 (latest)",
 			"api": "openai-completions",
 			"provider": "neon",
 			"baseUrl": "${NEON_AI_GATEWAY_BASE_URL}/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -574725,8 +576399,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 200000,
+			"maxTokens": 64000
 		},
 		"claude-opus-4-6": {
 			"id": "claude-opus-4-6",
@@ -574736,7 +576410,9 @@
 			"baseUrl": "${NEON_AI_GATEWAY_BASE_URL}/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -574744,8 +576420,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 1000000,
+			"maxTokens": 128000
 		},
 		"claude-opus-4-7": {
 			"id": "claude-opus-4-7",
@@ -576020,8 +577696,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1000000,
-			"maxTokens": 384000
+			"contextWindow": 1048576,
+			"maxTokens": 65536
 		},
 		"deepseek-v4.1-flash-flex": {
 			"id": "deepseek-v4.1-flash-flex",
@@ -581497,6 +583173,29 @@
 			"contextWindow": 1048576,
 			"maxTokens": 65536
 		},
+		"google/gemini-4-argon": {
+			"id": "google/gemini-4-argon",
+			"name": "Gemini 4 Argon",
+			"api": "openai-completions",
+			"provider": "ofox",
+			"baseUrl": "https://api.ofox.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video",
+				"audio",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 65536
+		},
 		"x-ai/grok-4.20": {
 			"id": "x-ai/grok-4.20",
 			"name": "Grok 4.20",
@@ -583191,13 +584890,15 @@
 		},
 		"claude-haiku-4-5": {
 			"id": "claude-haiku-4-5",
-			"name": "Claude Haiku 4.5",
+			"name": "Claude Haiku 4.5 (latest)",
 			"api": "openai-completions",
 			"provider": "opencode",
 			"baseUrl": "https://opencode.ai/inference/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -583205,8 +584906,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 200000,
+			"maxTokens": 64000
 		},
 		"claude-haiku-5-5": {
 			"id": "claude-haiku-5-5",
@@ -583252,13 +584953,15 @@
 		},
 		"claude-opus-4-5": {
 			"id": "claude-opus-4-5",
-			"name": "Claude Opus 4.5",
+			"name": "Claude Opus 4.5 (latest)",
 			"api": "openai-completions",
 			"provider": "opencode",
 			"baseUrl": "https://opencode.ai/inference/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -583266,8 +584969,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 200000,
+			"maxTokens": 64000
 		},
 		"claude-opus-4-6": {
 			"id": "claude-opus-4-6",
@@ -583277,7 +584980,9 @@
 			"baseUrl": "https://opencode.ai/inference/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -583285,8 +584990,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 1000000,
+			"maxTokens": 128000
 		},
 		"claude-opus-4-7": {
 			"id": "claude-opus-4-7",
@@ -583571,8 +585276,28 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1000000,
-			"maxTokens": 384000
+			"contextWindow": 1048576,
+			"maxTokens": 65536
+		},
+		"deepseek-v4.1-flash-free": {
+			"id": "deepseek-v4.1-flash-free",
+			"name": "DeepSeek V4.1 Flash Free",
+			"api": "openai-completions",
+			"provider": "opencode",
+			"baseUrl": "https://opencode.ai/inference/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 200000,
+			"maxTokens": 32000
 		},
 		"exo-free": {
 			"id": "exo-free",
@@ -584460,9 +586185,8 @@
 			"input": [
 				"text",
 				"image",
-				"video",
 				"audio",
-				"pdf"
+				"video"
 			],
 			"cost": {
 				"input": 0,
@@ -584470,8 +586194,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1048576,
-			"maxTokens": 32768
+			"contextWindow": 1000000,
+			"maxTokens": 65536
 		},
 		"grok-4.5": {
 			"id": "grok-4.5",
@@ -585784,25 +587508,6 @@
 			"contextWindow": 1000000,
 			"maxTokens": 128000
 		},
-		"claude-haiku-4-5": {
-			"id": "claude-haiku-4-5",
-			"name": "Claude Haiku 4.5",
-			"api": "openai-completions",
-			"provider": "opper",
-			"baseUrl": "https://api.opper.ai/v3/compat",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": null,
-			"maxTokens": null
-		},
 		"anthropic/claude-haiku-4-5": {
 			"id": "anthropic/claude-haiku-4-5",
 			"name": "Claude Haiku 4.5 (latest)",
@@ -585824,15 +587529,17 @@
 			"contextWindow": 200000,
 			"maxTokens": 64000
 		},
-		"claude-opus-4-5": {
-			"id": "claude-opus-4-5",
-			"name": "Claude Opus 4.5",
+		"claude-haiku-4-5": {
+			"id": "claude-haiku-4-5",
+			"name": "Claude Haiku 4.5 (latest)",
 			"api": "openai-completions",
 			"provider": "opper",
 			"baseUrl": "https://api.opper.ai/v3/compat",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -585840,11 +587547,32 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 200000,
+			"maxTokens": 64000
 		},
 		"anthropic/claude-opus-4-5": {
 			"id": "anthropic/claude-opus-4-5",
+			"name": "Claude Opus 4.5 (latest)",
+			"api": "openai-completions",
+			"provider": "opper",
+			"baseUrl": "https://api.opper.ai/v3/compat",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 200000,
+			"maxTokens": 64000
+		},
+		"claude-opus-4-5": {
+			"id": "claude-opus-4-5",
 			"name": "Claude Opus 4.5 (latest)",
 			"api": "openai-completions",
 			"provider": "opper",
@@ -585893,7 +587621,9 @@
 			"baseUrl": "https://api.opper.ai/v3/compat",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -585901,8 +587631,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 1000000,
+			"maxTokens": 128000
 		},
 		"anthropic/claude-opus-4-7": {
 			"id": "anthropic/claude-opus-4-7",
@@ -590451,13 +592181,15 @@
 		},
 		"claude-haiku-4-5": {
 			"id": "claude-haiku-4-5",
-			"name": "Claude Haiku 4.5",
+			"name": "Claude Haiku 4.5 (latest)",
 			"api": "openai-completions",
 			"provider": "pioneer",
 			"baseUrl": "https://api.fastino.ai/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -590465,8 +592197,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 200000,
+			"maxTokens": 64000
 		},
 		"claude-opus-4-1": {
 			"id": "claude-opus-4-1",
@@ -590491,13 +592223,15 @@
 		},
 		"claude-opus-4-5": {
 			"id": "claude-opus-4-5",
-			"name": "Claude Opus 4.5",
+			"name": "Claude Opus 4.5 (latest)",
 			"api": "openai-completions",
 			"provider": "pioneer",
 			"baseUrl": "https://api.fastino.ai/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -590505,8 +592239,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 200000,
+			"maxTokens": 64000
 		},
 		"claude-opus-4-6": {
 			"id": "claude-opus-4-6",
@@ -590516,7 +592250,9 @@
 			"baseUrl": "https://api.fastino.ai/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -590524,8 +592260,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 1000000,
+			"maxTokens": 128000
 		},
 		"claude-opus-4-7": {
 			"id": "claude-opus-4-7",
@@ -591183,7 +592919,8 @@
 			"baseUrl": "https://api.fastino.ai/v1",
 			"reasoning": false,
 			"input": [
-				"text"
+				"text",
+				"image"
 			],
 			"cost": {
 				"input": 0,
@@ -591191,8 +592928,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 128000,
+			"maxTokens": 16384
 		},
 		"gpt-4o-mini": {
 			"id": "gpt-4o-mini",
@@ -594093,6 +595830,98 @@
 			"contextWindow": 1048576,
 			"maxTokens": 65536
 		},
+		"google/gemini-3.5-flash-lite": {
+			"id": "google/gemini-3.5-flash-lite",
+			"name": "Gemini 3.5 Flash Lite",
+			"api": "openai-completions",
+			"provider": "poe",
+			"baseUrl": "https://api.poe.com/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video",
+				"audio",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 65536
+		},
+		"google/gemini-3.6-flash": {
+			"id": "google/gemini-3.6-flash",
+			"name": "Gemini 3.6 Flash",
+			"api": "openai-completions",
+			"provider": "poe",
+			"baseUrl": "https://api.poe.com/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video",
+				"audio",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 65536
+		},
+		"google/gemini-3.7-flash": {
+			"id": "google/gemini-3.7-flash",
+			"name": "Gemini 3.7 Flash",
+			"api": "openai-completions",
+			"provider": "poe",
+			"baseUrl": "https://api.poe.com/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video",
+				"audio",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 65536
+		},
+		"google/gemini-3.8-flash": {
+			"id": "google/gemini-3.8-flash",
+			"name": "Gemini 3.8 Flash",
+			"api": "openai-completions",
+			"provider": "poe",
+			"baseUrl": "https://api.poe.com/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video",
+				"audio",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 65536
+		},
 		"google/gemini-3-flash": {
 			"id": "google/gemini-3-flash",
 			"name": "Gemini-3-Flash",
@@ -595991,6 +597820,29 @@
 		"google/gemini-3.8-flash": {
 			"id": "google/gemini-3.8-flash",
 			"name": "Gemini 3.8 Flash",
+			"api": "openai-completions",
+			"provider": "prime",
+			"baseUrl": "https://api.pinference.ai/api/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video",
+				"audio",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 65536
+		},
+		"google/gemini-4-argon": {
+			"id": "google/gemini-4-argon",
+			"name": "Gemini 4 Argon",
 			"api": "openai-completions",
 			"provider": "prime",
 			"baseUrl": "https://api.pinference.ai/api/v1",
@@ -598917,15 +600769,17 @@
 			"contextWindow": 1000000,
 			"maxTokens": 128000
 		},
-		"claude-haiku-4-5": {
-			"id": "claude-haiku-4-5",
-			"name": "Claude Haiku 4.5",
+		"anthropic/claude-haiku-4-5": {
+			"id": "anthropic/claude-haiku-4-5",
+			"name": "Claude Haiku 4.5 (latest)",
 			"api": "openai-completions",
 			"provider": "requesty",
 			"baseUrl": "https://router.requesty.ai/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -598933,11 +600787,11 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 200000,
+			"maxTokens": 64000
 		},
-		"anthropic/claude-haiku-4-5": {
-			"id": "anthropic/claude-haiku-4-5",
+		"claude-haiku-4-5": {
+			"id": "claude-haiku-4-5",
 			"name": "Claude Haiku 4.5 (latest)",
 			"api": "openai-completions",
 			"provider": "requesty",
@@ -599062,15 +600916,17 @@
 			"contextWindow": 200000,
 			"maxTokens": 32000
 		},
-		"claude-opus-4-5": {
-			"id": "claude-opus-4-5",
-			"name": "Claude Opus 4.5",
+		"anthropic/claude-opus-4-5": {
+			"id": "anthropic/claude-opus-4-5",
+			"name": "Claude Opus 4.5 (latest)",
 			"api": "openai-completions",
 			"provider": "requesty",
 			"baseUrl": "https://router.requesty.ai/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -599078,11 +600934,11 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 200000,
+			"maxTokens": 64000
 		},
-		"anthropic/claude-opus-4-5": {
-			"id": "anthropic/claude-opus-4-5",
+		"claude-opus-4-5": {
+			"id": "claude-opus-4-5",
 			"name": "Claude Opus 4.5 (latest)",
 			"api": "openai-completions",
 			"provider": "requesty",
@@ -599152,7 +601008,9 @@
 			"baseUrl": "https://router.requesty.ai/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -599160,8 +601018,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 1000000,
+			"maxTokens": 128000
 		},
 		"claude-opus-4-6@eu": {
 			"id": "claude-opus-4-6@eu",
@@ -599796,8 +601654,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1000000,
-			"maxTokens": 384000
+			"contextWindow": 1048576,
+			"maxTokens": 65536
 		},
 		"deepseek-v4.1-flash@eu": {
 			"id": "deepseek-v4.1-flash@eu",
@@ -601497,9 +603355,8 @@
 			"input": [
 				"text",
 				"image",
-				"video",
 				"audio",
-				"pdf"
+				"video"
 			],
 			"cost": {
 				"input": 0,
@@ -601507,8 +603364,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1048576,
-			"maxTokens": 32768
+			"contextWindow": 1000000,
+			"maxTokens": 65536
 		},
 		"gemini-4-argon@eu": {
 			"id": "gemini-4-argon@eu",
@@ -604105,126 +605962,6 @@
 			"maxTokens": 65536
 		}
 	},
-	"sambanova": {
-		"DeepSeek-V3.2": {
-			"id": "DeepSeek-V3.2",
-			"name": "DeepSeek V3.2",
-			"api": "openai-completions",
-			"provider": "sambanova",
-			"baseUrl": "https://api.sambanova.ai/v1",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 32768,
-			"maxTokens": 7168
-		},
-		"DeepSeek-V3.1": {
-			"id": "DeepSeek-V3.1",
-			"name": "DeepSeek-V3.1",
-			"api": "openai-completions",
-			"provider": "sambanova",
-			"baseUrl": "https://api.sambanova.ai/v1",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 131072,
-			"maxTokens": 7168
-		},
-		"gpt-oss-120b": {
-			"id": "gpt-oss-120b",
-			"name": "GPT OSS 120B",
-			"api": "openai-completions",
-			"provider": "sambanova",
-			"baseUrl": "https://api.sambanova.ai/v1",
-			"reasoning": true,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 131072,
-			"maxTokens": 40960
-		},
-		"gemma-4-31B-it": {
-			"id": "gemma-4-31B-it",
-			"name": "Gemma 4 31B IT",
-			"api": "openai-completions",
-			"provider": "sambanova",
-			"baseUrl": "https://api.sambanova.ai/v1",
-			"reasoning": true,
-			"input": [
-				"text",
-				"image",
-				"video"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 131072,
-			"maxTokens": 131072
-		},
-		"Meta-Llama-3.3-70B-Instruct": {
-			"id": "Meta-Llama-3.3-70B-Instruct",
-			"name": "Llama-3.3-70B-Instruct",
-			"api": "openai-completions",
-			"provider": "sambanova",
-			"baseUrl": "https://api.sambanova.ai/v1",
-			"reasoning": false,
-			"input": [
-				"text"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 131072,
-			"maxTokens": 3072
-		},
-		"MiniMax-M3": {
-			"id": "MiniMax-M3",
-			"name": "MiniMax-M3",
-			"api": "openai-completions",
-			"provider": "sambanova",
-			"baseUrl": "https://api.sambanova.ai/v1",
-			"reasoning": true,
-			"input": [
-				"text",
-				"image",
-				"video"
-			],
-			"cost": {
-				"input": 0,
-				"output": 0,
-				"cacheRead": 0,
-				"cacheWrite": 0
-			},
-			"contextWindow": 1048576,
-			"maxTokens": 512000
-		}
-	},
 	"sarvam": {
 		"sarvam-105b": {
 			"id": "sarvam-105b",
@@ -604307,6 +606044,25 @@
 		"glm-5.2": {
 			"id": "glm-5.2",
 			"name": "GLM-5.2",
+			"api": "openai-completions",
+			"provider": "scaleway",
+			"baseUrl": "https://api.scaleway.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 131072
+		},
+		"glm-5.3": {
+			"id": "glm-5.3",
+			"name": "GLM-5.3",
 			"api": "openai-completions",
 			"provider": "scaleway",
 			"baseUrl": "https://api.scaleway.ai/v1",
@@ -604619,6 +606375,26 @@
 			},
 			"contextWindow": 1000000,
 			"maxTokens": 393216
+		},
+		"deepseek-v4.1-flash": {
+			"id": "deepseek-v4.1-flash",
+			"name": "DeepSeek V4.1 Flash",
+			"api": "openai-completions",
+			"provider": "sensenova",
+			"baseUrl": "https://token.sensenova.cn/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 65536
 		},
 		"glm-5.2": {
 			"id": "glm-5.2",
@@ -608162,13 +609938,15 @@
 		},
 		"claude-haiku-4-5": {
 			"id": "claude-haiku-4-5",
-			"name": "Claude Haiku 4.5",
+			"name": "Claude Haiku 4.5 (latest)",
 			"api": "openai-completions",
 			"provider": "snowflake-cortex",
 			"baseUrl": "https://${SNOWFLAKE_ACCOUNT}.snowflakecomputing.com/api/v2/cortex/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -608176,18 +609954,20 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 200000,
+			"maxTokens": 64000
 		},
 		"claude-opus-4-5": {
 			"id": "claude-opus-4-5",
-			"name": "Claude Opus 4.5",
+			"name": "Claude Opus 4.5 (latest)",
 			"api": "openai-completions",
 			"provider": "snowflake-cortex",
 			"baseUrl": "https://${SNOWFLAKE_ACCOUNT}.snowflakecomputing.com/api/v2/cortex/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -608195,8 +609975,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 200000,
+			"maxTokens": 64000
 		},
 		"claude-opus-4-6": {
 			"id": "claude-opus-4-6",
@@ -608206,7 +609986,9 @@
 			"baseUrl": "https://${SNOWFLAKE_ACCOUNT}.snowflakecomputing.com/api/v2/cortex/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -608214,8 +609996,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 1000000,
+			"maxTokens": 128000
 		},
 		"claude-opus-4-7": {
 			"id": "claude-opus-4-7",
@@ -613639,8 +615421,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1000000,
-			"maxTokens": 384000
+			"contextWindow": 1048576,
+			"maxTokens": 65536
 		},
 		"glm-5.3": {
 			"id": "glm-5.3",
@@ -614138,8 +615920,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1000000,
-			"maxTokens": 384000
+			"contextWindow": 1048576,
+			"maxTokens": 65536
 		},
 		"glm-5.2": {
 			"id": "glm-5.2",
@@ -615282,8 +617064,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1000000,
-			"maxTokens": 384000
+			"contextWindow": 1048576,
+			"maxTokens": 65536
 		},
 		"glm-5.x-menthol": {
 			"id": "glm-5.x-menthol",
@@ -615979,13 +617761,15 @@
 		},
 		"claude-haiku-4-5": {
 			"id": "claude-haiku-4-5",
-			"name": "Claude Haiku 4.5",
+			"name": "Claude Haiku 4.5 (latest)",
 			"api": "openai-completions",
 			"provider": "xpersona",
 			"baseUrl": "https://www.xpersona.co/v1",
 			"reasoning": true,
 			"input": [
-				"text"
+				"text",
+				"image",
+				"pdf"
 			],
 			"cost": {
 				"input": 0,
@@ -615993,8 +617777,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": null,
-			"maxTokens": null
+			"contextWindow": 200000,
+			"maxTokens": 64000
 		},
 		"claude-opus-4-8": {
 			"id": "claude-opus-4-8",
@@ -616780,8 +618564,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1000000,
-			"maxTokens": 384000
+			"contextWindow": 1048576,
+			"maxTokens": 65536
 		},
 		"glm-5.2-fast": {
 			"id": "glm-5.2-fast",
@@ -617029,8 +618813,8 @@
 				"cacheRead": 0,
 				"cacheWrite": 0
 			},
-			"contextWindow": 1000000,
-			"maxTokens": 384000
+			"contextWindow": 1048576,
+			"maxTokens": 65536
 		},
 		"glm-5.2": {
 			"id": "glm-5.2",
