@@ -5,6 +5,7 @@ import type { Plan, PlanFocusContext } from "../../lib/plans";
 import { PLAN_STATUS_LABEL } from "../../lib/plans";
 import { openspecReadTasksStructured, openspecToggleTask, type StructuredTasks } from "../../lib/openspec";
 import { ModalPortal } from "../ModalPortal";
+import { t } from "../../i18n";
 type FocusPlanModalProps = {
   plan: Plan | null;
   open: boolean;
@@ -110,46 +111,46 @@ export function FocusPlanModal({
           <h3>
             {plan.referenceId} <span className="text-muted">-</span> {plan.title}
           </h3>
-          <button className="btn-icon" type="button" title="Close" aria-label="Close" onClick={onClose}>
+          <button className="btn-icon" type="button" title={t("focusPlanModal.close")} aria-label={t("focusPlanModal.close")} onClick={onClose}>
             <X size={14} />
           </button>
         </div>
         <div className="modal-body stack focus-plan-body">
           <div className="card stack-sm focus-plan-status-card">
-            <span className="text-sm text-muted">Status</span>
+            <span className="text-sm text-muted">{t("focusPlanModal.status")}</span>
             <span className="pill">{PLAN_STATUS_LABEL[plan.status]}</span>
             {isRunning && onOpenRunChat ? (
               <button
                 className="btn btn-sm"
                 type="button"
-                title="Open the chat where the agent is working this plan"
+                title={t("focusPlanModal.openTheChatWhereThe")}
                 onClick={() => {
                   onOpenRunChat(currentPlan);
                   onClose();
                 }}
               >
-                <MessageSquare size={12} /> Open run chat
+                <MessageSquare size={12} /> {t("focusPlanModal.openRunChat")}
               </button>
             ) : null}
           </div>
           <div className="card stack-sm">
-            <span className="text-sm text-muted">Description</span>
+            <span className="text-sm text-muted">{t("focusPlanModal.description")}</span>
             <p>{plan.description}</p>
-            {plan.goal ? <p className="text-sm text-muted">Goal: {plan.goal}</p> : null}
+            {plan.goal ? <p className="text-sm text-muted">{t("focusPlanModal.goal", { goal: plan.goal })}</p> : null}
           </div>
 
           {changeName ? (
             <div className="card stack-sm focus-plan-tasks">
               <div className="focus-plan-tasks-header">
                 <span className="text-sm text-muted focus-plan-tasks-title">
-                  <ListChecks size={12} /> OpenSpec tasks
+                  <ListChecks size={12} /> {t("focusPlanModal.openSpecTasks")}
                 </span>
                 {tasks && tasks.total > 0 ? (
                   <span
                     className="text-sm focus-plan-tasks-count"
-                    title={`${tasks.completed} of ${tasks.total} tasks done — ${remaining} left`}
+                    title={t("focusPlanModal.ofTasksDoneLeft", { completed: tasks.completed, total: tasks.total, remaining: remaining })}
                   >
-                    {tasks.completed}/{tasks.total} done · {remaining} left
+                    {t("focusPlanModal.doneLeft", { completed: tasks.completed, total: tasks.total, remaining: remaining })}
                   </span>
                 ) : null}
                 {isRunning ? <Loader2 size={11} className="is-spinning text-muted" /> : null}
@@ -161,16 +162,16 @@ export function FocusPlanModal({
                   aria-valuenow={pct}
                   aria-valuemin={0}
                   aria-valuemax={100}
-                  title={`${pct}% complete`}
+                  title={t("focusPlanModal.complete", { pct: pct })}
                 >
                   <span className="focus-plan-progress-fill" style={{ width: `${pct}%` }} />
                 </div>
               ) : null}
               {tasksLoading && !tasks ? (
-                <p className="text-sm text-muted">Loading tasks…</p>
+                <p className="text-sm text-muted">{t("focusPlanModal.loadingTasks")}</p>
               ) : !tasks || tasks.total === 0 ? (
                 <p className="text-sm text-muted">
-                  No tasks found in this change's tasks.md yet.
+                  {t("focusPlanModal.noTasksFoundInThis")}
                 </p>
               ) : (
                 <div className="focus-plan-phases">
@@ -178,7 +179,7 @@ export function FocusPlanModal({
                     const done = phase.tasks.filter((t) => t.checked).length;
                     return (
                       <div key={`${phase.line}-${phase.name}`} className="focus-plan-phase">
-                        <div className="focus-plan-phase-header" title={`${done}/${phase.tasks.length} tasks in this phase`}>
+                        <div className="focus-plan-phase-header" title={t("focusPlanModal.tasksInThisPhase", { done: done, tasksCount: phase.tasks.length })}>
                           <span className="focus-plan-phase-name">{phase.name}</span>
                           <span className={`focus-plan-phase-count${done === phase.tasks.length && phase.tasks.length > 0 ? " is-done" : ""}`}>
                             {done}/{phase.tasks.length}
@@ -187,7 +188,7 @@ export function FocusPlanModal({
                         <ul className="focus-plan-task-list">
                           {phase.tasks.map((task) => (
                             <li key={task.line} className={`focus-plan-task${task.checked ? " is-checked" : ""}`}>
-                              <label title={task.checked ? "Mark task as not done" : "Mark task as done"}>
+                              <label title={task.checked ? t("focusPlanModal.markTaskAsNotDone") : t("focusPlanModal.markTaskAsDone")}>
                                 <input
                                   type="checkbox"
                                   checked={task.checked}
@@ -210,25 +211,25 @@ export function FocusPlanModal({
             </div>
           ) : plan.status !== "draft" ? (
             <div className="card stack-sm">
-              <span className="text-sm text-muted">OpenSpec tasks</span>
+              <span className="text-sm text-muted">{t("focusPlanModal.openSpecTasks")}</span>
               <p className="text-sm text-muted">
-                No OpenSpec change linked yet — generate the plan's artifacts to get phases and tasks here.
+                {t("focusPlanModal.noOpenspecChangeLinkedYet")}
               </p>
             </div>
           ) : null}
 
           <label className="stack-sm">
-            <span className="text-sm text-muted">Focus notes</span>
+            <span className="text-sm text-muted">{t("focusPlanModal.focusNotes")}</span>
             <textarea
               className="input pre"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={3}
-              placeholder="Context, decisions, blockers…"
+              placeholder={t("focusPlanModal.contextDecisionsBlockers")}
             />
           </label>
           <label className="stack-sm">
-            <span className="text-sm text-muted">Relevant files (one per line)</span>
+            <span className="text-sm text-muted">{t("focusPlanModal.relevantFilesOnePerLine")}</span>
             <textarea
               className="input pre"
               value={files}
@@ -237,7 +238,7 @@ export function FocusPlanModal({
             />
           </label>
           <label className="stack-sm">
-            <span className="text-sm text-muted">Terminal output tail</span>
+            <span className="text-sm text-muted">{t("focusPlanModal.terminalOutputTail")}</span>
             <textarea
               className="input pre"
               value={terminalTail}
@@ -247,7 +248,7 @@ export function FocusPlanModal({
           </label>
 
           <div className="focus-plan-lifecycle-note text-sm text-muted">
-            Plan lifecycle changes are driven by OpenSpec approval and live runs. Use Plans to approve or assign work, and Runs to resume or review execution.
+            {t("focusPlanModal.planLifecycleChangesAreDriven")}
           </div>
         </div>
         <div className="modal-actions">
@@ -259,7 +260,7 @@ export function FocusPlanModal({
               onClose();
             }}
           >
-            Save context
+            {t("focusPlanModal.saveContext")}
           </button>
           <button
             className="btn"
@@ -269,7 +270,7 @@ export function FocusPlanModal({
               onCopyReference(currentPlan.referenceId);
             }}
           >
-            <Copy size={12} /> Copy ref
+            <Copy size={12} /> {t("focusPlanModal.copyRef")}
           </button>
           <button
             className="btn btn-primary"
@@ -279,7 +280,7 @@ export function FocusPlanModal({
               onOpenInTerminal(currentPlan);
             }}
           >
-            <TerminalSquare size={12} /> Open in terminal
+            <TerminalSquare size={12} /> {t("focusPlanModal.openInTerminal")}
           </button>
         </div>
       </div>

@@ -32,6 +32,7 @@ import {
 } from "../../lib/planRuns";
 import { nativeChatList, type NativeChatSession } from "../../lib/native-chat";
 import { usePlanningEvents } from "../../state/planningEvents";
+import { t } from "../../i18n";
 
 export type StageKey = "schematic" | "ideas" | "plans" | "running" | "finished";
 
@@ -42,13 +43,13 @@ type StageMeta = {
   color: string;
 };
 
-const STAGE_META: Record<StageKey, StageMeta> = {
-  schematic: { label: "Schematic", icon: FolderTree, color: "var(--bb-cta)" },
-  ideas: { label: "Ideas", icon: Lightbulb, color: "var(--bb-text)" },
-  plans: { label: "Plans", icon: ListChecks, color: "var(--bb-warning)" },
-  running: { label: "Running", icon: Play, color: "var(--bb-status-running)" },
-  finished: { label: "Done", icon: Check, color: "var(--bb-positive, #4ade80)" },
-};
+const STAGE_META = (): Record<StageKey, StageMeta> => ({
+  schematic: { label: t("planningIndicators.schematic"), icon: FolderTree, color: "var(--bb-cta)" },
+  ideas: { label: t("planningIndicators.ideas"), icon: Lightbulb, color: "var(--bb-text)" },
+  plans: { label: t("planningIndicators.plans"), icon: ListChecks, color: "var(--bb-warning)" },
+  running: { label: t("planningIndicators.running"), icon: Play, color: "var(--bb-status-running)" },
+  finished: { label: t("planningIndicators.done"), icon: Check, color: t("planningIndicators.varBbPositive4ade80") },
+});
 
 type PlanningIndicatorsProps = {
   plans: Plan[];
@@ -204,7 +205,7 @@ export function PlanningIndicators({
   return (
     <div className="planning-indicators" ref={containerRef}>
       {stages.map((stage) => {
-        const meta = STAGE_META[stage.key];
+        const meta = STAGE_META()[stage.key];
         const Icon = meta.icon;
         const isPulsing = stage.key === "running" && pulse && stage.count > 0;
         const isOpen = dropdown?.stage === stage.key;
@@ -214,7 +215,14 @@ export function PlanningIndicators({
             type="button"
             className={`planning-indicator${isOpen ? " is-open" : ""}${isPulsing ? " is-pulsing" : ""}`}
             data-stage={stage.key}
-            title={`${meta.label}: ${stage.count}${stage.key === "running" ? " running" : ""}${stage.key === "schematic" ? (schematicHealth === "complete" ? " (complete)" : schematicHealth === "incomplete" ? " (partial)" : " (missing)") : ""}`}
+            title={t(
+              stage.key === "running" ? "planningIndicators.textRunning" :
+              stage.key !== "schematic" ? "planningIndicators.text" :
+              schematicHealth === "complete" ? "planningIndicators.textComplete" :
+              schematicHealth === "incomplete" ? "planningIndicators.textPartial" :
+              "planningIndicators.textMissing",
+              { label: meta.label, count: stage.count },
+            )}
             onClick={(e) => toggleDropdown(stage.key, e)}
           >
             <Icon size={12} className="planning-indicator-icon" />
@@ -305,7 +313,7 @@ function NotificationDropdown({
   onRedoPlan,
   onDeletePlan,
 }: DropdownProps) {
-  const meta = STAGE_META[stage];
+  const meta = STAGE_META()[stage];
   const Icon = meta.icon;
 
   // Position dropdown below the button, clamped to viewport.
@@ -325,10 +333,10 @@ function NotificationDropdown({
         <button
           type="button"
           className="planning-notification-full-btn"
-          title={`Open full ${meta.label} UI`}
+          title={t("planningIndicators.openFullUI", { label: meta.label })}
           onClick={onOpenFullUI}
         >
-          Full UI
+          {t("planningIndicators.fullUi")}
           <ChevronRight size={10} />
         </button>
       </div>
@@ -387,13 +395,13 @@ function SchematicItems({
   health: "complete" | "incomplete" | "none";
   onOpen: (stage: StageKey) => void;
 }) {
-  const label = health === "complete" ? "Schematic complete" : health === "incomplete" ? "Schematic partial" : "No schematic";
+  const label = health === "complete" ? t("planningIndicators.schematicComplete") : health === "incomplete" ? t("planningIndicators.schematicPartial") : t("planningIndicators.noSchematic");
   return (
     <button
       type="button"
       className="planning-notification-item"
       data-health={health}
-      title="Open schematic editor"
+      title={t("planningIndicators.openSchematicEditor")}
       onClick={() => onOpen("schematic")}
     >
       <span className="planning-notification-item-dot" />
@@ -597,17 +605,17 @@ function IdeaQuickMenu({
 
   const renderEditor = () => {
     if (!editor) return null;
-    const label = editor.mode === "create" ? "Create idea" : "Edit idea";
+    const label = editor.mode === "create" ? t("planningIndicators.createIdea2") : "Edit idea";
     return (
       <div className="planning-quick-editor" aria-label={label}>
         <label className="planning-quick-field">
-          <span>Title</span>
+          <span>{t("planningIndicators.title")}</span>
           <input
             className="input"
             value={editor.draft.title}
             maxLength={240}
             autoFocus
-            title={`${label} title`}
+            title={t("planningIndicators.title2", { label: label })}
             onChange={(event) => {
               const title = event.target.value;
               setEditor((current) => current
@@ -617,13 +625,13 @@ function IdeaQuickMenu({
           />
         </label>
         <label className="planning-quick-field">
-          <span>Description</span>
+          <span>{t("planningIndicators.description")}</span>
           <textarea
             className="input planning-quick-description"
             value={editor.draft.description}
             maxLength={20_000}
             rows={3}
-            title={`${label} description`}
+            title={t("planningIndicators.description2", { label: label })}
             onChange={(event) => {
               const description = event.target.value;
               setEditor((current) => current
@@ -633,11 +641,11 @@ function IdeaQuickMenu({
           />
         </label>
         <label className="planning-quick-field">
-          <span>Category</span>
+          <span>{t("planningIndicators.category")}</span>
           <select
             className="input planning-quick-select"
             value={editor.draft.categoryId ?? ""}
-            title={`${label} category`}
+            title={t("planningIndicators.category2", { label: label })}
             onChange={(event) => {
               const categoryId = event.target.value || null;
               setEditor((current) => current
@@ -645,7 +653,7 @@ function IdeaQuickMenu({
                 : current);
             }}
           >
-            <option value="">No category</option>
+            <option value="">{t("planningIndicators.noCategory")}</option>
             {categories.map((category) => (
               <option key={category.id} value={category.id}>{category.name}</option>
             ))}
@@ -655,24 +663,24 @@ function IdeaQuickMenu({
           <button
             type="button"
             className="btn btn-sm btn-primary"
-            title={editor.mode === "create" ? "Create idea" : "Save idea changes"}
+            title={editor.mode === "create" ? t("planningIndicators.createIdea") : t("planningIndicators.saveIdeaChanges")}
             disabled={busyKey === "save" || !editor.draft.title.trim()}
             onClick={() => void saveEditor()}
           >
             {busyKey === "save"
               ? <LoaderCircle size={11} className="spin" />
               : <Save size={11} />}
-            {editor.mode === "create" ? "Create" : "Save"}
+            {editor.mode === "create" ? t("planningIndicators.create") : t("planningIndicators.save")}
           </button>
           <button
             type="button"
             className="btn btn-sm"
-            title="Cancel idea editing"
+            title={t("planningIndicators.cancelIdeaEditing")}
             disabled={busyKey === "save"}
             onClick={() => setEditor(null)}
           >
             <X size={11} />
-            Cancel
+            {t("planningIndicators.cancel")}
           </button>
         </div>
       </div>
@@ -685,20 +693,20 @@ function IdeaQuickMenu({
         <button
           type="button"
           className="btn btn-sm btn-primary"
-          title="Generate another guided round of ideas"
+          title={t("planningIndicators.generateAnotherGuidedRoundOf")}
           onClick={onGenerateMore}
         >
           <RefreshCw size={11} />
-          Generate more ideas
+          {t("planningIndicators.generateMoreIdeas")}
         </button>
         <button
           type="button"
           className="btn btn-sm"
-          title="Create an idea manually"
+          title={t("planningIndicators.createAnIdeaManually")}
           onClick={beginCreate}
         >
           <Plus size={11} />
-          New idea
+          {t("planningIndicators.newIdea")}
         </button>
       </div>
 
@@ -708,24 +716,24 @@ function IdeaQuickMenu({
         <select
           className="input planning-quick-select"
           value={statusFilter}
-          title="Filter ideas by status"
+          title={t("planningIndicators.filterIdeasByStatus")}
           onChange={(event) => setStatusFilter(event.target.value as IdeaFilter)}
         >
-          <option value="active">Active</option>
-          <option value="all">All statuses</option>
-          <option value="concept">Concept</option>
-          <option value="picked">Picked</option>
-          <option value="rejected">Rejected</option>
-          <option value="archived">Archived</option>
+          <option value="active">{t("planningIndicators.active")}</option>
+          <option value="all">{t("planningIndicators.allStatuses")}</option>
+          <option value="concept">{t("planningIndicators.concept")}</option>
+          <option value="picked">{t("planningIndicators.picked")}</option>
+          <option value="rejected">{t("planningIndicators.rejected")}</option>
+          <option value="archived">{t("planningIndicators.archived")}</option>
         </select>
         <select
           className="input planning-quick-select"
           value={categoryFilter}
-          title="Filter ideas by category"
+          title={t("planningIndicators.filterIdeasByCategory")}
           onChange={(event) => setCategoryFilter(event.target.value)}
         >
-          <option value="all">All categories</option>
-          <option value="uncategorized">Uncategorized</option>
+          <option value="all">{t("planningIndicators.allCategories")}</option>
+          <option value="uncategorized">{t("planningIndicators.uncategorized")}</option>
           {categories.map((category) => (
             <option key={category.id} value={category.id}>{category.name}</option>
           ))}
@@ -736,14 +744,14 @@ function IdeaQuickMenu({
         <button
           type="button"
           className="planning-quick-bulk-action"
-          title={`Upgrade ${selectedConceptIds.length} selected idea${selectedConceptIds.length === 1 ? "" : "s"} to plans`}
+          title={t((selectedConceptIds.length === 1 ? "planningIndicators.upgradeSelectedIdeaToPlans.none" : "planningIndicators.upgradeSelectedIdeaToPlans.s"), { selectedConceptIdsCount: selectedConceptIds.length })}
           disabled={busyKey === "promote-selected"}
           onClick={() => void promoteSelected()}
         >
           {busyKey === "promote-selected"
             ? <LoaderCircle size={11} className="spin" />
             : <Rocket size={11} />}
-          Upgrade selected ({selectedConceptIds.length})
+          {t("planningIndicators.upgradeSelected", { selectedConceptIdsCount: selectedConceptIds.length })}
         </button>
       ) : null}
 
@@ -751,7 +759,7 @@ function IdeaQuickMenu({
 
       <div className="planning-quick-idea-list">
         {filteredIdeas.length === 0 ? (
-          <div className="planning-notification-empty">No ideas match these filters</div>
+          <div className="planning-notification-empty">{t("planningIndicators.noIdeasMatchTheseFilters")}</div>
         ) : filteredIdeas.map((idea) => {
           const category = categories.find((item) => item.id === idea.categoryId);
           const isEditing = editor?.mode === "edit" && editor.ideaId === idea.id;
@@ -761,7 +769,7 @@ function IdeaQuickMenu({
               <PlanningDropdownRow
                 dotStatus={idea.status}
                 title={idea.title}
-                description={`${idea.description || "No description"}${category ? ` · ${category.name}` : ""}`}
+                description={`${idea.description || t("planningIndicators.noDescription")}${category ? ` · ${category.name}` : ""}`}
                 statusLabel={idea.status}
                 openTitle={`Edit ${idea.title}`}
                 onOpen={() => beginEdit(idea)}
@@ -770,8 +778,8 @@ function IdeaQuickMenu({
                     type="checkbox"
                     className="planning-quick-checkbox"
                     checked={selectedIds.has(idea.id)}
-                    title={`Select ${idea.title} for upgrade`}
-                    aria-label={`Select ${idea.title} for upgrade`}
+                    title={t("planningIndicators.selectForUpgrade", { title: idea.title })}
+                    aria-label={t("planningIndicators.selectForUpgrade2", { title: idea.title })}
                     onChange={(event) => {
                       const checked = event.target.checked;
                       setSelectedIds((current) => {
@@ -786,7 +794,7 @@ function IdeaQuickMenu({
                 menuItems={[
                   ...(idea.status === "concept" ? [{
                     key: "promote",
-                    label: "Upgrade to plan",
+                    label: t("planningIndicators.upgradeToPlan"),
                     title: `Upgrade ${idea.title} to a plan`,
                     icon: <Rocket size={12} />,
                     busy: busyKey === `promote-${idea.id}`,
@@ -796,7 +804,7 @@ function IdeaQuickMenu({
                   }] : []),
                   {
                     key: "edit",
-                    label: "Edit idea",
+                    label: t("planningIndicators.editIdea"),
                     title: `Edit ${idea.title}`,
                     icon: <Edit3 size={12} />,
                     onSelect: () => beginEdit(idea),
@@ -815,7 +823,7 @@ function IdeaQuickMenu({
                     })),
                   {
                     key: "delete",
-                    label: isDeletePending ? "Confirm delete" : "Delete idea",
+                    label: isDeletePending ? t("planningIndicators.confirmDelete") : t("planningIndicators.deleteIdea"),
                     title: isDeletePending
                       ? `Confirm deletion of ${idea.title}`
                       : `Delete ${idea.title}`,
@@ -850,7 +858,7 @@ function IdeaQuickMenu({
       </div>
 
       <div className="planning-quick-summary">
-        Showing {filteredIdeas.length} of {ideas.length} ideas
+        {t("planningIndicators.showingOfIdeas", { filteredIdeasCount: filteredIdeas.length, ideasCount: ideas.length })}
       </div>
     </div>
   );
@@ -891,7 +899,7 @@ function PlanItems({
   };
   const filtered = sortPlansForDisplay(plans.filter(filter));
   if (filtered.length === 0) {
-    return <div className="planning-notification-empty">No items</div>;
+    return <div className="planning-notification-empty">{t("planningIndicators.noItems")}</div>;
   }
   return (
     <>
@@ -902,8 +910,8 @@ function PlanItems({
         if (plan.status === "ready") {
           menuItems.push({
             key: "assign",
-            label: "Assign to chat",
-            title: "Apply this plan to a chat",
+            label: t("planningIndicators.assignToChat"),
+            title: t("planningIndicators.applyThisPlanToAChat"),
             icon: <Send size={12} />,
             onSelect: () => onAssignPlan(plan),
           });
@@ -911,8 +919,8 @@ function PlanItems({
         if (plan.status === "openspec") {
           menuItems.push({
             key: "approve",
-            label: "Approve plan",
-            title: "Approve plan — mark ready to apply to a chat",
+            label: t("planningIndicators.approvePlan"),
+            title: t("planningIndicators.approvePlanMarkReadyToApply"),
             icon: <Check size={12} />,
             busy: busyKey === `${plan.id}:approve`,
             onSelect: () => runAction(`${plan.id}:approve`, () => onApprovePlan(plan)),
@@ -921,8 +929,8 @@ function PlanItems({
         if (plan.status === "draft" || plan.status === "openspec") {
           menuItems.push({
             key: "redo",
-            label: plan.status === "draft" ? "Generate OpenSpec" : "Regenerate OpenSpec",
-            title: plan.status === "draft" ? "Generate OpenSpec artifacts" : "Redo — regenerate OpenSpec artifacts",
+            label: plan.status === "draft" ? t("planningIndicators.generateOpenspec") : t("planningIndicators.regenerateOpenspec"),
+            title: plan.status === "draft" ? t("planningIndicators.generateOpenspecArtifacts") : t("planningIndicators.redoRegenerateOpenspecArtifacts"),
             icon: plan.status === "draft" ? <Rocket size={12} /> : <RefreshCw size={12} />,
             busy: busyKey === `${plan.id}:redo`,
             onSelect: () => runAction(`${plan.id}:redo`, () => onRedoPlan(plan)),
@@ -930,15 +938,15 @@ function PlanItems({
         }
         menuItems.push({
           key: "copy",
-          label: "Copy plan id",
+          label: t("planningIndicators.copyPlanId"),
           title: `Copy plan id ${plan.referenceId}`,
           icon: <Copy size={12} />,
           onSelect: () => void navigator.clipboard.writeText(plan.referenceId),
         });
         menuItems.push({
           key: "delete",
-          label: isDeletePending ? "Confirm delete" : "Delete plan",
-          title: isDeletePending ? "Click to permanently delete this plan" : "Delete plan",
+          label: isDeletePending ? t("planningIndicators.confirmDelete") : t("planningIndicators.deletePlan"),
+          title: isDeletePending ? t("planningIndicators.clickToPermanentlyDeleteThisPlan") : t("planningIndicators.deletePlan"),
           icon: <Trash2 size={12} />,
           danger: true,
           keepOpen: !isDeletePending,
@@ -972,7 +980,7 @@ function PlanItems({
         );
       })}
       {filtered.length > 12 ? (
-        <div className="planning-notification-more">+{filtered.length - 12} more</div>
+        <div className="planning-notification-more">{t("planningIndicators.more", { value: filtered.length - 12 })}</div>
       ) : null}
     </>
   );
@@ -983,7 +991,7 @@ function PlanItems({
 function FinishedItems({ plans }: { plans: Plan[] }) {
   const finished = plans.filter((plan) => plan.status === "finished");
   if (finished.length === 0) {
-    return <div className="planning-notification-empty">No finished plans</div>;
+    return <div className="planning-notification-empty">{t("planningIndicators.noFinishedPlans")}</div>;
   }
   return (
     <>
@@ -1000,7 +1008,7 @@ function FinishedItems({ plans }: { plans: Plan[] }) {
           onOpen={() => undefined}
           menuItems={[{
             key: "copy",
-            label: "Copy plan id",
+            label: t("planningIndicators.copyPlanId"),
             title: `Copy plan id ${plan.referenceId}`,
             icon: <Copy size={12} />,
             onSelect: () => void navigator.clipboard.writeText(plan.referenceId),

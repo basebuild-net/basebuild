@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ChevronDown, Loader2, ShieldCheck, SlidersHorizontal } from "lucide-react";
 import { ActionMenu } from "../ActionMenu";
+import { t } from "../../i18n";
 
 /** Model / provider / effort / permission controls, rendered under the
  *  composer input (not in the pinned header). The secondary controls collapse
@@ -64,13 +65,13 @@ export function ChatComposerControls(props: Props) {
         type="button"
         title={
           props.modelCatalogStatus === "error" || props.modelCatalogStatus === "stale"
-            ? `Model: ${props.modelChip}. ${props.modelCatalogError ?? "Catalog unavailable"}. Click to change provider or model.`
-            : `Model & provider: ${props.modelChip}. Click to change.`
+            ? t("chatComposerControls.modelClickToChangeProviderOr", { modelChip: props.modelChip, modelCatalogError: props.modelCatalogError ?? t("chatComposerControls.catalogUnavailable") })
+            : t("chatComposerControls.modelProviderClickToChange", { modelChip: props.modelChip })
         }
         onClick={props.onPickModel}
       >
         {busy ? <Loader2 size={10} className="spin" aria-hidden="true" /> : null}
-        <span>{truncate(props.modelChip || props.modelId || "Model", 18)}</span>
+        <span>{truncate(props.modelChip || props.modelId || t("chatComposerControls.model"), 18)}</span>
         <ChevronDown size={9} />
       </button>
 
@@ -94,9 +95,9 @@ export function ChatComposerControls(props: Props) {
           triggerClassName="chat-header-menu-trigger chat-header-permission-trigger"
           icon={<><ShieldCheck size={10} /><span>{permissionLabel}</span><ChevronDown size={9} /></>}
           items={[
-            { key: "balanced", label: "Balanced", title: "Ask before sensitive actions", onSelect: () => props.onChangePermission("balanced") },
-            { key: "safe", label: "Always Ask", title: "Ask before every tool action", onSelect: () => props.onChangePermission("safe") },
-            { key: "auto", label: "Run Everything", title: "Allow tool actions without prompting", onSelect: () => props.onChangePermission("auto") },
+            { key: "balanced", label: t("chatComposerControls.balanced"), title: t("chatComposerControls.askBeforeSensitiveActions"), onSelect: () => props.onChangePermission("balanced") },
+            { key: "safe", label: t("chatComposerControls.alwaysAsk"), title: t("chatComposerControls.askBeforeEveryToolAction"), onSelect: () => props.onChangePermission("safe") },
+            { key: "auto", label: t("chatComposerControls.runEverything"), title: t("chatComposerControls.allowToolActionsWithoutPrompting"), onSelect: () => props.onChangePermission("auto") },
           ]}
         />
       ) : null}
@@ -105,7 +106,7 @@ export function ChatComposerControls(props: Props) {
         className="chat-composer-tools-toggle"
         type="button"
         aria-pressed={!collapsed}
-        title={collapsed ? "Show effort & permission controls" : "Hide effort & permission controls"}
+        title={collapsed ? t("chatComposerControls.showEffortPermissionControls") : t("chatComposerControls.hideEffortPermissionControls")}
         onClick={toggle}
       >
         <SlidersHorizontal size={12} />

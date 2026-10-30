@@ -8,6 +8,7 @@ import { estimateEta, formatElapsedMs } from "../../lib/runEta";
 import { usePlanningEvents } from "../../state/planningEvents";
 import { usePanelStatus } from "../panels/PanelStatusContext";
 import { SkeletonRows } from "./Loading";
+import { t } from "../../i18n";
 
 type MissionControlBoardProps = {
   sessionId: string | null;
@@ -32,11 +33,11 @@ type RunCard = {
 };
 
 const STATE_LABEL: Record<CardState, string> = {
-  queued: "Queued",
-  running: "Running",
-  blocked: "Blocked",
-  attention: "Needs you",
-  finished: "Finished",
+  queued: t("missionControlBoard.queued"),
+  running: t("missionControlBoard.running"),
+  blocked: t("missionControlBoard.blocked"),
+  attention: t("missionControlBoard.needsYou"),
+  finished: t("missionControlBoard.finished"),
 };
 
 /**
@@ -141,8 +142,8 @@ export function MissionControlBoard({ sessionId, projectPath, plans, chatPanels,
         : undefined;
       const chatStatus = ownerPanelId ? statuses[ownerPanelId]?.status : undefined;
       let attention: string | null = null;
-      if (run.status === "awaiting_review") attention = "Mark as complete?";
-      else if (chatStatus === "asking") attention = "Waiting on your answer";
+      if (run.status === "awaiting_review") attention = t("missionControlBoard.markAsComplete");
+      else if (chatStatus === "asking") attention = t("missionControlBoard.waitingOnYourAnswer");
       const state: CardState = attention
         ? "attention"
         : run.status === "pending"
@@ -155,16 +156,16 @@ export function MissionControlBoard({ sessionId, projectPath, plans, chatPanels,
   }, [visibleRuns, plans, graph, statuses, progressByRun, chatPanels]);
 
   if (!sessionId) {
-    return <div className="mission-control-empty text-muted text-sm" title="No session">Open a project to see runs.</div>;
+    return <div className="mission-control-empty text-muted text-sm" title={t("missionControlBoard.noSession")}>{t("missionControlBoard.openAProjectToSee")}</div>;
   }
 
   return (
-    <div className="mission-control" title="Mission control — live run cards">
+    <div className="mission-control" title={t("missionControlBoard.missionControlLiveRunCards")}>
       {loading && cards.length === 0 ? (
-        <SkeletonRows rows={3} label="Loading runs…" />
+        <SkeletonRows rows={3} label={t("missionControlBoard.loadingRuns")} />
       ) : cards.length === 0 ? (
-        <div className="mission-control-empty text-muted text-sm" title="No runs">
-          No runs yet. Launch ready plans into chats to see them here.
+        <div className="mission-control-empty text-muted text-sm" title={t("missionControlBoard.noRuns")}>
+          {t("missionControlBoard.noRunsYetLaunchReady")}
         </div>
       ) : (
         <div className="mission-control-grid">
@@ -176,41 +177,41 @@ export function MissionControlBoard({ sessionId, projectPath, plans, chatPanels,
               : null;
             const pct = progress && progress.total > 0 ? Math.round((progress.completed / progress.total) * 100) : 0;
             return (
-              <div key={run.id} className={`mission-card mission-card-${state}`} title={`${plan?.referenceId ?? run.planId} — ${STATE_LABEL[state]}`}>
+              <div key={run.id} className={`mission-card mission-card-${state}`} title={t("missionControlBoard.text", { referenceId: plan?.referenceId ?? run.planId, value: STATE_LABEL[state] })}>
                 <div className="mission-card-head">
                   <span className="mission-card-ref">{plan?.referenceId ?? run.planId.slice(0, 8)}</span>
-                  <span className={`mission-card-state mission-card-state-${state}`} title={state === "queued" ? "Waiting on a concurrency slot" : STATE_LABEL[state]}>
+                  <span className={`mission-card-state mission-card-state-${state}`} title={state === "queued" ? t("missionControlBoard.waitingOnAConcurrencySlot") : STATE_LABEL[state]}>
                     {STATE_LABEL[state]}
                   </span>
                 </div>
-                <div className="mission-card-title" title={plan?.title ?? "(no linked plan)"}>{plan?.title ?? "(no linked plan)"}</div>
+                <div className="mission-card-title" title={plan?.title ?? t("missionControlBoard.noLinkedPlan")}>{plan?.title ?? t("missionControlBoard.noLinkedPlan")}</div>
                 <div className="mission-card-meta">
                   {run.chatSessionId && onOpenChatSession ? (
                     <button
                       className="btn btn-sm mission-card-chat"
                       type="button"
-                      title="Focus the chat running this plan"
+                      title={t("missionControlBoard.focusTheChatRunningThis")}
                       onClick={() => onOpenChatSession(run.chatSessionId ?? "")}
                     >
-                      <ExternalLink size={10} /> Open chat
+                      <ExternalLink size={10} /> {t("missionControlBoard.openChat")}
                     </button>
                   ) : (
-                    <span className="text-muted text-sm" title="No owner chat">no chat</span>
+                    <span className="text-muted text-sm" title={t("missionControlBoard.noOwnerChat")}>{t("missionControlBoard.noChat")}</span>
                   )}
                   {run.workspacePath ? (
-                    <span className="mission-card-worktree" title={`Worktree: ${run.workspacePath}`}>
+                    <span className="mission-card-worktree" title={t("missionControlBoard.worktree", { workspacePath: run.workspacePath })}>
                       <GitBranch size={10} /> {run.workspacePath.split(/[\\/]/).pop()}
                     </span>
                   ) : null}
                 </div>
                 {progress ? (
-                  <div className="mission-card-progress" title={`${progress.completed}/${progress.total} tasks (${pct}%)`}>
+                  <div className="mission-card-progress" title={t("missionControlBoard.tasks", { completed: progress.completed, total: progress.total, pct: pct })}>
                     <div className="mission-card-progress-bar">
                       <div className="mission-card-progress-fill" style={{ width: `${pct}%` }} />
                     </div>
                     <span className="mission-card-progress-label">{progress.completed}/{progress.total}</span>
                     {progress.total > 0 ? (
-                      <span className="mission-card-progress-pct" title={`${pct}% of tasks complete`}>{pct}%</span>
+                      <span className="mission-card-progress-pct" title={t("missionControlBoard.ofTasksComplete", { pct: pct })}>{pct}%</span>
                     ) : null}
                   </div>
                 ) : null}
@@ -218,19 +219,19 @@ export function MissionControlBoard({ sessionId, projectPath, plans, chatPanels,
                   {run.startedAt ? (
                     <span
                       className="mission-card-started"
-                      title={`Started ${new Date(run.startedAt * 1000).toLocaleString()}`}
+                      title={t("missionControlBoard.startedAt", { time: new Date(run.startedAt * 1000).toLocaleString() })}
                     >
-                      started {new Date(run.startedAt * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      {t("missionControlBoard.startedAt", { time: new Date(run.startedAt * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) })}
                     </span>
                   ) : null}
                   {elapsedMs !== null ? (
-                    <span title={run.finishedAt ? "Actual duration" : "Elapsed"}>{formatElapsedMs(elapsedMs)}</span>
+                    <span title={run.finishedAt ? t("missionControlBoard.actualDuration") : t("missionControlBoard.elapsed")}>{formatElapsedMs(elapsedMs)}</span>
                   ) : null}
                   {eta ? (
                     eta.kind === "estimate" ? (
-                      <span className="mission-card-eta" title="Expected time until finished — estimated from observed task velocity, display only">{eta.label}</span>
+                      <span className="mission-card-eta" title={t("missionControlBoard.expectedTimeUntilFinishedEstimated")}>{eta.label}</span>
                     ) : eta.kind === "estimating" ? (
-                      <span className="mission-card-eta text-muted" title="No task ticks observed yet">estimating…</span>
+                      <span className="mission-card-eta text-muted" title={t("missionControlBoard.noTaskTicksObservedYet")}>{t("missionControlBoard.estimating")}</span>
                     ) : null
                   ) : null}
                 </div>
@@ -238,7 +239,7 @@ export function MissionControlBoard({ sessionId, projectPath, plans, chatPanels,
                   <button
                     className="mission-card-attention"
                     type="button"
-                    title={`${attention} — open the chat to resolve`}
+                    title={t("missionControlBoard.openTheChatToResolve", { attention: attention })}
                     onClick={() => run.chatSessionId && onOpenChatSession?.(run.chatSessionId)}
                   >
                     <AlertTriangle size={10} /> {attention}

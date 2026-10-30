@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import "./styles/globals.css";
 import { initUiScale } from "./lib/uiScale";
+import { LocaleProvider } from "./state/locale";
 
 // Promote the pre-paint CSS-zoom bootstrap to native webview zoom (which
 // does not persist across restarts) before the shell renders.
@@ -19,6 +20,8 @@ document.addEventListener("contextmenu", (e) => {
 });
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <App />
+    <LocaleProvider>
+      <App />
+    </LocaleProvider>
   </React.StrictMode>,
 );

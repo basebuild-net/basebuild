@@ -8,6 +8,7 @@ import { nativeChatHistory, type NativeChatHistoryEntry } from "../../lib/native
 import { formatRelativeTime } from "../../lib/timing";
 import { basebuildDataDir, revealInExplorer } from "../../lib/projects";
 import { SkeletonRows } from "../layout/Loading";
+import { t } from "../../i18n";
 
 const typeIcons: Record<PanelType, LucideIcon> = {
   chat: MessageSquare,
@@ -80,15 +81,15 @@ export function HistoryDrawer({ activeProjectPath, closedPanels, onReopen, onDel
 
   return (
     <ModalPortal>
-    <div className="modal-overlay" role="dialog" aria-label="History" onClick={onClose}>
+    <div className="modal-overlay" role="dialog" aria-label={t("historyDrawer.history")} onClick={onClose}>
       <div className="modal history-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>History</h2>
+          <h2>{t("historyDrawer.history")}</h2>
           <div className="row gap-sm">
             <button
               className="btn btn-sm"
               type="button"
-              title="Open the basebuild data folder in your file manager"
+              title={t("historyDrawer.openTheBasebuildDataFolder")}
               onClick={() => void (async () => {
                 try {
                   const dir = await basebuildDataDir();
@@ -96,21 +97,21 @@ export function HistoryDrawer({ activeProjectPath, closedPanels, onReopen, onDel
                 } catch { /* best-effort */ }
               })()}
             >
-              <FolderOpen size={12} /> Open folder
+              <FolderOpen size={12} /> {t("historyDrawer.openFolder")}
             </button>
-            <button className="btn-icon" type="button" title="Close (Esc)" onClick={onClose}>
+            <button className="btn-icon" type="button" title={t("historyDrawer.closeEsc")} onClick={onClose}>
               <X size={14} />
             </button>
           </div>
         </div>
         <div className="modal-body history-modal-body">
-          <section className="history-modal-section" aria-label="History">
-            <span className="history-modal-section-title">History</span>
+          <section className="history-modal-section" aria-label={t("historyDrawer.history")}>
+            <span className="history-modal-section-title">{t("historyDrawer.history")}</span>
             {chatsLoading && closedPanels.length === 0 ? (
-              <SkeletonRows rows={4} label="Loading history…" />
+              <SkeletonRows rows={4} label={t("historyDrawer.loadingHistory")} />
             ) : closedPanels.length === 0 && (chatsError || allChats.length === 0) ? (
               <div className="history-modal-empty">
-                {chatsError ? `Failed to load chats: ${chatsError}` : "No history yet."}
+                {chatsError ? t("historyDrawer.failedToLoadChats", { chatsError: chatsError }) : t("historyDrawer.noHistoryYet")}
               </div>
             ) : (
               <div className="history-modal-list">
@@ -123,7 +124,7 @@ export function HistoryDrawer({ activeProjectPath, closedPanels, onReopen, onDel
                       <div className="history-modal-item-main">
                         <span className="history-modal-item-title" title={panel.title}>{panel.title}</span>
                         <span className="history-modal-item-meta">
-                          <span className="history-modal-item-tag">closed</span>
+                          <span className="history-modal-item-tag">{t("historyDrawer.closed")}</span>
                           <span>{panel.type}</span>
                         </span>
                       </div>
@@ -131,15 +132,15 @@ export function HistoryDrawer({ activeProjectPath, closedPanels, onReopen, onDel
                         <button
                           className="btn btn-sm"
                           type="button"
-                          title="Re-open this panel"
+                          title={t("historyDrawer.reOpenThisPanel")}
                           onClick={() => { onReopen(panel.id); onClose(); }}
                         >
-                          Re-open
+                          {t("historyDrawer.reOpen")}
                         </button>
                         <button
                           className="btn-icon btn-icon-sm"
                           type="button"
-                          title="Delete permanently"
+                          title={t("historyDrawer.deletePermanently")}
                           onClick={() => setPendingDelete(panel)}
                         >
                           <Trash2 size={11} />
@@ -148,7 +149,7 @@ export function HistoryDrawer({ activeProjectPath, closedPanels, onReopen, onDel
                     </div>
                   );
                 })}
-                {chatsLoading ? <SkeletonRows rows={2} label="Loading chat history…" /> : null}
+                {chatsLoading ? <SkeletonRows rows={2} label={t("historyDrawer.loadingChatHistory")} /> : null}
                 {/* All chat sessions — merged into the same list */}
                 {allChats.map((entry) => {
                   const fullTs = new Date(entry.updatedAt * 1000).toLocaleString();
@@ -158,7 +159,7 @@ export function HistoryDrawer({ activeProjectPath, closedPanels, onReopen, onDel
                     <div
                       key={`chat-${entry.id}`}
                       className="history-modal-item"
-                      title={`${entry.title} — ${projectDisplayName(entry.projectPath)} — ${fullTs}`}
+                      title={t("historyDrawer.text", { title: entry.title, projectPath: projectDisplayName(entry.projectPath), fullTs: fullTs })}
                       onClick={() => handleChatClick(entry)}
                     >
                       <MessageSquare size={11} className="history-modal-item-icon" />
@@ -169,7 +170,7 @@ export function HistoryDrawer({ activeProjectPath, closedPanels, onReopen, onDel
                           <span>{entry.modelId}</span>
                           <span>{formatRelativeTime(entry.updatedAt)}</span>
                           <span>{messageLabel}</span>
-                          {isClosed ? <span className="history-modal-item-tag">closed</span> : null}
+                          {isClosed ? <span className="history-modal-item-tag">{t("historyDrawer.closed")}</span> : null}
                         </span>
                       </div>
                     </div>
@@ -182,14 +183,14 @@ export function HistoryDrawer({ activeProjectPath, closedPanels, onReopen, onDel
       </div>
       <ConfirmDialog
         open={pendingDelete !== null}
-        title="Delete panel permanently?"
+        title={t("historyDrawer.deletePanelPermanently")}
         message={
           pendingDelete
             ? `Permanently delete "${pendingDelete.title}"? This removes the local ${pendingDelete.type} data and cannot be undone.`
             : ""
         }
-        confirmLabel="Delete permanently"
-        cancelLabel="Keep"
+        confirmLabel={t("historyDrawer.deletePermanently2")}
+        cancelLabel={t("historyDrawer.keep")}
         destructive
         onConfirm={() => {
           if (pendingDelete) onDelete(pendingDelete.id);

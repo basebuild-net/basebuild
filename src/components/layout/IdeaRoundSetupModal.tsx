@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Check, SlidersHorizontal, Sparkles, X } from "lucide-react";
 import type { IdeaCategory } from "../../lib/ideas";
 import { ModalPortal } from "../ModalPortal";
+import { t } from "../../i18n";
 
 export type IdeaRoundSetup = {
   categoryIds: string[];
@@ -15,13 +16,13 @@ type IdeaRoundSetupModalProps = {
   onCancel: () => void;
 };
 
-const IDEA_PRESETS = [
-  { id: "features", label: "New features", description: "Small capabilities users would notice." },
-  { id: "fixes", label: "Fixes", description: "Bugs, rough edges, and missing safeguards." },
-  { id: "polish", label: "Polishing", description: "Clarity, consistency, and feel." },
-  { id: "tests", label: "More tests", description: "Useful coverage for risky behavior." },
-  { id: "ux", label: "Simpler UX", description: "Fewer steps and clearer choices." },
-  { id: "performance", label: "Performance", description: "Faster startup and interactions." },
+const IDEA_PRESETS = () => [
+  { id: "features", label: t("ideaRoundSetupModal.newFeatures"), description: t("ideaRoundSetupModal.smallCapabilitiesUsersWouldNotice") },
+  { id: "fixes", label: t("ideaRoundSetupModal.fixes"), description: t("ideaRoundSetupModal.bugsRoughEdgesAndMissingSafeguards") },
+  { id: "polish", label: t("ideaRoundSetupModal.polishing"), description: t("ideaRoundSetupModal.clarityConsistencyAndFeel") },
+  { id: "tests", label: t("ideaRoundSetupModal.moreTests"), description: t("ideaRoundSetupModal.usefulCoverageForRiskyBehavior") },
+  { id: "ux", label: t("ideaRoundSetupModal.simplerUx"), description: t("ideaRoundSetupModal.fewerStepsAndClearerChoices") },
+  { id: "performance", label: t("ideaRoundSetupModal.performance"), description: t("ideaRoundSetupModal.fasterStartupAndInteractions") },
 ] as const;
 
 export function IdeaRoundSetupModal({ categories, onConfirm, onCancel }: IdeaRoundSetupModalProps) {
@@ -33,7 +34,7 @@ export function IdeaRoundSetupModal({ categories, onConfirm, onCancel }: IdeaRou
   const isAny = selectedPresets.size === 0 && selectedCategories.size === 0;
   const scopeLabel = useMemo(() => {
     const count = selectedPresets.size + selectedCategories.size;
-    return count === 0 ? "Any useful ideas" : `${count} focus area${count === 1 ? "" : "s"}`;
+    return count === 0 ? t("ideaRoundSetupModal.anyUsefulIdeas") : `${count} focus area${count === 1 ? "" : "s"}`;
   }, [selectedPresets, selectedCategories]);
 
   function toggleSelection(setter: typeof setSelectedPresets, id: string) {
@@ -46,7 +47,7 @@ export function IdeaRoundSetupModal({ categories, onConfirm, onCancel }: IdeaRou
   }
 
   function confirmRound() {
-    const presetLabels = IDEA_PRESETS
+    const presetLabels = IDEA_PRESETS()
       .filter((preset) => selectedPresets.has(preset.id))
       .map((preset) => preset.label);
     const roundDirection = [
@@ -62,15 +63,15 @@ export function IdeaRoundSetupModal({ categories, onConfirm, onCancel }: IdeaRou
 
   return (
     <ModalPortal>
-      <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Configure idea round" onClick={onCancel}>
+      <div className="modal-overlay" role="dialog" aria-modal="true" aria-label={t("ideaRoundSetupModal.configureIdeaRound")} onClick={onCancel}>
         <div className="modal modal-idea-round-setup" onClick={(event) => event.stopPropagation()}>
           <div className="modal-header">
             <div className="idea-round-setup-heading">
-              <span className="idea-round-setup-kicker">Idea studio</span>
-              <h2>What should we look for?</h2>
-              <p className="text-muted text-sm">Choose any mix, or continue with everything. The model will keep titles short and put the detail underneath.</p>
+              <span className="idea-round-setup-kicker">{t("ideaRoundSetupModal.ideaStudio")}</span>
+              <h2>{t("ideaRoundSetupModal.whatShouldWeLookFor")}</h2>
+              <p className="text-muted text-sm">{t("ideaRoundSetupModal.chooseAnyMixOrContinue")}</p>
             </div>
-            <button className="btn-icon" type="button" title="Cancel idea round setup" onClick={onCancel}>
+            <button className="btn-icon" type="button" title={t("ideaRoundSetupModal.cancelIdeaRoundSetup")} onClick={onCancel}>
               <X size={14} />
             </button>
           </div>
@@ -78,24 +79,24 @@ export function IdeaRoundSetupModal({ categories, onConfirm, onCancel }: IdeaRou
           <div className="modal-body idea-round-setup-body">
             <section className="idea-round-setup-section" aria-labelledby="idea-preset-title">
               <div className="row-between">
-                <span id="idea-preset-title" className="idea-round-setup-label">Categories</span>
-                <span className="badge" title="Current generation scope">{scopeLabel}</span>
+                <span id="idea-preset-title" className="idea-round-setup-label">{t("ideaRoundSetupModal.categories")}</span>
+                <span className="badge" title={t("ideaRoundSetupModal.currentGenerationScope")}>{scopeLabel}</span>
               </div>
               <div className="idea-preset-grid">
                 <button
                   className={`idea-preset-option${isAny ? " is-selected" : ""}`}
                   type="button"
                   aria-pressed={isAny}
-                  title="Look for the strongest ideas across every category"
+                  title={t("ideaRoundSetupModal.lookForTheStrongestIdeas")}
                   onClick={() => {
                     setSelectedPresets(new Set());
                     setSelectedCategories(new Set());
                   }}
                 >
                   <span className="idea-preset-check">{isAny ? <Check size={12} /> : null}</span>
-                  <span><strong>Anything useful</strong><small>Let the project decide.</small></span>
+                  <span><strong>{t("ideaRoundSetupModal.anythingUseful")}</strong><small>{t("ideaRoundSetupModal.letTheProjectDecide")}</small></span>
                 </button>
-                {IDEA_PRESETS.map((preset) => {
+                {IDEA_PRESETS().map((preset) => {
                   const selected = selectedPresets.has(preset.id);
                   return (
                     <button
@@ -103,7 +104,7 @@ export function IdeaRoundSetupModal({ categories, onConfirm, onCancel }: IdeaRou
                       key={preset.id}
                       type="button"
                       aria-pressed={selected}
-                      title={`${selected ? "Remove" : "Add"} ${preset.label}`}
+                      title={t((selected ? "ideaRoundSetupModal.text.remove" : "ideaRoundSetupModal.text.add"), { label: preset.label })}
                       onClick={() => toggleSelection(setSelectedPresets, preset.id)}
                     >
                       <span className="idea-preset-check">{selected ? <Check size={12} /> : null}</span>
@@ -116,7 +117,7 @@ export function IdeaRoundSetupModal({ categories, onConfirm, onCancel }: IdeaRou
 
             {categories.length > 0 ? (
               <section className="idea-round-setup-section" aria-labelledby="project-category-title">
-                <span id="project-category-title" className="idea-round-setup-label">Project categories</span>
+                <span id="project-category-title" className="idea-round-setup-label">{t("ideaRoundSetupModal.projectCategories")}</span>
                 <div className="idea-round-category-grid">
                   {categories.map((category) => {
                     const selected = selectedCategories.has(category.id);
@@ -126,7 +127,7 @@ export function IdeaRoundSetupModal({ categories, onConfirm, onCancel }: IdeaRou
                         className={`idea-round-category-option${selected ? " is-selected" : ""}`}
                         type="button"
                         aria-pressed={selected}
-                        title={`${selected ? "Remove" : "Add"} ${category.name}`}
+                        title={t((selected ? "ideaRoundSetupModal.text2.remove" : "ideaRoundSetupModal.text2.add"), { name: category.name })}
                         onClick={() => toggleSelection(setSelectedCategories, category.id)}
                       >
                         <span className="idea-round-category-check" aria-hidden="true">{selected ? <Check size={12} /> : null}</span>
@@ -141,46 +142,46 @@ export function IdeaRoundSetupModal({ categories, onConfirm, onCancel }: IdeaRou
               </section>
             ) : null}
 
-            <label className="idea-studio-direction-field" title="Optional extra direction for this idea round">
-              <span className="idea-round-setup-label">Anything else? <span className="text-muted">Optional</span></span>
+            <label className="idea-studio-direction-field" title={t("ideaRoundSetupModal.optionalExtraDirectionForThis")}>
+              <span className="idea-round-setup-label">{t("ideaRoundSetupModal.anythingElse")} <span className="text-muted">{t("ideaRoundSetupModal.optional")}</span></span>
               <textarea
                 className="input"
                 rows={2}
                 value={direction}
                 maxLength={1_000}
-                placeholder="Example: Keep each idea achievable in one afternoon."
-                title="Add an optional constraint or outcome"
+                placeholder={t("ideaRoundSetupModal.exampleKeepEachIdeaAchievable")}
+                title={t("ideaRoundSetupModal.addAnOptionalConstraintOr")}
                 onChange={(event) => setDirection(event.target.value)}
               />
             </label>
 
             <div className="idea-studio-round-summary">
               <div>
-                <span className="idea-round-setup-label">Round</span>
-                <strong>{ideaCount} ideas · {scopeLabel}</strong>
+                <span className="idea-round-setup-label">{t("ideaRoundSetupModal.round")}</span>
+                <strong>{t("ideaRoundSetupModal.ideas", { ideaCount: ideaCount, scopeLabel: scopeLabel })}</strong>
               </div>
               <button
                 className="btn btn-sm"
                 type="button"
-                title={`${showAdvanced ? "Hide" : "Show"} idea count options`}
+                title={t((showAdvanced ? "ideaRoundSetupModal.ideaCountOptions.hide" : "ideaRoundSetupModal.ideaCountOptions.show"))}
                 aria-expanded={showAdvanced}
                 onClick={() => setShowAdvanced((current) => !current)}
               >
                 <SlidersHorizontal size={12} />
-                {showAdvanced ? "Hide" : "Count"}
+                {showAdvanced ? t("ideaRoundSetupModal.hide") : t("ideaRoundSetupModal.count")}
               </button>
             </div>
 
             {showAdvanced ? (
-              <label className="idea-round-count-field" title="How many ideas the model should propose">
-                <span className="idea-round-setup-label">Number of ideas</span>
+              <label className="idea-round-count-field" title={t("ideaRoundSetupModal.howManyIdeasTheModel")}>
+                <span className="idea-round-setup-label">{t("ideaRoundSetupModal.numberOfIdeas")}</span>
                 <input
                   className="input"
                   type="number"
                   min={5}
                   max={8}
                   value={ideaCount}
-                  title="Idea target, from 5 to 8"
+                  title={t("ideaRoundSetupModal.ideaTargetFrom5To")}
                   onChange={(event) => setIdeaCount(Math.min(8, Math.max(5, Number(event.target.value) || 8)))}
                 />
               </label>
@@ -188,16 +189,16 @@ export function IdeaRoundSetupModal({ categories, onConfirm, onCancel }: IdeaRou
           </div>
 
           <div className="modal-footer idea-round-setup-footer">
-            <button className="btn btn-sm" type="button" title="Cancel idea generation" onClick={onCancel}>
-              Cancel
+            <button className="btn btn-sm" type="button" title={t("ideaRoundSetupModal.cancelIdeaGeneration")} onClick={onCancel}>
+              {t("ideaRoundSetupModal.cancel")}
             </button>
             <button
               className="btn btn-sm btn-primary"
               type="button"
-              title={`Choose a chat and generate ${ideaCount} ideas across ${scopeLabel.toLowerCase()}`}
+              title={t("ideaRoundSetupModal.chooseAChatAndGenerateIdeas", { ideaCount: ideaCount, toLowerCase: scopeLabel.toLowerCase() })}
               onClick={confirmRound}
             >
-              <Sparkles size={12} /> Choose chat
+              <Sparkles size={12} /> {t("ideaRoundSetupModal.chooseChat")}
             </button>
           </div>
         </div>

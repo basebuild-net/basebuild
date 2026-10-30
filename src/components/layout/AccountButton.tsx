@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ChevronDown, LogOut, User } from "lucide-react";
 import type { AccountState } from "../../state/account";
 import { useViewportClampedPopover } from "../../lib/popover";
+import { t } from "../../i18n";
 
 type AccountButtonProps = {
   account: AccountState;
@@ -32,10 +33,10 @@ export function AccountButton({ account, onOpenSettings }: AccountButtonProps) {
         <button
           className="account-signin-btn"
           type="button"
-          title="Open Settings"
+          title={t("accountButton.openSettings")}
           onClick={onOpenSettings}
         >
-          <User size={12} /> Settings
+          <User size={12} /> {t("accountButton.settings")}
         </button>
       </div>
     );
@@ -49,7 +50,7 @@ export function AccountButton({ account, onOpenSettings }: AccountButtonProps) {
         ref={triggerRef as React.RefObject<HTMLButtonElement>}
         className="account-trigger"
         type="button"
-        title={`${account.profile.username} — ${account.profile.email}`}
+        title={t("accountButton.text", { username: account.profile.username, email: account.profile.email })}
         onClick={toggle}
       >
         {account.profile.image && !imgFailed ? (
@@ -78,18 +79,18 @@ export function AccountButton({ account, onOpenSettings }: AccountButtonProps) {
           <button
             className="account-dropdown-item"
             type="button"
-            title="Open settings"
+            title={t("accountButton.openSettings2")}
             onClick={() => { close(); onOpenSettings(); }}
           >
-            <User size={12} /> Settings
+            <User size={12} /> {t("accountButton.settings")}
           </button>
           <button
             className="account-dropdown-item account-dropdown-danger"
             type="button"
-            title="Sign out and revoke this device's token"
+            title={t("accountButton.signOutAndRevokeThis")}
             onClick={() => { close(); void account.signOut(); }}
           >
-            <LogOut size={12} /> Sign out
+            <LogOut size={12} /> {t("accountButton.signOut")}
           </button>
         </div>
       ) : null}

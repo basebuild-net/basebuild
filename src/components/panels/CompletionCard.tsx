@@ -4,6 +4,7 @@ import { Check, GitBranch, GitCommit, GitPullRequest, ListChecks, Loader2, Play,
 import type { PlanRun, FinishOutcome } from "../../lib/planRuns";
 import { openspecTaskProgress } from "../../lib/openspec";
 import { LoadingBlock } from "../layout/Loading";
+import { t } from "../../i18n";
 
 type CompletionCardProps = {
   run: PlanRun;
@@ -64,13 +65,13 @@ export function CompletionCard({
   const completionBlockedReason = !changeName
     ? null
     : !projectPath
-      ? "Cannot mark complete: no project is open."
+      ? t("completionCard.cannotMarkCompleteNoProjectIs")
       : progressLoading
         ? null
         : taskProgress === null
-          ? "Cannot mark complete: task progress is unavailable."
+          ? t("completionCard.cannotMarkCompleteTaskProgressIs")
           : taskProgress.total === 0
-            ? "Cannot mark complete: the linked OpenSpec change has no required tasks."
+            ? t("completionCard.cannotMarkCompleteTheLinkedOpenspec")
             : taskProgress.completed < taskProgress.total
               ? `Cannot mark complete: ${taskProgress.completed}/${taskProgress.total} required OpenSpec tasks are complete.`
               : null;
@@ -92,9 +93,9 @@ export function CompletionCard({
     <div className="completion-card">
       <div className="completion-card-header">
         <span className="completion-card-title">
-          <Check size={12} /> Run {run.id.slice(0, 8)} — {isAwaitingReview ? "Awaiting review" : "Complete"}
+          <Check size={12} /> {t("completionCard.runTitle", { id: run.id.slice(0, 8), status: isAwaitingReview ? t("completionCard.awaitingReview") : t("completionCard.complete") })}
         </span>
-        <button className="btn-icon btn-icon-sm" type="button" title="Dismiss" onClick={onDismiss}>
+        <button className="btn-icon btn-icon-sm" type="button" title={t("completionCard.dismiss")} onClick={onDismiss}>
           <X size={11} />
         </button>
       </div>
@@ -114,33 +115,32 @@ export function CompletionCard({
         {isAwaitingReview ? (
           <div className="completion-card-notice">
             {progressLoading ? (
-              <LoadingBlock label="Checking OpenSpec task progress…" compact />
+              <LoadingBlock label={t("completionCard.checkingOpenspecTaskProgress")} compact />
             ) : (
-              completionBlockedReason ?? "Checklist complete. Review the work or continue the plan before marking it complete."
+              completionBlockedReason ?? t("completionCard.checklistCompleteReviewTheWork")
             )}
           </div>
         ) : null}
         {finishOutcome ? (
-          <div className="completion-card-outcome" title={`Finish policy: ${finishOutcome.policy}`}>
+          <div className="completion-card-outcome" title={t("completionCard.finishPolicy", { policy: finishOutcome.policy })}>
             {finishOutcome.commitSha ? (
               <span className="completion-card-outcome-row">
-                <GitCommit size={10} /> Committed: <code>{finishOutcome.commitSha.slice(0, 8)}</code>
+                <GitCommit size={10} /> {t("completionCard.committed")} <code>{finishOutcome.commitSha.slice(0, 8)}</code>
               </span>
             ) : null}
             {finishOutcome.prUrl ? (
               <span className="completion-card-outcome-row">
-                <GitPullRequest size={10} /> <a href={finishOutcome.prUrl} target="_blank" rel="noopener noreferrer" title={`Open pull request: ${finishOutcome.prUrl}`}>{finishOutcome.prUrl}</a>
+                <GitPullRequest size={10} /> <a href={finishOutcome.prUrl} target="_blank" rel="noopener noreferrer" title={t("completionCard.openPullRequest", { prUrl: finishOutcome.prUrl })}>{finishOutcome.prUrl}</a>
               </span>
             ) : null}
             {finishOutcome.mergeReady ? (
               <span className="completion-card-outcome-row">
-                <Check size={10} /> Queued for merge review
+                <Check size={10} /> {t("completionCard.queuedForMergeReview")}
               </span>
             ) : null}
             {finishOutcome.error ? (
               <span className="completion-card-outcome-row completion-card-outcome-error">
-                Policy error: {finishOutcome.error}
-              </span>
+                {t("completionCard.policyError", { error: finishOutcome.error })}</span>
             ) : null}
           </div>
         ) : null}
@@ -152,31 +152,31 @@ export function CompletionCard({
               <button
                 type="button"
                 className="btn btn-sm"
-                title="Review the linked OpenSpec tasks"
+                title={t("completionCard.reviewTheLinkedOpenspecTasks")}
                 onClick={onReviewTasks}
               >
-                <ListChecks size={11} /> Review tasks
+                <ListChecks size={11} /> {t("completionCard.reviewTasks")}
               </button>
             ) : null}
             {onResume ? (
               <button
                 type="button"
                 className="btn btn-sm"
-                title="Open plan runs to resume this work"
+                title={t("completionCard.openPlanRunsToResume")}
                 onClick={onResume}
               >
-                <Play size={11} /> Resume
+                <Play size={11} /> {t("completionCard.resume")}
               </button>
             ) : null}
             <button
               type="button"
               className="btn btn-sm btn-primary"
-              title={completionBlockedReason ?? (progressLoading ? "Checking OpenSpec task progress…" : "Mark this run as complete")}
+              title={completionBlockedReason ?? (progressLoading ? t("completionCard.checkingOpenspecTaskProgress") : t("completionCard.markThisRunAsComplete"))}
               disabled={busy !== null || progressLoading || completionBlockedReason !== null}
               onClick={() => void handleMarkComplete()}
             >
               {busy === "complete" || progressLoading ? <Loader2 size={11} className="bb-spin" /> : <Check size={11} />}
-              Mark complete
+              {t("completionCard.markComplete")}
             </button>
             </>
           ) : null}

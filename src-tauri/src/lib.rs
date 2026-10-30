@@ -149,6 +149,7 @@ use commands::{
         set_milestone_auto_commit, set_permission_rules, set_run_concurrency_defaults,
         set_run_concurrency_override, set_runtime_defaults, upsert_runtime_profile,
         validate_runtime_profile,
+        set_ui_locale,
     },
     skills::{list_resolved_skills, provision_skill_dirs, read_resolved_skill, read_skill},
     slash_commands::{expand_slash_command, list_slash_commands},
@@ -188,6 +189,32 @@ impl Default for CloseToTrayState {
         Self {
             force_exit: Mutex::new(false),
         }
+    }
+}
+
+/// Tray menu items kept as managed state so labels follow the UI language
+/// without a restart.
+pub struct TrayMenuItems {
+    show: tauri::menu::MenuItem<tauri::Wry>,
+    exit: tauri::menu::MenuItem<tauri::Wry>,
+}
+
+/// Tray label for a menu item id. `locale` is `en` or `zh-CN`.
+fn tray_label(locale: &str, item: &str) -> &'static str {
+    match (locale, item) {
+        ("zh-CN", "show") => "显示 Basebuild",
+        ("zh-CN", _) => "退出",
+        (_, "show") => "Show Basebuild",
+        _ => "Exit",
+    }
+}
+
+/// Relabel the native tray menu for `locale` (`en` or `zh-CN`).
+pub fn apply_tray_locale(app: &AppHandle, locale: &str) {
+    use tauri::Manager;
+    if let Some(items) = app.try_state::<TrayMenuItems>() {
+        let _ = items.show.set_text(tray_label(locale, "show"));
+        let _ = items.exit.set_text(tray_label(locale, "exit"));
     }
 }
 
@@ -265,11 +292,21 @@ pub fn run() {
             // executors. Convert stale database state before the UI loads so
             // recovered chats never appear to be silently running.
             crate::services::agent_loop_service::sweep_interrupted_runs();
+            use tauri::Manager;
+            let locale = crate::services::settings_service::SettingsService::effective_ui_locale();
+            let show_item = tauri::menu::MenuItemBuilder::with_id("show", tray_label(&locale, "show"))
+                .build(app)?;
+            let exit_item = tauri::menu::MenuItemBuilder::with_id("exit", tray_label(&locale, "exit"))
+                .build(app)?;
             let tray_menu = tauri::menu::MenuBuilder::new(app)
-                .text("show", "Show Basebuild")
+                .item(&show_item)
                 .separator()
-                .text("exit", "Exit")
+                .item(&exit_item)
                 .build()?;
+            app.manage(TrayMenuItems {
+                show: show_item,
+                exit: exit_item,
+            });
 
             let _tray_icon = tauri::tray::TrayIconBuilder::new()
                 .icon(tauri::include_image!("icons/icon.png"))
@@ -621,6 +658,7 @@ pub fn run() {
             get_runtime_defaults,
             set_runtime_defaults,
             reset_runtime_defaults,
+            set_ui_locale,
             get_permission_rules,
             set_permission_rules,
             reset_permission_rules,

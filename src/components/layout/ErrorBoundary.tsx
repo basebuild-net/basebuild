@@ -1,6 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { stabilityRecordRendererCrash } from "../../lib/stability";
+import { t } from "../../i18n";
 
 type ErrorBoundaryProps = {
   children: ReactNode;
@@ -20,16 +21,16 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   private recorded = false;
 
   static getDerivedStateFromError(error: Error): ErrorBoundaryState {
-    return { error, stack: null, source: "React render" };
+    return { error, stack: null, source: t("errorBoundary.reactRender") };
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     const stack = errorInfo.componentStack ?? null;
-    this.setState({ stack, source: "React render" });
+    this.setState({ stack, source: t("errorBoundary.reactRender") });
     console.error("Basebuild renderer crashed", error, errorInfo);
     this.persist(
-      "React render",
-      error.message || "Render error",
+      t("errorBoundary.reactRender"),
+      error.message || t("errorBoundary.renderError"),
       [error.stack ?? error.message, stack].filter(Boolean).join("\n\nComponent stack:\n"),
     );
   }
@@ -44,7 +45,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       this.setState({
         error: new Error("Rust backend panic"),
         stack: event.payload,
-        source: "Rust backend",
+        source: t("errorBoundary.rustBackend"),
       });
       console.error("Basebuild Rust panic", event.payload);
     })
@@ -69,26 +70,26 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   }
 
   private handleWindowError = (event: ErrorEvent) => {
-    const error = event.error instanceof Error ? event.error : new Error(event.message || "Unknown renderer error");
-    this.setState({ error, stack: null, source: "Window error" });
+    const error = event.error instanceof Error ? event.error : new Error(event.message || t("errorBoundary.unknownRendererError"));
+    this.setState({ error, stack: null, source: t("errorBoundary.windowError") });
     console.error("Basebuild window error", error);
-    this.persist("Window error", error.message || "Window error", error.stack ?? error.message ?? "Unknown renderer error");
+    this.persist(t("errorBoundary.windowError"), error.message || t("errorBoundary.windowError"), error.stack ?? error.message ?? t("errorBoundary.unknownRendererError"));
   };
 
   private handleUnhandledRejection = (event: PromiseRejectionEvent) => {
-    const error = event.reason instanceof Error ? event.reason : new Error(String(event.reason ?? "Unhandled promise rejection"));
-    this.setState({ error, stack: null, source: "Unhandled promise rejection" });
+    const error = event.reason instanceof Error ? event.reason : new Error(String(event.reason ?? t("errorBoundary.unhandledPromiseRejection")));
+    this.setState({ error, stack: null, source: t("errorBoundary.unhandledPromiseRejection") });
     console.error("Basebuild unhandled promise rejection", error);
     this.persist(
-      "Unhandled promise rejection",
-      error.message || "Unhandled rejection",
-      error.stack ?? error.message ?? "Unhandled promise rejection",
+      t("errorBoundary.unhandledPromiseRejection"),
+      error.message || t("errorBoundary.unhandledRejection"),
+      error.stack ?? error.message ?? t("errorBoundary.unhandledPromiseRejection"),
     );
   };
 
   private copyDetails = async () => {
     const { error, stack, source } = this.state;
-    const details = [`Source: ${source ?? "Unknown"}`, error?.stack ?? error?.message ?? "Unknown renderer error", stack]
+    const details = [`Source: ${source ?? t("errorBoundary.unknown")}`, error?.stack ?? error?.message ?? t("errorBoundary.unknownRendererError"), stack]
       .filter(Boolean)
       .join("\n\nComponent stack:\n");
     await navigator.clipboard.writeText(details);
@@ -104,24 +105,23 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
     if (!error) return this.props.children;
 
-    const details = [`Source: ${source ?? "Unknown"}`, error.stack ?? error.message, stack].filter(Boolean).join("\n\nComponent stack:\n");
+    const details = [`Source: ${source ?? t("errorBoundary.unknown")}`, error.stack ?? error.message, stack].filter(Boolean).join("\n\nComponent stack:\n");
 
     return (
       <div className="app-container">
         <main className="workspace-scroll">
           <div className="empty-state card">
-            <h3>Basebuild hit a problem</h3>
+            <h3>{t("errorBoundary.basebuildHitAProblem")}</h3>
             <p className="text-muted text-sm">
-              {source ?? "The renderer"} failed. Basebuild kept this recovery screen visible instead of leaving a
-              black window, and saved a crash report you can review later under Debug. Reload to recover.
+              {t("errorBoundary.renderFailed", { source: source ?? t("errorBoundary.theRenderer") })}
             </p>
-            <pre className="pre mono" title="Crash details">{details}</pre>
+            <pre className="pre mono" title={t("errorBoundary.crashDetails")}>{details}</pre>
             <div className="row">
-              <button className="btn btn-primary" type="button" title="Reload the app" onClick={this.reload}>
-                Reload app
+              <button className="btn btn-primary" type="button" title={t("errorBoundary.reloadTheApp")} onClick={this.reload}>
+                {t("errorBoundary.reloadApp")}
               </button>
-              <button className="btn" type="button" title="Copy crash details to the clipboard" onClick={() => void this.copyDetails()}>
-                Copy error details
+              <button className="btn" type="button" title={t("errorBoundary.copyCrashDetailsToThe")} onClick={() => void this.copyDetails()}>
+                {t("errorBoundary.copyErrorDetails")}
               </button>
             </div>
           </div>

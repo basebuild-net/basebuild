@@ -10,6 +10,7 @@ import { readModelRecency } from "../../lib/modelRecency";
 import { ModalPortal } from "../ModalPortal";
 import { useEscapeKey } from "../../lib/useEscapeKey";
 import { LoadingBlock } from "./Loading";
+import { t } from "../../i18n";
 
 type TestRunModeModalProps = {
   open: boolean;
@@ -153,15 +154,15 @@ export function TestRunModeModal({ open, onClose, onRun, onCancel, logs, running
 
   return (
     <ModalPortal>
-      <div className="modal-overlay" role="dialog" aria-label="Test Run Mode" onClick={onClose}>
+      <div className="modal-overlay" role="dialog" aria-label={t("testRunModeModal.testRunMode")} onClick={onClose}>
         <div className="modal destination-picker-modal" onClick={(e) => e.stopPropagation()}>
           <div className="modal-header">
-            <h2><FlaskConical size={14} /> Test Run Mode</h2>
+            <h2><FlaskConical size={14} /> {t("testRunModeModal.testRunMode")}</h2>
             <button
               className="btn-icon"
               type="button"
-              title="Close (Esc)"
-              aria-label="Close"
+              title={t("testRunModeModal.closeEsc")}
+              aria-label={t("testRunModeModal.close")}
               onClick={onClose}
             >
               <X size={14} />
@@ -169,36 +170,34 @@ export function TestRunModeModal({ open, onClose, onRun, onCancel, logs, running
           </div>
           <div className="modal-body destination-picker-body">
             <p className="text-muted text-sm pad">
-              Initializes a minimal test project (empty folder + <code>index.html</code>) and runs the
-              full plan lifecycle: create idea → promote → openspec → approve → run → finished.
-              If the test project already exists, it is reused.
+              {t("testRunModeModal.initializesAMinimalTestProject")} <code>{t("testRunModeModal.indexHtml")}</code>{t("testRunModeModal.andRunsTheFullPlan")}
             </p>
             {catalogLoading ? (
-              <LoadingBlock label="Loading model catalog…" compact />
+              <LoadingBlock label={t("testRunModeModal.loadingModelCatalog")} compact />
             ) : hasModels ? (
               <div className="destination-picker-model">
                 <label className="form-label text-sm" htmlFor="test-run-model-select">
-                  Provider / Model <span className="text-danger">*</span>
+                  {t("testRunModeModal.providerModel")} <span className="text-danger">*</span>
                 </label>
                 <select
                   id="test-run-model-select"
                   className="input destination-picker-model-select"
                   value={modelChoice}
-                  title="Pick the provider and model for OpenSpec generation and the plan run. Sorted by recently used, then configured first."
+                  title={t("testRunModeModal.pickTheProviderAndModel")}
                   onChange={(e) => setModelChoice(e.target.value)}
                   disabled={running}
                 >
                   {groupedModels.map((group) => (
                     <optgroup
                       key={group.providerId}
-                      label={`${group.providerLabel} ${group.configured ? "✓" : "(not authenticated)"}`}
+                      label={t((group.configured ? "testRunModeModal.text.empty" : "testRunModeModal.text.notAuthenticated"), { providerLabel: group.providerLabel })}
                     >
                       {group.models.map((model) => (
                         <option
                           key={`${model.providerId}\u0000${model.modelId}`}
                           value={`${model.providerId}\u0000${model.modelId}`}
                         >
-                          {model.modelLabel}{model.lastUsed > 0 ? " · recent" : ""}
+                          {model.modelLabel}{model.lastUsed > 0 ? t("testRunModeModal.recent") : ""}
                         </option>
                       ))}
                     </optgroup>
@@ -206,17 +205,17 @@ export function TestRunModeModal({ open, onClose, onRun, onCancel, logs, running
                 </select>
                 {selectedEntry && !selectedConfigured ? (
                   <span className="destination-picker-model-note text-danger">
-                    {selectedEntry.providerLabel} is not authenticated. Configure it in Settings before running, or pick a connected provider.
+                    {t("testRunModeModal.isNotAuthenticatedConfigureIt", { providerLabel: selectedEntry.providerLabel })}
                   </span>
                 ) : (
                   <span className="destination-picker-model-note text-muted">
-                    Sorted by recently used, then configured first. Pick a connected provider (✓).
+                    {t("testRunModeModal.sortedByRecentlyUsedThen")}
                   </span>
                 )}
               </div>
             ) : (
               <p className="text-danger text-sm pad">
-                No providers available. Configure a provider in Settings before running Test Run Mode.
+                {t("testRunModeModal.noProvidersAvailableConfigureA")}
               </p>
             )}
 
@@ -224,7 +223,7 @@ export function TestRunModeModal({ open, onClose, onRun, onCancel, logs, running
             {logs.length > 0 ? (
               <div className="test-run-log-wrap">
                 <div className="test-run-log-header text-xs text-muted">
-                  {running ? "Progress" : "Log"}
+                  {running ? t("testRunModeModal.progress") : t("testRunModeModal.log")}
                 </div>
                 <div className="test-run-log" ref={logEndRef}>
                   {logs.map((line, i) => (
@@ -235,7 +234,7 @@ export function TestRunModeModal({ open, onClose, onRun, onCancel, logs, running
                   {running ? (
                     <div className="test-run-log-line test-run-log-line-busy">
                       <Loader2 size={11} className="is-spinning" />
-                      <span className="test-run-log-line-text">working…</span>
+                      <span className="test-run-log-line-text">{t("testRunModeModal.working")}</span>
                     </div>
                   ) : null}
                 </div>
@@ -247,25 +246,25 @@ export function TestRunModeModal({ open, onClose, onRun, onCancel, logs, running
               <button
                 className="btn btn-danger"
                 type="button"
-                title="Stop the agent and cancel the test run"
+                title={t("testRunModeModal.stopTheAgentAndCancel")}
                 onClick={onCancel}
               >
-                <Square size={12} /> Cancel run
+                <Square size={12} /> {t("testRunModeModal.cancelRun")}
               </button>
             ) : (
-              <button className="btn" type="button" title="Close" onClick={onClose}>
-                Close
+              <button className="btn" type="button" title={t("testRunModeModal.close")} onClick={onClose}>
+                {t("testRunModeModal.close")}
               </button>
             )}
             <button
               className="btn btn-primary"
               type="button"
-              title={running ? "Running…" : "Initialize (or reuse) the test project and run the full plan lifecycle"}
+              title={running ? t("testRunModeModal.running") : t("testRunModeModal.initializeOrReuseTheTest")}
               onClick={handleRun}
               disabled={running || !hasModels || !modelChoice || !selectedConfigured}
             >
               {running ? <Loader2 size={12} className="is-spinning" /> : null}
-              {running ? "Running…" : "Initialize & Run"}
+              {running ? t("testRunModeModal.running") : t("testRunModeModal.initializeRun")}
             </button>
           </div>
         </div>

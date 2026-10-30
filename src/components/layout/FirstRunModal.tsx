@@ -7,6 +7,7 @@ import { getAnalyticsConsent, setAnalyticsConsent, type AnalyticsConsent } from 
 import { startupEnable, startupDisable, startupGetStatus, type StartupRegistrationStatus } from "../../lib/startup";
 import { ModalPortal } from "../ModalPortal";
 import { useTheme, type AppTheme } from "../../state/useTheme";
+import { t } from "../../i18n";
 
 type FirstRunModalProps = {
   open: boolean;
@@ -99,22 +100,22 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
     <div className="modal-overlay" onClick={onSkip}>
       <div className="modal modal-first-run" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>Welcome to Basebuild</h2>
-          <button className="btn-icon" title="Skip setup" type="button" onClick={onSkip}>
+          <h2>{t("firstRunModal.welcomeToBasebuild")}</h2>
+          <button className="btn-icon" title={t("firstRunModal.skipSetup")} type="button" onClick={onSkip}>
             <X size={16} />
           </button>
         </div>
         <div className="modal-body stack modal-first-run-body">
           {step === "theme" ? (
             <>
-              <h3>Choose your theme</h3>
+              <h3>{t("firstRunModal.chooseYourTheme")}</h3>
               <p className="text-muted text-sm">
-                Start with dark or light mode. You can change this anytime in Settings.
+                {t("firstRunModal.startWithDarkOrLight")}
               </p>
               <div className="theme-picker">
                 {([
-                  { id: "dark", label: "Dark", icon: Moon },
-                  { id: "light", label: "Light", icon: Sun },
+                  { id: "dark", label: t("firstRunModal.dark"), icon: Moon },
+                  { id: "light", label: t("firstRunModal.light"), icon: Sun },
                 ] as { id: AppTheme; label: string; icon: typeof Moon }[]).map((choice) => {
                   const Icon = choice.icon;
                   return (
@@ -122,7 +123,7 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
                       key={choice.id}
                       className={`btn theme-picker-card${theme === choice.id ? " btn-primary" : ""}`}
                       type="button"
-                      title={`Use ${choice.label.toLowerCase()} mode`}
+                      title={t("firstRunModal.useMode", { toLowerCase: choice.label.toLowerCase() })}
                       aria-pressed={theme === choice.id}
                       onClick={() => {
                         setTheme(choice.id);
@@ -142,18 +143,16 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
           {step === "welcome" ? (
             <>
               <TerminalSquare size={32} className="text-muted" />
-              <h3>Local-first desktop control plane for AI coding agents</h3>
+              <h3>{t("firstRunModal.localFirstDesktopControlPlane")}</h3>
               <p className="text-muted text-sm">
-                Basebuild runs AI coding agents through its own native agent loop,
-                with an integrated terminal, source control, and a planning pipeline.
-                Let's set up your defaults; this takes 10 seconds and everything stays local.
+                {t("firstRunModal.basebuildRunsAiCodingAgents")}
               </p>
               <div className="row">
-                <button className="btn btn-primary" type="button" title="Start setup" onClick={() => setStep("adapter")}>
-                  Get started <ChevronRight size={12} />
+                <button className="btn btn-primary" type="button" title={t("firstRunModal.startSetup")} onClick={() => setStep("adapter")}>
+                  {t("firstRunModal.getStarted")} <ChevronRight size={12} />
                 </button>
-                <button className="btn btn-ghost" type="button" title="Skip and use conservative defaults" onClick={onSkip}>
-                  Skip
+                <button className="btn btn-ghost" type="button" title={t("firstRunModal.skipAndUseConservativeDefaults")} onClick={onSkip}>
+                  {t("firstRunModal.skip")}
                 </button>
               </div>
             </>
@@ -161,8 +160,8 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
 
           {step === "adapter" && defaults ? (
             <>
-              <h3>Choose your chat adapter</h3>
-              <p className="text-muted text-sm">The Basebuild native agent loop is the default. Optional adapters like OMP appear here when installed.</p>
+              <h3>{t("firstRunModal.chooseYourChatAdapter")}</h3>
+              <p className="text-muted text-sm">{t("firstRunModal.theBasebuildNativeAgentLoop")}</p>
               <RuntimeDefaultsFields
                 defaults={defaults}
                 chatProfiles={chatProfiles}
@@ -170,9 +169,9 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
                 onChange={(d) => setDefaults(d)}
               />
               <div className="row">
-                <button className="btn" type="button" title="Go back" onClick={() => setStep("welcome")}>Back</button>
-                <button className="btn btn-primary" type="button" title="Continue to terminal setup" onClick={() => void saveDefaultsAndAdvance(defaults, "terminal")}>
-                  Next <ChevronRight size={12} />
+                <button className="btn" type="button" title={t("firstRunModal.goBack")} onClick={() => setStep("welcome")}>{t("firstRunModal.back")}</button>
+                <button className="btn btn-primary" type="button" title={t("firstRunModal.continueToTerminalSetup")} onClick={() => void saveDefaultsAndAdvance(defaults, "terminal")}>
+                  {t("firstRunModal.next")} <ChevronRight size={12} />
                 </button>
               </div>
             </>
@@ -180,7 +179,7 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
 
           {step === "terminal" && defaults ? (
             <>
-              <h3>Choose your terminal</h3>
+              <h3>{t("firstRunModal.chooseYourTerminal")}</h3>
               <RuntimeDefaultsFields
                 defaults={defaults}
                 chatProfiles={chatProfiles}
@@ -188,9 +187,9 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
                 onChange={(d) => setDefaults(d)}
               />
               <div className="row">
-                <button className="btn" type="button" title="Go back" onClick={() => setStep("adapter")}>Back</button>
-                <button className="btn btn-primary" type="button" title="Continue to Windows startup setup" onClick={() => void saveDefaultsAndAdvance(defaults, "startup")}>
-                  Next <ChevronRight size={12} />
+                <button className="btn" type="button" title={t("firstRunModal.goBack")} onClick={() => setStep("adapter")}>{t("firstRunModal.back")}</button>
+                <button className="btn btn-primary" type="button" title={t("firstRunModal.continueToWindowsStartupSetup")} onClick={() => void saveDefaultsAndAdvance(defaults, "startup")}>
+                  {t("firstRunModal.next")} <ChevronRight size={12} />
                 </button>
               </div>
             </>
@@ -198,31 +197,29 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
 
           {step === "startup" ? (
             <>
-              <h3>Windows startup</h3>
+              <h3>{t("firstRunModal.windowsStartup")}</h3>
               <p className="text-muted text-sm">
-                Launch Basebuild automatically when you sign in to Windows.
-                It starts minimized in the system tray — no window pops up.
-                You can change this anytime in Settings.
+                {t("firstRunModal.launchBasebuildAutomaticallyWhenYou")}
               </p>
               {startupStatus && !startupStatus.platformSupported ? (
                 <p className="text-muted text-sm">
-                  Automatic startup is not supported on this platform.
+                  {t("firstRunModal.automaticStartupIsNotSupported")}
                 </p>
               ) : (
                 <label className="row gap-sm">
                   <input
                     type="checkbox"
-                    title="Launch Basebuild at Windows sign-in (minimized to tray)"
+                    title={t("firstRunModal.launchBasebuildAtWindowsSign")}
                     checked={launchAtSignin}
                     onChange={(e) => setLaunchAtSignin(e.target.checked)}
                   />
-                  <span className="text-sm">Launch at Windows sign-in (minimized to tray)</span>
+                  <span className="text-sm">{t("firstRunModal.launchAtWindowsSignIn")}</span>
                 </label>
               )}
               <div className="row">
-                <button className="btn" type="button" title="Go back" onClick={() => setStep("terminal")}>Back</button>
-                <button className="btn btn-primary" type="button" title="Continue to privacy setup" onClick={() => void setStep("privacy")}>
-                  Next <ChevronRight size={12} />
+                <button className="btn" type="button" title={t("firstRunModal.goBack")} onClick={() => setStep("terminal")}>{t("firstRunModal.back")}</button>
+                <button className="btn btn-primary" type="button" title={t("firstRunModal.continueToPrivacySetup")} onClick={() => void setStep("privacy")}>
+                  {t("firstRunModal.next")} <ChevronRight size={12} />
                 </button>
               </div>
             </>
@@ -230,29 +227,27 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
 
           {step === "privacy" && consent ? (
             <>
-              <h3>Help improve Basebuild</h3>
+              <h3>{t("firstRunModal.helpImproveBasebuild")}</h3>
               <p className="text-muted text-sm">
-                Anonymous aggregate usage sharing is preselected. We send model, provider, token counts,
-                cost, and timing — never your name, prompts, source code, paths, or secrets.
-                Nothing is saved or uploaded until you finish setup. Change this anytime in Settings → Privacy.
+                {t("firstRunModal.anonymousAggregateUsageSharingIs")}
               </p>
               <label className="row gap-sm">
                 <input
                   type="checkbox"
-                  title="Share anonymous aggregate usage with basebuild.net after setup completes"
+                  title={t("firstRunModal.shareAnonymousAggregateUsageWith")}
                   checked={consent.uploadEnabled}
                   onChange={(e) => setConsent({
                     ...consent,
                     uploadEnabled: e.target.checked,
                   })}
                 />
-                <span className="text-sm">Share anonymous aggregate usage</span>
+                <span className="text-sm">{t("firstRunModal.shareAnonymousAggregateUsage")}</span>
               </label>
               {consentError ? <p className="text-danger text-sm">{consentError}</p> : null}
               <div className="row">
-                <button className="btn" type="button" title="Go back" onClick={() => setStep("startup")}>Back</button>
-                <button className="btn btn-primary" type="button" title="Finish setup" onClick={() => void saveConsentAndFinish(consent)}>
-                  Finish <Check size={12} />
+                <button className="btn" type="button" title={t("firstRunModal.goBack")} onClick={() => setStep("startup")}>{t("firstRunModal.back")}</button>
+                <button className="btn btn-primary" type="button" title={t("firstRunModal.finishSetup")} onClick={() => void saveConsentAndFinish(consent)}>
+                  {t("firstRunModal.finish")} <Check size={12} />
                 </button>
               </div>
             </>

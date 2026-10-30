@@ -6,6 +6,7 @@ import { planImportApply, planImportDetect } from "../../lib/planImport";
 import { useLogs } from "../../state/log";
 import { ModalPortal } from "../ModalPortal";
 import { SkeletonRows } from "./Loading";
+import { t } from "../../i18n";
 
 type PlanImportModalProps = {
   projectPath: string | null;
@@ -78,10 +79,10 @@ export function PlanImportModal({ projectPath, onClose }: PlanImportModalProps) 
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal modal-plan-import" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <span className="modal-title">Import Plans</span>
+          <span className="modal-title">{t("planImportModal.importPlans")}</span>
           <button
             className="btn-icon"
-            title="Close"
+            title={t("planImportModal.close")}
             type="button"
             onClick={onClose}
           >
@@ -91,25 +92,24 @@ export function PlanImportModal({ projectPath, onClose }: PlanImportModalProps) 
 
         <div className="modal-body">
           {!projectPath ? (
-            <p className="text-muted text-sm">Open a project to detect importable plans.</p>
+            <p className="text-muted text-sm">{t("planImportModal.openAProjectToDetect")}</p>
           ) : loading && !results ? (
-            <SkeletonRows rows={3} label="Detecting importable plans…" />
+            <SkeletonRows rows={3} label={t("planImportModal.detectingImportablePlans")} />
           ) : results ? (
             <div className="stack">
               <p className="text-sm">
-                Imported {importedCount} plan{importedCount === 1 ? "" : "s"}
-                {skippedCount > 0 ? `, ${skippedCount} skipped` : ""}.
+                {t(importedCount === 1 ? "planImportModal.importedOne" : "planImportModal.importedMany", { count: importedCount, skipped: skippedCount > 0 ? t("planImportModal.skipped3", { skippedCount: skippedCount }) : "" })}
               </p>
               <ul className="import-results">
                 {results.map((r) => (
                   <li key={r.slug} className="import-result">
                     <span className="import-result-slug">{r.slug}</span>
                     {r.skipped ? (
-                      <span className="import-result-badge is-skipped" title={r.warning ?? "Skipped"}>
-                        skipped
+                      <span className="import-result-badge is-skipped" title={r.warning ?? t("planImportModal.skipped2")}>
+                        {t("planImportModal.skipped")}
                       </span>
                     ) : (
-                      <span className="import-result-badge is-ok">imported</span>
+                      <span className="import-result-badge is-ok">{t("planImportModal.imported")}</span>
                     )}
                     {r.warning ? (
                       <span className="import-result-warning" title={r.warning}>⚠</span>
@@ -120,32 +120,31 @@ export function PlanImportModal({ projectPath, onClose }: PlanImportModalProps) 
               <button
                 className="btn btn-sm"
                 type="button"
-                title="Detect again"
+                title={t("planImportModal.detectAgain")}
                 onClick={() => {
                   setResults(null);
                   void detect();
                 }}
               >
-                Detect again
+                {t("planImportModal.detectAgain")}
               </button>
             </div>
           ) : error ? (
             <div className="stack">
               <p className="text-error text-sm">{error}</p>
-              <button className="btn btn-sm" type="button" title="Retry" onClick={() => void detect()}>
-                Retry
+              <button className="btn btn-sm" type="button" title={t("planImportModal.retry")} onClick={() => void detect()}>
+                {t("planImportModal.retry")}
               </button>
             </div>
           ) : candidates.length === 0 ? (
             <p className="text-muted text-sm">
-              No importable plans found. Unexecuted OpenSpec changes under
-              <code> openspec/changes/</code> that aren't linked to a plan will appear here.
+              {t("planImportModal.noImportablePlansFoundUnexecuted")}
+              <code> {t("planImportModal.openspecChanges")}</code> {t("planImportModal.thatArenTLinkedTo")}
             </p>
           ) : (
             <>
               <p className="text-muted text-sm">
-                {candidates.length} candidate{candidates.length === 1 ? "" : "s"} detected.
-                Select plans to import.
+                {t(candidates.length === 1 ? "planImportModal.candidatesOne" : "planImportModal.candidatesMany", { count: candidates.length })}
               </p>
               <ul className="import-candidate-list">
                 {candidates.map((c) => {
@@ -163,9 +162,7 @@ export function PlanImportModal({ projectPath, onClose }: PlanImportModalProps) 
                         />
                         <span className="import-candidate-title">{c.title}</span>
                         <span className="import-candidate-meta">
-                          {c.engine} · {c.completed}/{c.total} tasks
-                          {c.warning ? " · ⚠" : ""}
-                        </span>
+                          {t((c.warning ? "planImportModal.tasks.empty" : "planImportModal.tasks.none"), { engine: c.engine, completed: c.completed, total: c.total })}</span>
                       </label>
                     </li>
                   );
@@ -180,21 +177,20 @@ export function PlanImportModal({ projectPath, onClose }: PlanImportModalProps) 
             <button
               className="btn"
               type="button"
-              title="Cancel"
+              title={t("planImportModal.cancel")}
               onClick={onClose}
             >
-              Cancel
+              {t("planImportModal.cancel")}
             </button>
             <button
               className="btn btn-primary"
               type="button"
-              title="Import selected plans"
+              title={t("planImportModal.importSelectedPlans")}
               disabled={selected.size === 0 || loading}
               onClick={() => void handleImport()}
             >
               <Download size={14} />
-              Import {selected.size > 0 ? `(${selected.size})` : ""}
-            </button>
+              {t("planImportModal.import", { value: selected.size > 0 ? `(${selected.size})` : "" })}</button>
           </div>
         ) : null}
       </div>

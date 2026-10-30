@@ -2709,7 +2709,7 @@ impl NativeChatService {
     /// `chat_system` prompt from PlanningPromptService (compiled default or
     /// user override) and substitutes {project_path}/{schematic} placeholders.
     pub fn system_prompt(project_path: &str, schematic: Option<&str>) -> String {
-        let template = crate::services::planning_prompt_service::PlanningPromptService::get(
+        let template = crate::services::planning_prompt_service::PlanningPromptService::get_localized(
             crate::models::planning_prompt::CHAT_SYSTEM,
         )
         .unwrap_or_default();

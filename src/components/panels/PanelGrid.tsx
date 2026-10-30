@@ -30,6 +30,7 @@ import {
 } from "../../lib/layoutCapacity";
 import { PanelSplitter } from "./PanelSplitter";
 import { PanelHeader } from "./PanelHeader";
+import { t } from "../../i18n";
 
 export type PanelGridProps = {
   /** The workspace state (active registry + visible split tree). */
@@ -311,11 +312,11 @@ export function PanelGrid(props: PanelGridProps) {
       <div className="panel-grid">
         <div className="panel-grid-empty">
           <MessageSquare size={32} className="text-muted" />
-          <h3>No chat windows open</h3>
-          <p>Add a chat window or reopen one from History.</p>
+          <h3>{t("panelGrid.noChatWindowsOpen")}</h3>
+          <p>{t("panelGrid.addAChatWindowOr")}</p>
           {onAddChat ? (
-            <button className="btn btn-primary" type="button" title="Add chat window" onClick={onAddChat}>
-              Add chat window
+            <button className="btn btn-primary" type="button" title={t("panelGrid.addChatWindow")} onClick={onAddChat}>
+              {t("panelGrid.addChatWindow")}
             </button>
           ) : null}
         </div>

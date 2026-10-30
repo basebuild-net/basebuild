@@ -1,6 +1,7 @@
 import { Loader2, Mic, MicOff, PhoneOff, Settings2, Volume2, X } from "lucide-react";
 import type { VoiceProfile } from "../../../lib/voice";
 import type { VoiceState } from "../../../state/useVoiceCall";
+import { t } from "../../../i18n";
 
 /**
  * The in-call strip above the composer. It answers one question at a glance:
@@ -8,19 +9,19 @@ import type { VoiceState } from "../../../state/useVoiceCall";
  */
 
 const STATE_LABELS: Record<VoiceState, string> = {
-  off: "Call ended",
-  idle: "Listening",
-  capturing: "Hearing you",
-  transcribing: "Transcribing",
-  speaking: "Speaking",
+  off: t("voiceCallBar.callEnded"),
+  idle: t("voiceCallBar.listening"),
+  capturing: t("voiceCallBar.hearingYou"),
+  transcribing: t("voiceCallBar.transcribing"),
+  speaking: t("voiceCallBar.speaking"),
 };
 
 const STATE_TITLES: Record<VoiceState, string> = {
-  off: "The call is not active",
-  idle: "Waiting for you to speak. Just start talking.",
-  capturing: "Capturing your speech. It sends when you stop talking.",
-  transcribing: "Converting your speech to text",
-  speaking: "Reading the reply aloud. Talk over it to interrupt.",
+  off: t("voiceCallBar.theCallIsNotActive"),
+  idle: t("voiceCallBar.waitingForYouToSpeakJust"),
+  capturing: t("voiceCallBar.capturingYourSpeechItSendsWhen"),
+  transcribing: t("voiceCallBar.convertingYourSpeechToText"),
+  speaking: t("voiceCallBar.readingTheReplyAloudTalkOver"),
 };
 
 /** Eight bars is enough to read as a level meter without becoming decoration. */
@@ -79,18 +80,18 @@ export function VoiceCallBar({
         ) : (
           <Mic size={13} />
         )}
-        <span className="voice-call-state" title={muted ? "Microphone muted. The agent cannot hear you." : STATE_TITLES[state]}>
-          {muted ? "Muted" : STATE_LABELS[state]}
+        <span className="voice-call-state" title={muted ? t("voiceCallBar.microphoneMutedTheAgentCannot") : STATE_TITLES[state]}>
+          {muted ? t("voiceCallBar.muted") : STATE_LABELS[state]}
         </span>
       </div>
 
-      <div className="voice-level" title="Microphone input level" aria-hidden="true">
+      <div className="voice-level" title={t("voiceCallBar.microphoneInputLevel")} aria-hidden="true">
         {Array.from({ length: METER_BARS }, (_, index) => (
           <span key={index} className={`voice-level-bar${index < activeBars ? " is-lit" : ""}`} />
         ))}
       </div>
 
-      <span className="voice-call-model text-muted" title={`Voice replies come from ${modelName}`}>
+      <span className="voice-call-model text-muted" title={t("voiceCallBar.voiceRepliesComeFrom", { modelName: modelName })}>
         {modelName}
       </span>
 
@@ -101,18 +102,18 @@ export function VoiceCallBar({
             <button
               className="btn btn-sm voice-call-perm-fix"
               type="button"
-              title="Reset the mic permission so the app re-prompts for access"
+              title={t("voiceCallBar.resetTheMicPermissionSo")}
               onClick={onResetMicPermission}
             >
-              Reset mic permission
+              {t("voiceCallBar.resetMicPermission")}
             </button>
             <button
               className="btn btn-sm voice-call-perm-alt"
               type="button"
-              title="Open the Windows microphone privacy settings page"
+              title={t("voiceCallBar.openTheWindowsMicrophonePrivacy")}
               onClick={onOpenMicSettings}
             >
-              Windows settings
+              {t("voiceCallBar.windowsSettings")}
             </button>
           </span>
         ) : (
@@ -128,7 +129,7 @@ export function VoiceCallBar({
             <button
               className="btn btn-sm"
               type="button"
-              title={muted ? "Unmute the microphone" : "Mute the microphone without ending the call"}
+              title={muted ? t("voiceCallBar.unmuteTheMicrophone") : t("voiceCallBar.muteTheMicrophoneWithoutEnding")}
               aria-pressed={muted}
               onClick={onToggleMute}
             >
@@ -137,7 +138,7 @@ export function VoiceCallBar({
             <button
               className="btn btn-sm"
               type="button"
-              title="Voice settings: provider, model, speech engine and reply voice"
+              title={t("voiceCallBar.voiceSettingsProviderModelSpeech")}
               onClick={onOpenSettings}
             >
               <Settings2 size={13} />
@@ -147,17 +148,17 @@ export function VoiceCallBar({
         <button
           className="btn btn-sm voice-call-end"
           type="button"
-          title={callActive ? "End the voice call and release the microphone" : "Dismiss this message"}
+          title={callActive ? t("voiceCallBar.endTheVoiceCallAnd") : t("voiceCallBar.dismissThisMessage")}
           onClick={onEnd}
         >
           {callActive ? <PhoneOff size={13} /> : <X size={13} />}
-          <span>{callActive ? "End" : "Dismiss"}</span>
+          <span>{callActive ? t("voiceCallBar.end") : t("voiceCallBar.dismiss")}</span>
         </button>
       </div>
 
       {profile && !profile.ttsEnabled ? (
-        <span className="text-muted text-sm" title="Replies are transcribed to the chat but not read aloud">
-          Readback off
+        <span className="text-muted text-sm" title={t("voiceCallBar.repliesAreTranscribedToThe")}>
+          {t("voiceCallBar.readbackOff")}
         </span>
       ) : null}
     </div>

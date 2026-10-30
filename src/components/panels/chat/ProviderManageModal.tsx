@@ -20,6 +20,7 @@ import {
   formatTokens,
   type ManageTab,
 } from "./chatFormat";
+import { t } from "../../../i18n";
 
 type UsageTotals = { requests: number; input: number; output: number; cost: number };
 
@@ -100,105 +101,102 @@ export function ProviderManageModal({
 }: ProviderManageModalProps) {
   return (
         <ModalPortal>
-        <div className="modal-overlay" onClick={() => closeLoginModal()} title="Close manage dialog">
-          <div className="modal" onClick={(e) => e.stopPropagation()} title={`Manage ${managedProvider.label}`}>
+        <div className="modal-overlay" onClick={() => closeLoginModal()} title={t("providerManageModal.closeManageDialog")}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} title={t("providerManageModal.manage2", { label: managedProvider.label })}>
             <div className="modal-header">
               <div className="row gap-sm">
                 <button
                   className="btn-icon"
-                  title="Back to the provider & model catalog"
+                  title={t("providerManageModal.backToTheProviderModel")}
                   type="button"
                   onClick={() => closeLoginModal(true)}
                 >
                   <ArrowLeft size={16} />
                 </button>
-                <h2>Manage {managedProvider.label}</h2>
+                <h2>{t("providerManageModal.manage", { label: managedProvider.label })}</h2>
               </div>
               <button
                 className="btn-icon"
-                title="Close"
+                title={t("providerManageModal.close")}
                 type="button"
                 onClick={() => closeLoginModal()}
               >
                 <X size={16} />
               </button>
             </div>
-            <div className="modal-tabs" role="tablist" aria-label={`Manage ${managedProvider.label} sections`}>
+            <div className="modal-tabs" role="tablist" aria-label={t("providerManageModal.manageSections", { label: managedProvider.label })}>
               <button
                 type="button"
                 role="tab"
                 aria-selected={manageTab === "accounts"}
                 className={`modal-tab${manageTab === "accounts" ? " is-active" : ""}`}
-                title={`Connected ${managedProvider.label} accounts`}
+                title={t("providerManageModal.connectedAccounts3", { label: managedProvider.label })}
                 onClick={() => setManageTab("accounts")}
               >
-                Accounts{accountRows.length > 0 ? ` (${accountRows.length})` : ""}
-              </button>
+                {t("providerManageModal.accounts", { value: accountRows.length > 0 ? ` (${accountRows.length})` : "" })}</button>
               <button
                 type="button"
                 role="tab"
                 aria-selected={manageTab === "connect"}
                 className={`modal-tab${manageTab === "connect" ? " is-active" : ""}`}
-                title={`Add a ${managedProvider.label} account`}
+                title={t("providerManageModal.addAAccount", { label: managedProvider.label })}
                 onClick={() => setManageTab("connect")}
               >
-                Connect
+                {t("providerManageModal.connect")}
               </button>
               <button
                 type="button"
                 role="tab"
                 aria-selected={manageTab === "usage"}
                 className={`modal-tab${manageTab === "usage" ? " is-active" : ""}`}
-                title={`Per-account ${managedProvider.label} usage`}
+                title={t("providerManageModal.perAccountUsage", { label: managedProvider.label })}
                 onClick={() => setManageTab("usage")}
               >
-                Usage
+                {t("providerManageModal.usage")}
               </button>
             </div>
             <div className="modal-body stack" onClick={(e) => e.stopPropagation()}>
               {needsEndpointUrl ? (
-                <div className="provider-callout is-warn" role="note" title={`${managedProvider.label} needs an endpoint URL`}>
+                <div className="provider-callout is-warn" role="note" title={t("providerManageModal.needsAnEndpointURL", { label: managedProvider.label })}>
                   <AlertTriangle size={12} className="provider-callout-icon" />
                   <div className="provider-callout-body">
-                    <span className="provider-callout-title">Endpoint URL required</span>
+                    <span className="provider-callout-title">{t("providerManageModal.endpointUrlRequired")}</span>
                     <span className="text-sm text-muted">
-                      {managedProvider.label} uses a bespoke API. Add an API key together with its endpoint URL to enable native chat.
+                      {t("providerManageModal.usesABespokeApiAdd", { label: managedProvider.label })}
                     </span>
                   </div>
                   <button
                     className="btn btn-sm"
                     type="button"
-                    title="Add an API key with an endpoint URL"
+                    title={t("providerManageModal.addAnApiKeyWith")}
                     onClick={() => {
                       setManageTab("connect");
                       openApiKeyModal();
                     }}
                   >
-                    Set endpoint URL
+                    {t("providerManageModal.setEndpointUrl")}
                   </button>
                 </div>
               ) : null}
 
               {manageTab === "accounts" ? (
-                <div className="stack-sm" role="tabpanel" aria-label="Connected accounts">
+                <div className="stack-sm" role="tabpanel" aria-label={t("providerManageModal.connectedAccounts")}>
                   <span className="text-sm">
-                    Connected accounts
-                    {accountRows.length > 0 ? ` (${accountRows.length})` : ""}
-                  </span>
+                    {t("providerManageModal.connectedAccounts2", { value: accountRows.length > 0 ? ` (${accountRows.length})` : "" })}</span>
                   {accountRowsLoading ? (
-                    <p className="text-muted text-sm">Loading accounts…</p>
+                    <p className="text-muted text-sm">{t("providerManageModal.loadingAccounts")}</p>
                   ) : accountRows.length === 0 ? (
                     <div className="provider-empty-state">
                       <p className="text-muted text-sm">
-                        No account connected yet. Connect an account to start using {managedProvider.label}.
+                        {t("providerManageModal.noAccountConnectedYetConnect", { label: managedProvider.label })}
                       </p>
                       <button
                         className="btn btn-primary"
                         type="button"
-                        title={`Connect a ${managedProvider.label} account`}
+                        title={t("providerManageModal.connectAAccount", { label: managedProvider.label })}
                         onClick={() => setManageTab("connect")}
                       >
-                        <Key size={12} /> Connect an account
+                        <Key size={12} /> {t("providerManageModal.connectAnAccount")}
                       </button>
                     </div>
                   ) : (
@@ -223,9 +221,9 @@ export function ProviderManageModal({
                               </span>
                               <span className="provider-account-meta text-muted text-sm">
                                 {authLabel}
-                                {connected ? ` · connected ${connected}` : ""}
-                                {cdLeft != null ? ` · cooldown ${cdLeft}s` : ""}
-                                {lastUsed ? ` · used ${lastUsed}` : ""}
+                                {connected ? t("providerManageModal.connected", { connected: connected }) : ""}
+                                {cdLeft != null ? t("providerManageModal.cooldownS", { cdLeft: cdLeft }) : ""}
+                                {lastUsed ? t("providerManageModal.used", { lastUsed: lastUsed }) : ""}
                               </span>
                               {account.lastError && account.health !== "healthy" ? (
                                 <span className="provider-account-error text-danger text-sm" title={account.lastError}>
@@ -237,19 +235,19 @@ export function ProviderManageModal({
                               <button
                                 className="btn btn-sm"
                                 type="button"
-                                title={`Run a minimal authenticated request to check ${account.label}`}
+                                title={t("providerManageModal.runAMinimalAuthenticatedRequestTo", { label: account.label })}
                                 disabled={testing}
                                 onClick={() => void handleAccountTest(account)}
                               >
-                                {testing ? <Loader2 size={11} className="spin" /> : <RefreshCw size={11} />} Test
+                                {testing ? <Loader2 size={11} className="spin" /> : <RefreshCw size={11} />} {t("providerManageModal.test")}
                               </button>
                               <button
                                 className="btn btn-sm"
                                 type="button"
-                                title={`Log out of ${account.label} and remove its stored credential`}
+                                title={t("providerManageModal.logOutOfAndRemoveIts", { label: account.label })}
                                 onClick={() => setConfirmLogoutProvider({ id: account.id, label: account.label })}
                               >
-                                <LogOut size={11} /> Log out
+                                <LogOut size={11} /> {t("providerManageModal.logOut")}
                               </button>
                             </div>
                           </div>
@@ -259,10 +257,10 @@ export function ProviderManageModal({
                         <button
                           className="chat-link-btn"
                           type="button"
-                          title={`Log out of every ${managedProvider.label} account and block Oh My Pi re-import`}
+                          title={t("providerManageModal.logOutOfEveryAccountAnd", { label: managedProvider.label })}
                           onClick={() => setConfirmLogoutProvider({ id: managedProvider.id, label: managedProvider.label })}
                         >
-                          Log out all accounts
+                          {t("providerManageModal.logOutAllAccounts")}
                         </button>
                       ) : null}
                     </div>
@@ -271,34 +269,34 @@ export function ProviderManageModal({
               ) : null}
 
               {manageTab === "connect" ? (
-                <div className="stack" role="tabpanel" aria-label="Connect an account">
+                <div className="stack" role="tabpanel" aria-label={t("providerManageModal.connectAnAccount")}>
                   {managedProvider.authMethod === "oauth" ? (
                     <div className="provider-login-cta stack-sm">
-                      <p className="provider-login-cta-title">Subscription sign-in</p>
+                      <p className="provider-login-cta-title">{t("providerManageModal.subscriptionSignIn")}</p>
                       <p className="provider-login-cta-desc">
                         {managedProvider.id === "openai-codex"
-                          ? "Sign in with your ChatGPT subscription. Basebuild opens your browser and completes the OAuth flow natively."
-                          : "Sign in with your provider subscription through Oh My Pi."}
+                          ? t("providerManageModal.signInWithYourChatgpt")
+                          : t("providerManageModal.signInWithYourProvider")}
                       </p>
                       <div className="row gap-sm">
                         <button
                           className="btn btn-primary btn-lg"
                           type="button"
-                          title={`Log in to ${managedProvider.label}`}
+                          title={t("providerManageModal.logInTo", { label: managedProvider.label })}
                           disabled={savingCred}
                           onClick={() => void handleProviderLogin()}
                         >
                           {savingCred ? <Loader2 size={14} className="spin" /> : <Key size={14} />}
-                          {savingCred ? "Waiting for sign-in..." : `Log in to ${managedProvider.label}`}
+                          {savingCred ? t("providerManageModal.waitingForSignIn") : t("providerManageModal.logInTo2", { label: managedProvider.label })}
                         </button>
                         {savingCred ? (
                           <button
                             className="btn"
                             type="button"
-                            title="Cancel this sign-in attempt"
+                            title={t("providerManageModal.cancelThisSignInAttempt")}
                             onClick={() => void cancelProviderLogin()}
                           >
-                            Cancel
+                            {t("providerManageModal.cancel")}
                           </button>
                         ) : null}
                       </div>
@@ -310,47 +308,47 @@ export function ProviderManageModal({
                           <input
                             className="input"
                             type="text"
-                            placeholder="Authorization code or callback URL"
+                            placeholder={t("providerManageModal.authorizationCodeOrCallbackUrl")}
                             value={providerLoginInput}
                             onChange={(event) => setProviderLoginInput(event.target.value)}
-                            title={providerLoginState.prompt ?? "Provider authorization response"}
+                            title={providerLoginState.prompt ?? t("providerManageModal.providerAuthorizationResponse")}
                           />
                           <button
                             className="btn btn-primary"
                             type="button"
-                            title={`Submit the ${managedProvider.label} authorization response`}
+                            title={t("providerManageModal.submitTheAuthorizationResponse", { label: managedProvider.label })}
                             disabled={!providerLoginInput.trim() || savingCred}
                             onClick={() => void submitProviderLoginInput()}
                           >
-                            Continue sign-in
+                            {t("providerManageModal.continueSignIn")}
                           </button>
                         </div>
                       ) : null}
                     </div>
                   ) : (
                     <div className="provider-login-cta stack-sm">
-                      <p className="provider-login-cta-title">API key</p>
+                      <p className="provider-login-cta-title">{t("providerManageModal.aPIKey")}</p>
                       <p className="provider-login-cta-desc">
-                        Connect Basebuild directly to the provider API. The key stays in Basebuild&apos;s local credential store.
+                        {t("providerManageModal.connectBasebuildDirectlyToThe")}
                       </p>
                       <div className="row gap-sm">
                         <button
                           className="btn btn-primary btn-lg"
                           type="button"
-                          title={`Add a ${managedProvider.label} API key`}
+                          title={t("providerManageModal.addAAPIKey", { label: managedProvider.label })}
                           disabled={savingCred}
                           onClick={() => openApiKeyModal()}
                         >
-                          <Key size={14} /> Add API key
+                          <Key size={14} /> {t("providerManageModal.addApiKey")}
                         </button>
                         {managedProvider.apiKeyUrl ? (
                           <button
                             className="chat-link-btn"
                             type="button"
-                            title={`Open ${managedProvider.label} key page`}
+                            title={t("providerManageModal.openKeyPage", { label: managedProvider.label })}
                             onClick={() => void openApiKeyUrl(managedProvider.apiKeyUrl!)}
                           >
-                            Get API key
+                            {t("providerManageModal.getApiKey")}
                           </button>
                         ) : null}
                       </div>
@@ -358,27 +356,27 @@ export function ProviderManageModal({
                   )}
                   {managedProvider.authMethod === "oauth" && managedProvider.apiKeyUrl ? (
                     <div className="provider-connect-section stack-sm">
-                      <span className="provider-connect-heading">API key</span>
+                      <span className="provider-connect-heading">{t("providerManageModal.aPIKey")}</span>
                       <p className="text-sm text-muted">
-                        Prefer usage-billed access? Connect with a {managedProvider.label} API key instead.
+                        {t("providerManageModal.preferUsageBilledAccessConnect", { label: managedProvider.label })}
                       </p>
                       <div className="row gap-sm">
                         <button
                           className="btn"
                           type="button"
-                          title={`Add a ${managedProvider.label} API key`}
+                          title={t("providerManageModal.addAAPIKey2", { label: managedProvider.label })}
                           disabled={savingCred}
                           onClick={() => openApiKeyModal()}
                         >
-                          <Key size={12} /> Add API key
+                          <Key size={12} /> {t("providerManageModal.addApiKey")}
                         </button>
                         <button
                           className="chat-link-btn"
                           type="button"
-                          title={`Open ${managedProvider.label} key page`}
+                          title={t("providerManageModal.openKeyPage2", { label: managedProvider.label })}
                           onClick={() => void openApiKeyUrl(managedProvider.apiKeyUrl!)}
                         >
-                          Get API key
+                          {t("providerManageModal.getApiKey")}
                         </button>
                       </div>
                     </div>
@@ -387,59 +385,59 @@ export function ProviderManageModal({
                     <button
                       className="chat-link-btn"
                       type="button"
-                      title="Switch to OpenAI Codex and sign in with your ChatGPT subscription"
+                      title={t("providerManageModal.switchToOpenaiCodexAnd")}
                       onClick={() => {
                         setManagedProviderId("openai-codex");
                       }}
                     >
-                      <Globe size={12} /> Have a ChatGPT subscription? Log in with OpenAI Codex
+                      <Globe size={12} /> {t("providerManageModal.haveAChatgptSubscriptionLog")}
                     </button>
                   ) : null}
                   <div className="provider-connect-section stack-sm">
-                    <span className="provider-connect-heading">Import from Oh My Pi</span>
+                    <span className="provider-connect-heading">{t("providerManageModal.importFromOhMyPi")}</span>
                     <p className="text-sm text-muted">
-                      Run <code>/login</code> in an Oh My Pi terminal, complete the provider flow, then refresh here.
+                      {t("providerManageModal.run")} <code>{t("providerManageModal.login")}</code> {t("providerManageModal.inAnOhMyPi")}
                     </p>
                     <button
                       className="btn"
                       type="button"
-                      title={`Import ${managedProvider.label} credentials from Oh My Pi`}
+                      title={t("providerManageModal.importCredentialsFromOhMyPi", { label: managedProvider.label })}
                       disabled={savingCred}
                       onClick={() => void refreshFromOmp()}
                     >
-                      <RefreshCw size={12} /> {savingCred ? "Refreshing..." : "Refresh after OMP /login"}
+                      <RefreshCw size={12} /> {savingCred ? t("providerManageModal.refreshing") : t("providerManageModal.refreshAfterOmpLogin")}
                     </button>
                   </div>
                 </div>
               ) : null}
 
               {manageTab === "usage" ? (
-                <div className="stack-sm provider-usage-section" role="tabpanel" aria-label="Usage">
+                <div className="stack-sm provider-usage-section" role="tabpanel" aria-label={t("providerManageModal.usage")}>
                   <div className="row row-between">
-                    <span className="text-sm">Usage</span>
+                    <span className="text-sm">{t("providerManageModal.usage")}</span>
                     <div className="provider-usage-window">
                       <OptionList
                         value={String(accountUsageWindow)}
-                        label="Usage window"
+                        label={t("providerManageModal.usageWindow")}
                         compact
                         onChange={(next) => setAccountUsageWindow(Number(next))}
                         options={[
-                          { id: "86400", label: "Today", title: "Usage over the last 24 hours" },
-                          { id: "604800", label: "7 days", title: "Usage over the last 7 days" },
-                          { id: "2592000", label: "30 days", title: "Usage over the last 30 days" },
+                          { id: "86400", label: t("providerManageModal.today"), title: t("providerManageModal.usageOverTheLast24Hours") },
+                          { id: "604800", label: "7 days", title: t("providerManageModal.usageOverTheLast7Days") },
+                          { id: "2592000", label: "30 days", title: t("providerManageModal.usageOverTheLast30Days") },
                         ]}
                       />
                     </div>
                   </div>
                   {accountUsageLoading ? (
-                    <p className="text-muted text-sm">Loading usage…</p>
+                    <p className="text-muted text-sm">{t("providerManageModal.loadingUsage")}</p>
                   ) : accountUsage.length === 0 ? (
-                    <p className="text-muted text-sm">No usage in this window.</p>
+                    <p className="text-muted text-sm">{t("providerManageModal.noUsageInThisWindow")}</p>
                   ) : (
                     <>
-                      <div className="provider-usage-summary" title="Totals across all accounts over the selected window">
-                        <span className="provider-usage-summary-num">{usageTotals.requests} reqs</span>
-                        <span>{formatTokens(usageTotals.input)} in · {formatTokens(usageTotals.output)} out</span>
+                      <div className="provider-usage-summary" title={t("providerManageModal.totalsAcrossAllAccountsOver")}>
+                        <span className="provider-usage-summary-num">{t("providerManageModal.reqs", { requests: usageTotals.requests })}</span>
+                        <span>{t("providerManageModal.inOut", { input: formatTokens(usageTotals.input), output: formatTokens(usageTotals.output) })}</span>
                         {formatRequestRate(usageTotals.requests, accountUsageWindow) ? (
                           <span className="provider-usage-rate">{formatRequestRate(usageTotals.requests, accountUsageWindow)}</span>
                         ) : null}
@@ -452,7 +450,7 @@ export function ProviderManageModal({
                         {accountUsage.map((row) => {
                           const acct = accountRows.find((a) => a.id === row.accountId);
                           const label = row.accountId == null
-                            ? "Unattributed (pre-upgrade)"
+                            ? t("providerManageModal.unattributedPreUpgrade")
                             : (acct?.label ?? row.accountId);
                           const sharePct = Math.round((row.requestShare ?? 0) * 100);
                           const reqRate = formatRequestRate(row.requests, accountUsageWindow);
@@ -461,17 +459,17 @@ export function ProviderManageModal({
                             <div key={row.accountId ?? "__null"} className="provider-usage-row">
                               <div className="provider-usage-row-head">
                                 <span className="text-sm">{label}</span>
-                                <span className="text-muted text-sm">{row.requests} reqs</span>
+                                <span className="text-muted text-sm">{t("providerManageModal.reqs2", { requests: row.requests })}</span>
                               </div>
                               <div className="provider-usage-row-stats text-muted text-sm">
-                                <span>{formatTokens(row.inputTokens)} in · {formatTokens(row.outputTokens)} out</span>
-                                {reqRate ? <span className="provider-usage-rate" title="Average request rate over the selected window">{reqRate}</span> : null}
-                                {tokRate ? <span className="provider-usage-rate" title="Average token throughput over the selected window">{tokRate}</span> : null}
+                                <span>{t("providerManageModal.inOut2", { inputTokens: formatTokens(row.inputTokens), outputTokens: formatTokens(row.outputTokens) })}</span>
+                                {reqRate ? <span className="provider-usage-rate" title={t("providerManageModal.averageRequestRateOverThe")}>{reqRate}</span> : null}
+                                {tokRate ? <span className="provider-usage-rate" title={t("providerManageModal.averageTokenThroughputOverThe")}>{tokRate}</span> : null}
                                 {row.costTotal > 0 ? <span>${row.costTotal.toFixed(2)}</span> : null}
                                 {row.requests > 0 ? <span>{sharePct}%</span> : null}
                               </div>
                               {row.requests > 0 ? (
-                                <div className="provider-usage-bar" title={`${sharePct}% of provider requests`}>
+                                <div className="provider-usage-bar" title={t("providerManageModal.ofProviderRequests", { sharePct: sharePct })}>
                                   <div className="provider-usage-bar-fill" style={{ "--fill": `${Math.max(sharePct, 2)}%` } as CSSProperties} />
                                 </div>
                               ) : null}
@@ -490,13 +488,13 @@ export function ProviderManageModal({
 
           {/* API key sub-modal: one focused entry surface instead of naked inputs. */}
           {showApiKeyModal ? (
-            <div className="modal-overlay" onClick={(e) => { e.stopPropagation(); setShowApiKeyModal(false); }} title="Close API key dialog">
-              <div className="modal api-key-modal" onClick={(e) => e.stopPropagation()} title={`Connect ${managedProvider.label} with an API key`}>
+            <div className="modal-overlay" onClick={(e) => { e.stopPropagation(); setShowApiKeyModal(false); }} title={t("providerManageModal.closeApiKeyDialog")}>
+              <div className="modal api-key-modal" onClick={(e) => e.stopPropagation()} title={t("providerManageModal.connectWithAnAPIKey", { label: managedProvider.label })}>
                 <div className="modal-header">
-                  <h2>Connect {managedProvider.label} with an API key</h2>
+                  <h2>{t("providerManageModal.connectWithAnApiKey", { label: managedProvider.label })}</h2>
                   <button
                     className="btn-icon"
-                    title="Close API key dialog"
+                    title={t("providerManageModal.closeApiKeyDialog")}
                     type="button"
                     onClick={() => setShowApiKeyModal(false)}
                   >
@@ -505,43 +503,43 @@ export function ProviderManageModal({
                 </div>
                 <div className="modal-body stack">
                   <p className="text-sm text-muted">
-                    The key is saved as a connected account in Basebuild&apos;s local credential store and never leaves this machine.
+                    {t("providerManageModal.theKeyIsSavedAs")}
                   </p>
                   {managedProvider.apiKeyUrl ? (
                     <button
                       className="chat-link-btn"
                       type="button"
-                      title={`Open ${managedProvider.label} key page`}
+                      title={t("providerManageModal.openKeyPage3", { label: managedProvider.label })}
                       onClick={() => void openApiKeyUrl(managedProvider.apiKeyUrl!)}
                     >
-                      Get API key
+                      {t("providerManageModal.getApiKey")}
                     </button>
                   ) : null}
                   <label className="stack-sm api-key-field">
-                    <span className="text-sm">API key</span>
+                    <span className="text-sm">{t("providerManageModal.aPIKey")}</span>
                     <input
                       className="input"
                       type="password"
-                      placeholder="API key"
+                      placeholder={t("providerManageModal.aPIKey")}
                       autoFocus
                       value={apiKey}
                       onChange={(event) => setApiKey(event.target.value)}
-                      title={`API key for ${managedProvider.label}`}
+                      title={t("providerManageModal.aPIKeyFor", { label: managedProvider.label })}
                     />
                   </label>
                   <label className="stack-sm api-key-field">
-                    <span className="text-sm">Endpoint URL{needsEndpointUrl ? " (required)" : " (optional)"}</span>
+                    <span className="text-sm">{t("providerManageModal.endpointUrl")}{needsEndpointUrl ? t("providerManageModal.required") : t("providerManageModal.optional")}</span>
                     <input
                       className="input"
                       type="url"
-                      placeholder={managedProvider.defaultBaseUrl ?? "https://api.example.com/v1"}
+                      placeholder={managedProvider.defaultBaseUrl ?? t("providerManageModal.httpsApiExampleComV1")}
                       value={baseUrl}
                       onChange={(event) => setBaseUrl(event.target.value)}
-                      title="API base URL used for requests"
+                      title={t("providerManageModal.aPIBaseUrlUsedFor")}
                     />
                     {needsEndpointUrl ? (
                       <span className="text-sm text-muted">
-                        This provider&apos;s bespoke API needs an explicit endpoint URL before native chat can route requests.
+                        {t("providerManageModal.thisProviderSBespokeApi")}
                       </span>
                     ) : null}
                   </label>
@@ -550,19 +548,19 @@ export function ProviderManageModal({
                     <button
                       className="btn"
                       type="button"
-                      title="Cancel and close the API key dialog"
+                      title={t("providerManageModal.cancelAndCloseTheApi")}
                       onClick={() => setShowApiKeyModal(false)}
                     >
-                      Cancel
+                      {t("providerManageModal.cancel")}
                     </button>
                     <button
                       className="btn btn-primary"
                       type="button"
-                      title="Save API key and connect"
+                      title={t("providerManageModal.saveApiKeyAndConnect")}
                       disabled={!apiKey.trim() || (needsEndpointUrl && !baseUrl.trim()) || savingCred}
                       onClick={() => void handleSaveCredential()}
                     >
-                      {savingCred ? "Saving..." : "Save API key"}
+                      {savingCred ? t("providerManageModal.saving") : t("providerManageModal.saveApiKey")}
                     </button>
                   </div>
                 </div>

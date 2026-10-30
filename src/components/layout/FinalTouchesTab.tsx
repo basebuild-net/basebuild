@@ -10,22 +10,23 @@ import {
 } from "../../lib/finalTouches";
 import { OptionList, type OptionListOption } from "./OptionList";
 import { SkeletonRows } from "./Loading";
+import { t } from "../../i18n";
 
 type FinalTouchesTabProps = {
   projectPath: string | null;
 };
 
-const STEP_KINDS: { value: FinalTouchStepKind; label: string; configLabel: string }[] = [
-  { value: "shell", label: "Shell", configLabel: "Command" },
-  { value: "validate", label: "Validate", configLabel: "Prompt" },
-  { value: "commit", label: "Commit", configLabel: "Message" },
-  { value: "pull_request", label: "Pull Request", configLabel: "Title" },
+const STEP_KINDS = (): { value: FinalTouchStepKind; label: string; configLabel: string }[] => [
+  { value: "shell", label: t("finalTouchesTab.shell"), configLabel: t("finalTouchesTab.command2") },
+  { value: "validate", label: t("finalTouchesTab.validate"), configLabel: t("finalTouchesTab.prompt") },
+  { value: "commit", label: t("finalTouchesTab.commit"), configLabel: t("finalTouchesTab.message") },
+  { value: "pull_request", label: t("finalTouchesTab.pullRequest"), configLabel: t("finalTouchesTab.title") },
 ];
-const STEP_KIND_OPTION_ITEMS: OptionListOption<FinalTouchStepKind>[] = [
-  { id: "shell", label: "Shell", title: "Run a shell command" },
-  { id: "validate", label: "Validate", title: "Validate with a prompt" },
-  { id: "commit", label: "Commit", title: "Create a commit" },
-  { id: "pull_request", label: "Pull Request", title: "Open a pull request" },
+const STEP_KIND_OPTION_ITEMS = (): OptionListOption<FinalTouchStepKind>[] => [
+  { id: "shell", label: t("finalTouchesTab.shell"), title: t("finalTouchesTab.runAShellCommand") },
+  { id: "validate", label: t("finalTouchesTab.validate"), title: t("finalTouchesTab.validateWithAPrompt") },
+  { id: "commit", label: t("finalTouchesTab.commit"), title: t("finalTouchesTab.createACommit") },
+  { id: "pull_request", label: t("finalTouchesTab.pullRequest"), title: t("finalTouchesTab.openAPullRequest") },
 ];
 
 export function FinalTouchesTab({ projectPath }: FinalTouchesTabProps) {
@@ -59,7 +60,7 @@ export function FinalTouchesTab({ projectPath }: FinalTouchesTabProps) {
 
   async function handleAdd() {
     if (!projectPath || !newLabel.trim()) return;
-    const configKey = STEP_KINDS.find((k) => k.value === newKind)?.configLabel.toLowerCase() ?? "command";
+    const configKey = STEP_KINDS().find((k) => k.value === newKind)?.configLabel.toLowerCase() ?? "command";
     try {
       await createFinalTouchStep({
         projectPath,
@@ -94,20 +95,19 @@ export function FinalTouchesTab({ projectPath }: FinalTouchesTabProps) {
   }
 
   if (!projectPath) {
-    return <p className="text-muted text-sm">Open a project to configure final touches.</p>;
+    return <p className="text-muted text-sm">{t("finalTouchesTab.openAProjectToConfigure")}</p>;
   }
 
   return (
     <div className="stack">
-      <h3>Final Touches</h3>
+      <h3>{t("finalTouchesTab.finalTouches")}</h3>
       <p className="text-muted text-sm">
-        Post-completion actions executed when a plan run finishes. Shell and validate run locally;
-        commit and pull_request write to the remote and are disabled by default.
+        {t("finalTouchesTab.postCompletionActionsExecutedWhen")}
       </p>
 
       {/* Existing steps */}
       {loading ? (
-        <SkeletonRows rows={3} label="Loading final-touch steps…" />
+        <SkeletonRows rows={3} label={t("finalTouchesTab.loadingFinalTouchSteps")} />
       ) : steps.length > 0 ? (
         <div className="final-touch-list">
           {steps.map((step) => (
@@ -116,27 +116,27 @@ export function FinalTouchesTab({ projectPath }: FinalTouchesTabProps) {
                 <span className="final-touch-step-label" title={step.label}>
                   {step.label}
                 </span>
-                <span className="final-touch-step-kind" title={`Kind: ${step.kind}`}>
+                <span className="final-touch-step-kind" title={t("finalTouchesTab.kind", { kind: step.kind })}>
                   {step.kind}
                 </span>
-                <span className="final-touch-step-config" title="Configuration">
+                <span className="final-touch-step-config" title={t("finalTouchesTab.configuration")}>
                   {Object.entries(step.config).map(([k, v]) => `${k}: ${String(v)}`).join(", ")}
                 </span>
               </div>
               <div className="final-touch-step-actions">
-                <label className="final-touch-toggle" title={`Enable/disable: ${step.label}`}>
+                <label className="final-touch-toggle" title={t("finalTouchesTab.enableDisable", { label: step.label })}>
                   <input
                     type="checkbox"
                     checked={step.enabled}
                     onChange={(e) => handleToggle(step.id, e.target.checked)}
                   />
-                  <span>{step.enabled ? "Enabled" : "Disabled"}</span>
+                  <span>{step.enabled ? t("finalTouchesTab.enabled") : t("finalTouchesTab.disabled")}</span>
                 </label>
                 <button
                   className="btn-icon"
                   type="button"
                   onClick={() => handleDelete(step.id)}
-                  title={`Delete step: ${step.label}`}
+                  title={t("finalTouchesTab.deleteStep", { label: step.label })}
                 >
                   <Trash2 size={12} />
                 </button>
@@ -145,41 +145,41 @@ export function FinalTouchesTab({ projectPath }: FinalTouchesTabProps) {
           ))}
         </div>
       ) : (
-        <p className="text-muted text-sm">No steps configured. Add one below.</p>
+        <p className="text-muted text-sm">{t("finalTouchesTab.noStepsConfiguredAddOne")}</p>
       )}
 
       {/* Add new step */}
       <div className="final-touch-add">
         <OptionList
           value={newKind}
-          options={STEP_KIND_OPTION_ITEMS}
+          options={STEP_KIND_OPTION_ITEMS()}
           onChange={(id) => setNewKind(id)}
-          label="Step kind"
+          label={t("finalTouchesTab.stepKind")}
         />
         <input
           type="text"
-          placeholder="Label (e.g. Run tests)"
+          placeholder={t("finalTouchesTab.labelEGRunTests")}
           value={newLabel}
           onChange={(e) => setNewLabel(e.target.value)}
-          title="Step label"
+          title={t("finalTouchesTab.stepLabel")}
         />
         <input
           type="text"
           placeholder={
-            STEP_KINDS.find((k) => k.value === newKind)?.configLabel ?? "Command"
+            STEP_KINDS().find((k) => k.value === newKind)?.configLabel ?? t("finalTouchesTab.command")
           }
           value={newConfig}
           onChange={(e) => setNewConfig(e.target.value)}
-          title={STEP_KINDS.find((k) => k.value === newKind)?.configLabel ?? "Command"}
+          title={STEP_KINDS().find((k) => k.value === newKind)?.configLabel ?? t("finalTouchesTab.command")}
         />
         <button
           className="btn btn-sm btn-primary"
           type="button"
           onClick={handleAdd}
           disabled={!newLabel.trim()}
-          title="Add final-touch step"
+          title={t("finalTouchesTab.addFinalTouchStep")}
         >
-          <Plus size={12} /> Add
+          <Plus size={12} /> {t("finalTouchesTab.add")}
         </button>
       </div>
     </div>

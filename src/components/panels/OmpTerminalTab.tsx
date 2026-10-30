@@ -3,6 +3,7 @@ import { Activity, RefreshCw } from "lucide-react";
 import { TerminalPanel } from "./TerminalPanel";
 import { useOmpTelemetry } from "../../state/ompTelemetry";
 import type { OmpUsageWindow } from "../../lib/ompTelemetry";
+import { t } from "../../i18n";
 
 type OmpTerminalTabProps = {
   terminalId: number | null;
@@ -37,14 +38,14 @@ function WindowBar({ window: w }: { window: OmpUsageWindow }) {
   return (
     <div
       className={`omp-window-row ${w.isStale ? "is-stale" : ""} ${severityClass(w.severity)}`}
-      title={`${w.window}: ${pct}% used${w.resetsAt ? ` · resets ${w.resetsAt}` : ""}${w.isStale ? " · stale" : ""}`}
+      title={t((w.isStale ? "ompTerminalTab.used.stale" : "ompTerminalTab.used.none"), { window: w.window, pct: pct, value: w.resetsAt ? ` · resets ${w.resetsAt}` : "" })}
     >
       <span className="omp-window-label">{w.window}</span>
       <div className="omp-window-bar">
         <div className="omp-window-fill" style={{ width: `${pct}%` }} />
       </div>
       <span className="omp-window-pct">{pct}%</span>
-      {w.isStale ? <span className="omp-window-stale">stale · {formatAge(w.ageMinutes)}</span> : null}
+      {w.isStale ? <span className="omp-window-stale">{t("ompTerminalTab.stale", { ageMinutes: formatAge(w.ageMinutes) })}</span> : null}
     </div>
   );
 }
@@ -59,50 +60,50 @@ export function OmpTerminalTab({ terminalId, onOutput, onReconnect }: OmpTermina
     <div className="omp-terminal-tab">
       <div className="omp-telemetry-hud">
         <div className="omp-hud-header">
-          <span className="omp-hud-title" title="OMP session telemetry">
-            <Activity size={11} /> Telemetry
+          <span className="omp-hud-title" title={t("ompTerminalTab.oMPSessionTelemetry")}>
+            <Activity size={11} /> {t("ompTerminalTab.telemetry")}
           </span>
           <button
             className="btn-icon btn-icon-sm"
             type="button"
-            title="Refresh telemetry"
+            title={t("ompTerminalTab.refreshTelemetry")}
             onClick={() => void refresh()}
           >
             <RefreshCw size={11} />
           </button>
         </div>
         {loading && !context ? (
-          <span className="text-muted text-sm">Loading…</span>
+          <span className="text-muted text-sm">{t("ompTerminalTab.loading")}</span>
         ) : detached ? (
           <span className="text-muted text-sm">
-            Detached{context?.attachment.state === "detached" && "reason" in context.attachment && context.attachment.reason ? `: ${context.attachment.reason}` : ""}
+            {t("ompTerminalTab.detached")}{context?.attachment.state === "detached" && "reason" in context.attachment && context.attachment.reason ? t("ompTerminalTab.text", { reason: context.attachment.reason }) : ""}
           </span>
         ) : (
           <div className="omp-hud-body">
             <div className="omp-hud-row">
-              <span className="omp-hud-label">Provider</span>
-              <span className="omp-hud-value">{context?.provider ?? "unknown"}</span>
+              <span className="omp-hud-label">{t("ompTerminalTab.provider")}</span>
+              <span className="omp-hud-value">{context?.provider ?? t("ompTerminalTab.unknown")}</span>
             </div>
             <div className="omp-hud-row">
-              <span className="omp-hud-label">Model</span>
-              <span className="omp-hud-value">{context?.model ?? "unknown"}</span>
+              <span className="omp-hud-label">{t("ompTerminalTab.model")}</span>
+              <span className="omp-hud-value">{context?.model ?? t("ompTerminalTab.unknown")}</span>
             </div>
             <div className="omp-hud-row">
-              <span className="omp-hud-label">Plan</span>
-              <span className="omp-hud-value">{context?.planTier ?? "unknown"}</span>
+              <span className="omp-hud-label">{t("ompTerminalTab.plan")}</span>
+              <span className="omp-hud-value">{context?.planTier ?? t("ompTerminalTab.unknown")}</span>
             </div>
             <div className="omp-hud-row">
-              <span className="omp-hud-label">Effort</span>
-              <span className="omp-hud-value">{context?.effort ?? "unknown"}</span>
+              <span className="omp-hud-label">{t("ompTerminalTab.effort")}</span>
+              <span className="omp-hud-value">{context?.effort ?? t("ompTerminalTab.unknown")}</span>
             </div>
             {stale ? (
-              <span className="omp-stale-badge" title="Telemetry data is stale">
-                stale
+              <span className="omp-stale-badge" title={t("ompTerminalTab.telemetryDataIsStale")}>
+                {t("ompTerminalTab.stale2")}
               </span>
             ) : null}
             {attached ? (
-              <span className="omp-live-badge" title="Live session attached">
-                live
+              <span className="omp-live-badge" title={t("ompTerminalTab.liveSessionAttached")}>
+                {t("ompTerminalTab.live")}
               </span>
             ) : null}
             {context?.windows.length ? (

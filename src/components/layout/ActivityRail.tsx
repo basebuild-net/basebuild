@@ -1,4 +1,5 @@
 import type { ActivityId, ActivityItem } from "../../state/activity";
+import { t } from "../../i18n";
 
 type ActivityRailProps = {
   active: ActivityId;
@@ -8,8 +9,8 @@ type ActivityRailProps = {
 
 export function ActivityRail({ active, items, onSelect }: ActivityRailProps) {
   return (
-    <aside className="activity-rail" aria-label="Primary navigation">
-      <div className="brand-mark">B</div>
+    <aside className="activity-rail" aria-label={t("activityRail.primaryNavigation")}>
+      <div className="brand-mark">{t("activityRail.b")}</div>
       {items.map((item) => {
         const Icon = item.icon;
         const isActive = item.id === active;

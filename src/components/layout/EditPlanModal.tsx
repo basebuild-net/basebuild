@@ -6,13 +6,14 @@ import { PLAN_STATUS_LABEL } from "../../lib/plans";
 import { OptionList, type OptionListOption } from "./OptionList";
 import { ModalPortal } from "../ModalPortal";
 import { Disclosure } from "../Disclosure";
-const STATUS_OPTION_ITEMS: OptionListOption<PlanStatus>[] = [
-  { id: "draft", label: PLAN_STATUS_LABEL.draft, title: "Plan is still being drafted" },
-  { id: "openspec", label: PLAN_STATUS_LABEL.openspec, title: "Plan is being refined in OpenSpec" },
-  { id: "ready", label: PLAN_STATUS_LABEL.ready, title: "Plan is ready to run" },
-  { id: "running", label: PLAN_STATUS_LABEL.running, title: "Plan is currently running" },
-  { id: "finished", label: PLAN_STATUS_LABEL.finished, title: "Plan has finished successfully" },
-  { id: "cancelled", label: PLAN_STATUS_LABEL.cancelled, title: "Plan was cancelled" },
+import { t } from "../../i18n";
+const STATUS_OPTION_ITEMS = (): OptionListOption<PlanStatus>[] => [
+  { id: "draft", label: PLAN_STATUS_LABEL.draft, title: t("editPlanModal.planIsStillBeingDrafted") },
+  { id: "openspec", label: PLAN_STATUS_LABEL.openspec, title: t("editPlanModal.planIsBeingRefinedInOpenspec") },
+  { id: "ready", label: PLAN_STATUS_LABEL.ready, title: t("editPlanModal.planIsReadyToRun") },
+  { id: "running", label: PLAN_STATUS_LABEL.running, title: t("editPlanModal.planIsCurrentlyRunning") },
+  { id: "finished", label: PLAN_STATUS_LABEL.finished, title: t("editPlanModal.planHasFinishedSuccessfully") },
+  { id: "cancelled", label: PLAN_STATUS_LABEL.cancelled, title: t("editPlanModal.planWasCancelled") },
 ];
 
 type EditPlanModalProps = {
@@ -72,14 +73,14 @@ export function EditPlanModal({ plan, open, onClose, onSave }: EditPlanModalProp
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal plan-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h3>Edit {plan.referenceId}</h3>
-          <button className="btn-icon" type="button" title="Close" aria-label="Close" onClick={onClose}>
+          <h3>{t("editPlanModal.edit", { referenceId: plan.referenceId })}</h3>
+          <button className="btn-icon" type="button" title={t("editPlanModal.close")} aria-label={t("editPlanModal.close")} onClick={onClose}>
             <X size={14} />
           </button>
         </div>
         <form className="modal-body stack" onSubmit={handleSave}>
           <label className="stack-sm">
-            <span className="text-sm text-muted">Title</span>
+            <span className="text-sm text-muted">{t("editPlanModal.title")}</span>
             <input
               className="input"
               type="text"
@@ -90,7 +91,7 @@ export function EditPlanModal({ plan, open, onClose, onSave }: EditPlanModalProp
             />
           </label>
           <label className="stack-sm">
-            <span className="text-sm text-muted">Description</span>
+            <span className="text-sm text-muted">{t("editPlanModal.description")}</span>
             <textarea
               className="input pre"
               value={description}
@@ -100,32 +101,32 @@ export function EditPlanModal({ plan, open, onClose, onSave }: EditPlanModalProp
             />
           </label>
           <Disclosure
-            label="Details"
+            label={t("editPlanModal.details")}
             summary={`${PLAN_STATUS_LABEL[status]} · priority ${priority}${tags.trim() ? ` · ${tags}` : ""}`}
-            title="Goal, status, priority, and tags"
+            title={t("editPlanModal.goalStatusPriorityAndTags")}
           >
             <label className="stack-sm">
-              <span className="text-sm text-muted">Goal / Target</span>
+              <span className="text-sm text-muted">{t("editPlanModal.goalTarget")}</span>
               <input
                 className="input"
                 type="text"
                 value={goal}
                 onChange={(e) => setGoal(e.target.value)}
-                placeholder="What larger objective does this serve?"
+                placeholder={t("editPlanModal.whatLargerObjectiveDoesThis")}
               />
             </label>
             <div className="row">
               <label className="stack-sm flex-1">
-                <span className="text-sm text-muted">Status</span>
+                <span className="text-sm text-muted">{t("editPlanModal.status")}</span>
                 <OptionList
                   value={status}
-                  options={STATUS_OPTION_ITEMS}
+                  options={STATUS_OPTION_ITEMS()}
                   onChange={(id) => setStatus(id)}
-                  label="Plan status"
+                  label={t("editPlanModal.planStatus")}
                 />
               </label>
               <label className="stack-sm flex-1">
-                <span className="text-sm text-muted">Priority (0–100)</span>
+                <span className="text-sm text-muted">{t("editPlanModal.priority0100")}</span>
                 <input
                   className="input"
                   type="number"
@@ -137,7 +138,7 @@ export function EditPlanModal({ plan, open, onClose, onSave }: EditPlanModalProp
               </label>
             </div>
             <label className="stack-sm">
-              <span className="text-sm text-muted">Tags (comma-separated)</span>
+              <span className="text-sm text-muted">{t("editPlanModal.tagsCommaSeparated")}</span>
               <input
                 className="input"
                 type="text"
@@ -147,11 +148,11 @@ export function EditPlanModal({ plan, open, onClose, onSave }: EditPlanModalProp
             </label>
           </Disclosure>
           <div className="modal-actions">
-            <button className="btn" type="button" title="Cancel" onClick={onClose}>
-              Cancel
+            <button className="btn" type="button" title={t("editPlanModal.cancel")} onClick={onClose}>
+              {t("editPlanModal.cancel")}
             </button>
-            <button className="btn btn-primary" type="submit" title="Save plan">
-              Save plan
+            <button className="btn btn-primary" type="submit" title={t("editPlanModal.savePlan")}>
+              {t("editPlanModal.savePlan")}
             </button>
           </div>
         </form>

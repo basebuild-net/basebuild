@@ -19,6 +19,7 @@ import {
   type ProviderAccountStrategy,
 } from "../../../lib/native-chat";
 import { LoadingBlock, SkeletonRows } from "../Loading";
+import { t } from "../../../i18n";
 
 function waitForProviderLoginPoll(): Promise<void> {
   const { promise, resolve } = Promise.withResolvers<void>();
@@ -216,16 +217,16 @@ export function ModelProvidersPanel() {
   }, [catalog, query]);
 
   const groups = query.trim()
-    ? [{ label: "Results", providers: visibleProviders }]
+    ? [{ label: t("modelProvidersPanel.results"), providers: visibleProviders }]
     : [
         {
-          label: "Popular",
+          label: t("modelProvidersPanel.popular"),
           providers: visibleProviders.filter((provider) =>
             (POPULAR_PROVIDER_IDS as readonly string[]).includes(provider.id),
           ),
         },
         {
-          label: "More providers",
+          label: t("modelProvidersPanel.moreProviders"),
           providers: visibleProviders.filter(
             (provider) => !(POPULAR_PROVIDER_IDS as readonly string[]).includes(provider.id),
           ),
@@ -234,65 +235,65 @@ export function ModelProvidersPanel() {
 
   return (
     <div className="stack">
-      <h3>Model providers</h3>
+      <h3>{t("modelProvidersPanel.modelProviders")}</h3>
       <p className="text-muted text-sm">
-        Log in with a provider subscription when OAuth is available. API keys are reserved for providers without a supported sign-in flow.
+        {t("modelProvidersPanel.logInWithAProvider")}
       </p>
-      <div className="stack-sm provider-strategy-picker" title="How Basebuild splits usage across multiple accounts on the same provider. Per-provider overrides can be set in the chat Manage dialog.">
-        <span className="text-sm">Split usage across accounts</span>
+      <div className="stack-sm provider-strategy-picker" title={t("modelProvidersPanel.howBasebuildSplitsUsageAcross")}>
+        <span className="text-sm">{t("modelProvidersPanel.splitUsageAcrossAccounts")}</span>
         {strategy === null ? (
-          <LoadingBlock label="Loading account strategy…" compact />
+          <LoadingBlock label={t("modelProvidersPanel.loadingAccountStrategy")} compact />
         ) : (
           <OptionList<ProviderAccountStrategy>
             value={strategy}
             disabled={strategyLoading}
-            label="Split usage across accounts"
+            label={t("modelProvidersPanel.splitUsageAcrossAccounts")}
             onChange={(next) => void updateStrategy(next)}
             options={[
-              { id: "round_robin", label: "Round-robin", title: "Rotate requests evenly across every connected account" },
-              { id: "sticky_session", label: "Sticky per chat", title: "Each chat session keeps using the same account" },
-              { id: "fill_first", label: "Fill first", title: "Drain the first account before touching the next" },
+              { id: "round_robin", label: t("modelProvidersPanel.roundRobin"), title: t("modelProvidersPanel.rotateRequestsEvenlyAcrossEveryConnected") },
+              { id: "sticky_session", label: t("modelProvidersPanel.stickyPerChat"), title: t("modelProvidersPanel.eachChatSessionKeepsUsingThe") },
+              { id: "fill_first", label: t("modelProvidersPanel.fillFirst"), title: t("modelProvidersPanel.drainTheFirstAccountBeforeTouching") },
             ]}
           />
         )}
       </div>
       <label className="stack-sm" htmlFor="provider-model-search">
-        <span className="text-sm">Search providers and models</span>
+        <span className="text-sm">{t("modelProvidersPanel.searchProvidersAndModels")}</span>
         <span className="input-with-icon">
           <Search size={13} aria-hidden="true" />
           <input
             id="provider-model-search"
             className="input"
             type="search"
-            placeholder="OpenAI, Claude, Gemini, model name..."
+            placeholder={t("modelProvidersPanel.openAIClaudeGeminiModelName")}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            title="Search providers and models"
+            title={t("modelProvidersPanel.searchProvidersAndModels")}
           />
         </span>
       </label>
       <button
         className="btn btn-sm"
         type="button"
-        title="Re-read Oh My Pi credentials and refresh every provider"
+        title={t("modelProvidersPanel.reReadOhMyPi")}
         disabled={busyId !== null}
         onClick={() => {
           setBusyId("refresh");
           void refresh().finally(() => setBusyId(null));
         }}
       >
-        <RefreshCw size={12} /> {busyId === "refresh" ? "Refreshing..." : "Refresh providers"}
+        <RefreshCw size={12} /> {busyId === "refresh" ? t("modelProvidersPanel.refreshing") : t("modelProvidersPanel.refreshProviders")}
       </button>
       <details className="stack-sm">
-        <summary className="text-muted text-sm" title="Import credentials from Oh My Pi">
-          Use Oh My Pi credentials (optional)
+        <summary className="text-muted text-sm" title={t("modelProvidersPanel.importCredentialsFromOhMy")}>
+          {t("modelProvidersPanel.useOhMyPiCredentials")}
         </summary>
         <p className="text-muted text-sm">
-          Open an Oh My Pi terminal, run <code>/login</code>, complete its provider flow, then choose Refresh providers.
+          {t("modelProvidersPanel.openAnOhMyPi")} <code>{t("modelProvidersPanel.login")}</code>{t("modelProvidersPanel.completeItsProviderFlowThen")}
         </p>
       </details>
 
-      {catalogLoading ? <SkeletonRows rows={5} label="Loading providers…" /> : null}
+      {catalogLoading ? <SkeletonRows rows={5} label={t("modelProvidersPanel.loadingProviders")} /> : null}
       {groups.map((group) =>
         group.providers.length > 0 ? (
           <Fragment key={group.label}>
@@ -310,15 +311,15 @@ export function ModelProvidersPanel() {
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-muted text-sm"
-                      title={`Open the ${provider.label} API key page`}
+                      title={t("modelProvidersPanel.openTheAPIKeyPage", { label: provider.label })}
                     >
-                      Get API key
+                      {t("modelProvidersPanel.getApiKey")}
                     </a>
                   ) : null}
                   <input
                     className="input"
                     type="password"
-                    placeholder="API key"
+                    placeholder={t("modelProvidersPanel.aPIKey")}
                     value={keyDrafts[provider.id] ?? ""}
                     onChange={(event) =>
                       setKeyDrafts((previous) => ({
@@ -326,13 +327,13 @@ export function ModelProvidersPanel() {
                         [provider.id]: event.target.value,
                       }))
                     }
-                    title={`API key for ${provider.label}`}
+                    title={t("modelProvidersPanel.aPIKeyFor", { label: provider.label })}
                   />
                   {provider.id === "custom" ? (
                     <input
                       className="input"
                       type="url"
-                      placeholder="https://api.example.com/v1"
+                      placeholder={t("modelProvidersPanel.httpsApiExampleComV1")}
                       value={baseUrlDrafts[provider.id] ?? ""}
                       onChange={(event) =>
                         setBaseUrlDrafts((previous) => ({
@@ -340,17 +341,17 @@ export function ModelProvidersPanel() {
                           [provider.id]: event.target.value,
                         }))
                       }
-                      title="Base URL for the custom OpenAI-compatible endpoint"
+                      title={t("modelProvidersPanel.baseUrlForTheCustom")}
                     />
                   ) : null}
                   <button
                     className="btn btn-primary btn-sm"
                     type="button"
-                    title={`Save the ${provider.label} API key`}
+                    title={t("modelProvidersPanel.saveTheAPIKey", { label: provider.label })}
                     disabled={!(keyDrafts[provider.id] ?? "").trim() || isBusy}
                     onClick={() => void saveKey(provider.id, provider.label)}
                   >
-                    <Key size={12} /> Save key
+                    <Key size={12} /> {t("modelProvidersPanel.saveKey")}
                   </button>
                 </div>
               );
@@ -366,7 +367,7 @@ export function ModelProvidersPanel() {
                       <input
                         className="input"
                         type="text"
-                        placeholder="Authorization code or callback URL"
+                        placeholder={t("modelProvidersPanel.authorizationCodeOrCallbackUrl")}
                         value={loginDrafts[provider.id] ?? ""}
                         onChange={(event) =>
                           setLoginDrafts((previous) => ({
@@ -374,16 +375,16 @@ export function ModelProvidersPanel() {
                             [provider.id]: event.target.value,
                           }))
                         }
-                        title={loginState.prompt ?? "Paste the provider authorization response"}
+                        title={loginState.prompt ?? t("modelProvidersPanel.pasteTheProviderAuthorizationResponse")}
                       />
                       <button
                         className="btn btn-sm"
                         type="button"
-                        title={`Submit the ${provider.label} authorization response`}
+                        title={t("modelProvidersPanel.submitTheAuthorizationResponse", { label: provider.label })}
                         disabled={!(loginDrafts[provider.id] ?? "").trim()}
                         onClick={() => void submitLoginInput(provider.id)}
                       >
-                        Continue sign-in
+                        {t("modelProvidersPanel.continueSignIn")}
                       </button>
                     </div>
                   ) : null}
@@ -399,22 +400,22 @@ export function ModelProvidersPanel() {
                       {provider.label}
                       {provider.configured ? (
                         <span className="text-muted text-sm">
-                          {" "}connected via {provider.connectedVia === "oauth" ? "OAuth" : provider.connectedVia === "omp" ? "Oh My Pi" : "API key"}
-                          {provider.accountCount > 1 ? ` · ${provider.accountCount} accounts` : ""}
+                          {" "}{t("modelProvidersPanel.connectedVia", { method: provider.connectedVia === "oauth" ? t("modelProvidersPanel.oAuth") : provider.connectedVia === "omp" ? t("modelProvidersPanel.ohMyPi") : t("modelProvidersPanel.aPIKey") })}
+                          {provider.accountCount > 1 ? t("modelProvidersPanel.accounts", { accountCount: provider.accountCount }) : ""}
                         </span>
                       ) : null}
                       {provider.configured && provider.aggregateHealth !== "healthy" ? (
                         <span
                           className={`text-sm text-${provider.aggregateHealth === "broken" ? "danger" : "muted"}`}
-                          title={`Account health: ${provider.aggregateHealth}. Open the chat Manage dialog for per-account details.`}
+                          title={t("modelProvidersPanel.accountHealthOpenTheChatManage", { aggregateHealth: provider.aggregateHealth })}
                         >
                           {" "}<AlertTriangle size={11} className="inline-icon" />
-                          {provider.aggregateHealth === "broken" ? "Needs attention" : "Degraded"}
+                          {provider.aggregateHealth === "broken" ? t("modelProvidersPanel.needsAttention") : t("modelProvidersPanel.degraded")}
                         </span>
                       ) : null}
                       {provider.modelCount > 0 ? (
                         <span className="text-muted text-sm">
-                          {" "}{provider.modelCount} model{provider.modelCount === 1 ? "" : "s"}
+                          {" "}{t(provider.modelCount === 1 ? "modelProvidersPanel.modelOne" : "modelProvidersPanel.modelMany", { count: provider.modelCount })}
                         </span>
                       ) : null}
                     </div>
@@ -425,43 +426,43 @@ export function ModelProvidersPanel() {
                           <button
                             className="btn btn-sm"
                             type="button"
-                            title={`Log out of ${provider.label} and remove the stored credential`}
+                            title={t("modelProvidersPanel.logOutOfAndRemoveThe", { label: provider.label })}
                             disabled={isBusy}
                             onClick={() => setLogoutTarget({ id: provider.id, label: provider.label })}
                           >
-                            <LogOut size={12} /> Log out
+                            <LogOut size={12} /> {t("modelProvidersPanel.logOut")}
                           </button>
                           {supportsOauth ? (
                             <button
                               className="btn btn-sm"
                               type="button"
-                              title={`Log in to ${provider.label} again`}
+                              title={t("modelProvidersPanel.logInToAgain", { label: provider.label })}
                               disabled={isBusy}
                               onClick={() => void connectWithOmp(provider.id)}
                             >
                               {isBusy ? <Loader2 size={12} className="spin" /> : <Plug size={12} />}
-                              {isBusy ? "Waiting for sign-in..." : "Log in again"}
+                              {isBusy ? t("modelProvidersPanel.waitingForSignIn") : t("modelProvidersPanel.logInAgain")}
                             </button>
                           ) : null}
                           {supportsOauth && isBusy ? (
                             <button
                               className="btn btn-sm"
                               type="button"
-                              title={`Cancel the ${provider.label} sign-in attempt`}
+                              title={t("modelProvidersPanel.cancelTheSignInAttempt", { label: provider.label })}
                               onClick={() => void cancelLogin(provider.id)}
                             >
-                              Cancel
+                              {t("modelProvidersPanel.cancel")}
                             </button>
                           ) : null}
                           {supportsApiKey ? (
                             <button
                               className="btn btn-sm"
                               type="button"
-                              title={`Replace the locally stored API key for ${provider.label}`}
+                              title={t("modelProvidersPanel.replaceTheLocallyStoredAPIKey", { label: provider.label })}
                               disabled={isBusy}
                               onClick={() => setUpdateKeyId(updateKeyId === provider.id ? null : provider.id)}
                             >
-                              <Key size={12} /> Update API key
+                              <Key size={12} /> {t("modelProvidersPanel.updateApiKey")}
                             </button>
                           ) : null}
                         </div>
@@ -471,7 +472,7 @@ export function ModelProvidersPanel() {
                             <input
                               className="input"
                               type="password"
-                              placeholder="New API key"
+                              placeholder={t("modelProvidersPanel.newApiKey")}
                               value={keyDrafts[provider.id] ?? ""}
                               onChange={(event) =>
                                 setKeyDrafts((previous) => ({
@@ -479,16 +480,16 @@ export function ModelProvidersPanel() {
                                   [provider.id]: event.target.value,
                                 }))
                               }
-                              title={`Enter a new API key for ${provider.label}`}
+                              title={t("modelProvidersPanel.enterANewAPIKeyFor", { label: provider.label })}
                             />
                             <button
                               className="btn btn-sm"
                               type="button"
-                              title={`Save the new ${provider.label} API key`}
+                              title={t("modelProvidersPanel.saveTheNewAPIKey", { label: provider.label })}
                               disabled={!(keyDrafts[provider.id] ?? "").trim()}
                               onClick={() => void saveKey(provider.id, provider.label)}
                             >
-                              <Key size={12} /> Save key
+                              <Key size={12} /> {t("modelProvidersPanel.saveKey")}
                             </button>
                           </div>
                         ) : null}
@@ -499,8 +500,8 @@ export function ModelProvidersPanel() {
                           <div className="stack-sm">
                             <p className="text-muted text-sm">
                               {provider.id === "openai-codex"
-                                ? "Log in natively with your ChatGPT subscription. Basebuild opens your browser, completes the OAuth flow itself, and stores the token only in its local database, refreshing it before requests."
-                                : "Log in with your provider subscription through Oh My Pi. Credentials remain owned and refreshed by Oh My Pi."}
+                                ? t("modelProvidersPanel.logInNativelyWithYour")
+                                : t("modelProvidersPanel.logInWithYourProvider")}
                             </p>
                             <div className="row gap-sm">
                               <button
@@ -508,23 +509,23 @@ export function ModelProvidersPanel() {
                                 type="button"
                                 title={
                                   provider.id === "openai-codex"
-                                    ? `Log in to ${provider.label}`
-                                    : `Log in to ${provider.label} through Oh My Pi`
+                                    ? t("modelProvidersPanel.logInTo", { label: provider.label })
+                                    : t("modelProvidersPanel.logInToThroughOhMy", { label: provider.label })
                                 }
                                 disabled={isBusy}
                                 onClick={() => void connectWithOmp(provider.id)}
                               >
                                 {isBusy ? <Loader2 size={12} className="spin" /> : <Plug size={12} />}
-                                {isBusy ? "Waiting for sign-in..." : `Log in to ${provider.label}`}
+                                {isBusy ? t("modelProvidersPanel.waitingForSignIn") : t("modelProvidersPanel.logInTo2", { label: provider.label })}
                               </button>
                               {isBusy ? (
                                 <button
                                   className="btn btn-sm"
                                   type="button"
-                                  title={`Cancel the ${provider.label} sign-in attempt`}
+                                  title={t("modelProvidersPanel.cancelTheSignInAttempt2", { label: provider.label })}
                                   onClick={() => void cancelLogin(provider.id)}
                                 >
-                                  Cancel
+                                  {t("modelProvidersPanel.cancel")}
                                 </button>
                               ) : null}
                             </div>
@@ -537,9 +538,9 @@ export function ModelProvidersPanel() {
                           <details className="stack-sm">
                             <summary
                               className="text-muted text-sm"
-                              title={`Use a ${provider.label} API key instead of subscription login`}
+                              title={t("modelProvidersPanel.useAAPIKeyInsteadOf", { label: provider.label })}
                             >
-                              Use an API key instead
+                              {t("modelProvidersPanel.useAnApiKeyInstead")}
                             </summary>
                             {connectKeyForm}
                           </details>
@@ -555,14 +556,14 @@ export function ModelProvidersPanel() {
         ) : null,
       )}
       {!catalogLoading && catalog !== null && visibleProviders.length === 0 ? (
-        <p className="text-muted text-sm">No providers or models match your search.</p>
+        <p className="text-muted text-sm">{t("modelProvidersPanel.noProvidersOrModelsMatch")}</p>
       ) : null}
       {error ? <p className="text-danger text-sm">{error}</p> : null}
       <ConfirmDialog
         open={logoutTarget !== null}
-        title={`Log out of ${logoutTarget?.label ?? "provider"}?`}
+        title={t("modelProvidersPanel.logOutOf", { label: logoutTarget?.label ?? "provider" })}
         message={`This removes the stored ${logoutTarget?.label ?? ""} credential from Basebuild's local credential store. Chats using this provider will stop working until you log in again.`}
-        confirmLabel="Log out"
+        confirmLabel={t("modelProvidersPanel.logOut2")}
         destructive
         onConfirm={() => {
           if (logoutTarget) void disconnect(logoutTarget.id);

@@ -14,27 +14,28 @@ import {
 } from "../../lib/notifications";
 import type { ToastKind } from "./AppShell";
 import { SkeletonRows } from "./Loading";
+import { t } from "../../i18n";
 
 const BAR_DISMISS_MS = 5000;
 const BAR_MAX_VISIBLE = 3;
 
 const KIND_LABELS: Partial<Record<NotificationKind, string>> = {
-  plan_created: "Plan created",
-  plan_status_changed: "Plan status",
-  idea_captured: "Idea captured",
-  idea_status_changed: "Idea status",
-  category_created: "Category",
+  plan_created: t("taskbarNotifications.planCreated"),
+  plan_status_changed: t("taskbarNotifications.planStatus"),
+  idea_captured: t("taskbarNotifications.ideaCaptured"),
+  idea_status_changed: t("taskbarNotifications.ideaStatus"),
+  category_created: t("taskbarNotifications.category"),
   schematic_updated: "Schematic",
-  stage_started: "Stage started",
-  stage_succeeded: "Stage succeeded",
-  stage_failed: "Stage failed",
-  stage_cancelled: "Stage cancelled",
-  run_started: "Run started",
-  run_finished: "Run finished",
-  run_failed: "Run failed",
-  integration_action: "Integration",
-  pending_question: "Question",
-  schematic_drift_suspected: "Drift",
+  stage_started: t("taskbarNotifications.stageStarted"),
+  stage_succeeded: t("taskbarNotifications.stageSucceeded"),
+  stage_failed: t("taskbarNotifications.stageFailed"),
+  stage_cancelled: t("taskbarNotifications.stageCancelled"),
+  run_started: t("taskbarNotifications.runStarted"),
+  run_finished: t("taskbarNotifications.runFinished"),
+  run_failed: t("taskbarNotifications.runFailed"),
+  integration_action: t("taskbarNotifications.integration"),
+  pending_question: t("taskbarNotifications.question"),
+  schematic_drift_suspected: t("taskbarNotifications.drift"),
 };
 
 type IconEntry = { icon: typeof CheckCircle; className: string };
@@ -326,7 +327,7 @@ export function TaskbarNotifications({ onNavigate, appToasts, onDismissAppToast 
                   <Icon size={13} className={`taskbar-notif-bar-icon ${iconClassName}`} />
                   <span
                     className="taskbar-notif-bar-title"
-                    title="Click to dismiss"
+                    title={t("taskbarNotifications.clickToDismiss")}
                     onClick={() => void handleBarClick(entry)}
                   >
                     {entry.title}
@@ -334,7 +335,7 @@ export function TaskbarNotifications({ onNavigate, appToasts, onDismissAppToast 
                   {entry.detail ? <span className="taskbar-notif-bar-detail">{entry.detail}</span> : null}
                   <button
                     className="taskbar-notif-bar-x btn-icon"
-                    title="Dismiss"
+                    title={t("taskbarNotifications.dismiss")}
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
@@ -359,7 +360,7 @@ export function TaskbarNotifications({ onNavigate, appToasts, onDismissAppToast 
               >
                 <span
                   className="taskbar-notif-bar-title"
-                  title="Click to open"
+                  title={t("taskbarNotifications.clickToOpen")}
                   onClick={() => void handleBarClick(entry)}
                 >
                   {n.title}
@@ -367,7 +368,7 @@ export function TaskbarNotifications({ onNavigate, appToasts, onDismissAppToast 
                 {n.detail ? <span className="taskbar-notif-bar-detail">{n.detail}</span> : null}
                 <button
                   className="taskbar-notif-bar-x btn-icon"
-                  title="Dismiss"
+                  title={t("taskbarNotifications.dismiss")}
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
@@ -380,14 +381,14 @@ export function TaskbarNotifications({ onNavigate, appToasts, onDismissAppToast 
             );
           })}
           {overflow > 0 ? (
-            <span className="taskbar-notif-count" title={`${overflow} more notification${overflow === 1 ? "" : "s"}`}>
-              +{overflow} more
+            <span className="taskbar-notif-count" title={t((overflow === 1 ? "taskbarNotifications.moreNotification.none" : "taskbarNotifications.moreNotification.s"), { overflow: overflow })}>
+              {t("taskbarNotifications.more", { overflow: overflow })}
             </span>
           ) : null}
           {bars.length >= 2 ? (
             <button
               className="taskbar-notif-close-all btn-icon"
-              title="Dismiss all"
+              title={t("taskbarNotifications.dismissAll")}
               type="button"
               onClick={handleDismissAll}
             >
@@ -399,7 +400,7 @@ export function TaskbarNotifications({ onNavigate, appToasts, onDismissAppToast 
 
       <button
         className="taskbar-notif-bell btn-icon"
-        title={unread > 0 ? `${unread} unread notification${unread === 1 ? "" : "s"}` : "Notifications"}
+        title={unread > 0 ? t((unread === 1 ? "taskbarNotifications.unreadNotification.none" : "taskbarNotifications.unreadNotification.s"), { unread: unread }) : t("taskbarNotifications.notifications")}
         type="button"
         aria-expanded={open}
         aria-haspopup="dialog"
@@ -415,30 +416,30 @@ export function TaskbarNotifications({ onNavigate, appToasts, onDismissAppToast 
       {open ? (
         <>
           <div className="taskbar-notif-dropdown-overlay" onClick={() => setOpen(false)} />
-          <section className="taskbar-notif-dropdown" aria-label="Notification center">
+          <section className="taskbar-notif-dropdown" aria-label={t("taskbarNotifications.notificationCenter")}>
             <div className="taskbar-notif-dropdown-header">
               <div className="taskbar-notif-dropdown-heading">
                 <Bell className="taskbar-notif-dropdown-icon" size={13} />
                 <div>
-                  <span className="taskbar-notif-dropdown-title">Notifications</span>
+                  <span className="taskbar-notif-dropdown-title">{t("taskbarNotifications.notifications")}</span>
                   <span className="taskbar-notif-dropdown-summary">
-                    {unread > 0 ? `${unread} unread` : "You're all caught up"}
+                    {unread > 0 ? t("taskbarNotifications.unread", { unread: unread }) : t("taskbarNotifications.youReAllCaughtUp")}
                   </span>
                 </div>
               </div>
               <div className="taskbar-notif-dropdown-actions">
                 <button
                   className="btn-text"
-                  title="Mark all as read"
+                  title={t("taskbarNotifications.markAllAsRead")}
                   type="button"
                   onClick={() => void handleMarkAllRead()}
                   disabled={unread === 0}
                 >
-                  Mark all read
+                  {t("taskbarNotifications.markAllRead")}
                 </button>
                 <button
                   className="btn-icon"
-                  title="Close"
+                  title={t("taskbarNotifications.close")}
                   type="button"
                   onClick={() => setOpen(false)}
                 >
@@ -446,21 +447,21 @@ export function TaskbarNotifications({ onNavigate, appToasts, onDismissAppToast 
                 </button>
               </div>
             </div>
-            <div className="taskbar-notif-filters" aria-label="Filter notifications">
+            <div className="taskbar-notif-filters" aria-label={t("taskbarNotifications.filterNotifications")}>
               <button
                 className={`chip ${filter === "all" ? "chip-active" : ""}`}
-                title="Show all notifications"
+                title={t("taskbarNotifications.showAllNotifications")}
                 type="button"
                 aria-pressed={filter === "all"}
                 onClick={() => setFilter("all")}
               >
-                All
+                {t("taskbarNotifications.all")}
               </button>
               {kinds.map((kind) => (
                 <button
                   key={kind}
                   className={`chip ${filter === kind ? "chip-active" : ""}`}
-                  title={`Show ${KIND_LABELS[kind] ?? kind} notifications`}
+                  title={t("taskbarNotifications.showNotifications", { value: KIND_LABELS[kind] ?? kind })}
                   type="button"
                   aria-pressed={filter === kind}
                   onClick={() => setFilter(kind)}
@@ -471,18 +472,18 @@ export function TaskbarNotifications({ onNavigate, appToasts, onDismissAppToast 
             </div>
             <div className="taskbar-notif-dropdown-list">
               {!listLoaded ? (
-                <SkeletonRows rows={4} label="Loading notifications…" />
+                <SkeletonRows rows={4} label={t("taskbarNotifications.loadingNotifications")} />
               ) : filtered.length === 0 ? (
                 <div className="taskbar-notif-dropdown-empty">
                   <Bell size={18} />
-                  <span>No notifications here</span>
+                  <span>{t("taskbarNotifications.noNotificationsHere")}</span>
                 </div>
               ) : (
                 filtered.map((notification) => (
                   <button
                     key={notification.id}
                     className={`taskbar-notif-dropdown-item ${notification.read ? "taskbar-notif-read" : ""}`}
-                    title={`Open notification: ${notification.title}`}
+                    title={t("taskbarNotifications.openNotification", { title: notification.title })}
                     type="button"
                     onClick={() => void handleDropdownClick(notification)}
                   >

@@ -8,25 +8,26 @@ import {
   PLANNING_PROMPT_KEYS,
 } from "../../lib/planningPrompts";
 import { SkeletonRows } from "./Loading";
+import { t } from "../../i18n";
 
-const PROMPT_META: Record<string, { label: string; description: string }> = {
+const PROMPT_META = (): Record<string, { label: string; description: string }> => ({
   [PLANNING_PROMPT_KEYS.chatSystem]: {
-    label: "Chat system prompt",
-    description: "System prompt for general chat turns.",
+    label: t("planningTab.chatSystemPrompt"),
+    description: t("planningTab.systemPromptForGeneralChatTurns"),
   },
   [PLANNING_PROMPT_KEYS.ideaGeneration]: {
-    label: "Idea generation prompt",
-    description: "System prompt used when generating ideas from a conversation.",
+    label: t("planningTab.ideaGenerationPrompt"),
+    description: t("planningTab.systemPromptUsedWhenGeneratingIdeas"),
   },
   [PLANNING_PROMPT_KEYS.planGeneration]: {
-    label: "Plan generation prompt",
-    description: "System prompt used when generating plans from accepted ideas.",
+    label: t("planningTab.planGenerationPrompt"),
+    description: t("planningTab.systemPromptUsedWhenGeneratingPlans"),
   },
   [PLANNING_PROMPT_KEYS.categoryGeneration]: {
-    label: "Category generation prompt",
-    description: "System prompt used when suggesting idea categories.",
+    label: t("planningTab.categoryGenerationPrompt"),
+    description: t("planningTab.systemPromptUsedWhenSuggestingIdea"),
   },
-};
+});
 
 type PlanningTabProps = {
   projectPath: string | null;
@@ -99,10 +100,10 @@ export function PlanningTab({ projectPath: _projectPath }: PlanningTabProps) {
   return (
     <div className="stack">
       <div className="settings-section-header">
-        <h3>Planning Prompts</h3>
+        <h3>{t("planningTab.planningPrompts")}</h3>
         <button
           className="btn-icon"
-          title="Reload prompts"
+          title={t("planningTab.reloadPrompts")}
           type="button"
           onClick={() => void load()}
         >
@@ -110,16 +111,15 @@ export function PlanningTab({ projectPath: _projectPath }: PlanningTabProps) {
         </button>
       </div>
       <p className="text-muted text-sm">
-        Customize the system prompts used for chat, idea generation, plan
-        generation, and category suggestions. Reset to restore defaults.
+        {t("planningTab.customizeTheSystemPromptsUsed")}
       </p>
       {error ? <p className="text-danger text-sm">{error}</p> : null}
       {loading && prompts.length === 0 ? (
-        <SkeletonRows rows={4} label="Loading planning prompts…" />
+        <SkeletonRows rows={4} label={t("planningTab.loadingPlanningPrompts")} />
       ) : (
         <div className="stack">
           {prompts.map((p) => {
-            const meta = PROMPT_META[p.key] ?? { label: p.key, description: "" };
+            const meta = PROMPT_META()[p.key] ?? { label: p.key, description: "" };
             const draft = drafts[p.key] ?? p.value;
             const isModified = draft !== p.default;
             return (
@@ -127,7 +127,7 @@ export function PlanningTab({ projectPath: _projectPath }: PlanningTabProps) {
                 <div className="settings-prompt-card-header">
                   <Lightbulb size={12} />
                   <span className="settings-prompt-card-title">{meta.label}</span>
-                  {isModified ? <span className="settings-prompt-modified">modified</span> : null}
+                  {isModified ? <span className="settings-prompt-modified">{t("planningTab.modified")}</span> : null}
                 </div>
                 {meta.description ? <p className="text-muted text-sm">{meta.description}</p> : null}
                 <textarea
@@ -135,26 +135,26 @@ export function PlanningTab({ projectPath: _projectPath }: PlanningTabProps) {
                   value={draft}
                   onChange={(e) => setDrafts((d) => ({ ...d, [p.key]: e.target.value }))}
                   rows={6}
-                  title={`Edit ${meta.label}`}
+                  title={t("planningTab.edit", { label: meta.label })}
                 />
                 <div className="settings-prompt-actions">
                   <button
                     className="btn btn-sm btn-primary"
                     type="button"
-                    title="Save this prompt"
+                    title={t("planningTab.saveThisPrompt")}
                     disabled={savingKey === p.key}
                     onClick={() => void handleSave(p.key)}
                   >
-                    <Save size={11} /> {savedKey === p.key ? "Saved" : "Save"}
+                    <Save size={11} /> {savedKey === p.key ? t("planningTab.saved") : t("planningTab.save")}
                   </button>
                   <button
                     className="btn btn-sm"
                     type="button"
-                    title="Reset to default"
+                    title={t("planningTab.resetToDefault")}
                     disabled={savingKey === p.key || !isModified}
                     onClick={() => void handleReset(p.key)}
                   >
-                    <RefreshCw size={11} /> Reset to default
+                    <RefreshCw size={11} /> {t("planningTab.resetToDefault")}
                   </button>
                 </div>
               </div>

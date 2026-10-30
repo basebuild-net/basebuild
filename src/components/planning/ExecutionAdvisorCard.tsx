@@ -11,6 +11,7 @@ import {
   type RouteRecommendation,
 } from "../../lib/execution-advisor";
 import { nativeCatalogSync } from "../../lib/native-chat";
+import { t } from "../../i18n";
 
 type ExecutionAdvisorCardProps = {
   projectPath: string;
@@ -34,11 +35,11 @@ function RoleRecommendation({
   const Icon = advice.role === "planner" ? BrainCircuit : Code2;
   const recommendation = advice.recommendation;
   return (
-    <section className="execution-advisor-role" aria-label={`${advice.role} recommendation`}>
+    <section className="execution-advisor-role" aria-label={t("executionAdvisorCard.recommendation", { role: advice.role })}>
       <div className="execution-advisor-role-header">
-        <span><Icon size={13} /> {advice.role === "planner" ? "Planner" : "Coder"}</span>
-        <span className={`execution-advisor-confidence is-${advice.confidence}`} title={`Recommendation confidence: ${advice.confidence}`}>
-          {advice.confidence} confidence
+        <span><Icon size={13} /> {advice.role === "planner" ? t("executionAdvisorCard.planner") : t("executionAdvisorCard.coder")}</span>
+        <span className={`execution-advisor-confidence is-${advice.confidence}`} title={t("executionAdvisorCard.recommendationConfidence", { confidence: advice.confidence })}>
+          {t("executionAdvisorCard.confidence", { confidence: advice.confidence })}
         </span>
       </div>
       {recommendation ? (
@@ -48,31 +49,31 @@ function RoleRecommendation({
               <strong>{recommendation.label}</strong>
               <code>{recommendation.providerId}/{recommendation.modelId}</code>
             </div>
-            <span title={`Local advisor score ${recommendation.score.toFixed(1)}`}>{recommendation.score.toFixed(1)}</span>
+            <span title={t("executionAdvisorCard.localAdvisorScore", { value: recommendation.score.toFixed(1) })}>{recommendation.score.toFixed(1)}</span>
           </div>
           {recommendation.userOverride ? (
             <button
               className="btn btn-sm btn-ghost"
               type="button"
-              title={`Clear the ${advice.role} model override`}
+              title={t("executionAdvisorCard.clearTheModelOverride", { role: advice.role })}
               disabled={busy}
               onClick={() => void onClearOverride(advice.role)}
             >
-              <Check size={11} /> User choice · reset
+              <Check size={11} /> {t("executionAdvisorCard.userChoiceReset")}
             </button>
           ) : (
             <button
               className="btn btn-sm btn-ghost"
               type="button"
-              title={`Use the recommended ${advice.role} route for this project`}
+              title={t("executionAdvisorCard.useTheRecommendedRouteForThis", { role: advice.role })}
               disabled={busy}
               onClick={() => void onOverride(advice.role, recommendation)}
             >
-              <Check size={11} /> Use recommendation
+              <Check size={11} /> {t("executionAdvisorCard.useRecommendation")}
             </button>
           )}
           <details className="execution-advisor-details">
-            <summary title={`Explain the ${advice.role} recommendation`}>Why this route</summary>
+            <summary title={t("executionAdvisorCard.explainTheRecommendation", { role: advice.role })}>{t("executionAdvisorCard.whyThisRoute")}</summary>
             <ul>
               {recommendation.factors.map((factor) => (
                 <li key={factor.name}>
@@ -84,14 +85,14 @@ function RoleRecommendation({
             <p>{recommendation.sourceFreshness.join(" · ")}</p>
           </details>
           {advice.alternatives.length > 0 ? (
-            <div className="execution-advisor-alternatives" aria-label={`${advice.role} alternatives`}>
-              <span>Alternatives</span>
+            <div className="execution-advisor-alternatives" aria-label={t("executionAdvisorCard.alternatives2", { role: advice.role })}>
+              <span>{t("executionAdvisorCard.alternatives")}</span>
               {advice.alternatives.map((alternative) => (
                 <button
                   key={`${alternative.providerId}/${alternative.modelId}`}
                   className="btn btn-sm"
                   type="button"
-                  title={`Use ${alternative.label} as the ${advice.role} route for this project`}
+                  title={t("executionAdvisorCard.useAsTheRouteForThis", { label: alternative.label, role: advice.role })}
                   disabled={busy}
                   onClick={() => void onOverride(advice.role, alternative)}
                 >
@@ -102,9 +103,9 @@ function RoleRecommendation({
           ) : null}
         </>
       ) : (
-        <div className="execution-advisor-empty" title="No connected route passed the plan's hard requirements">
+        <div className="execution-advisor-empty" title={t("executionAdvisorCard.noConnectedRoutePassedThe")}>
           <AlertTriangle size={13} />
-          <span>No compatible route. {advice.excluded[0]?.reasons[0] ?? "Connect a provider or refresh the catalog."}</span>
+          <span>{t("executionAdvisorCard.noCompatibleRoute", { reason: advice.excluded[0]?.reasons[0] ?? t("executionAdvisorCard.connectAProviderOrRefresh") })}</span>
         </div>
       )}
     </section>
@@ -189,10 +190,10 @@ export function ExecutionAdvisorCard({
       <button
         className={`execution-advisor-load${compact ? " is-compact" : ""}`}
         type="button"
-        title="Compare this estimate with connected provider routes and local usage"
+        title={t("executionAdvisorCard.compareThisEstimateWithConnected")}
         onClick={() => void load()}
       >
-        <Route size={13} /> Recommend models
+        <Route size={13} /> {t("executionAdvisorCard.recommendModels")}
       </button>
     );
   }
@@ -200,11 +201,11 @@ export function ExecutionAdvisorCard({
   return (
     <div className={`execution-advisor-card${compact ? " is-compact" : ""}`}>
       <div className="execution-advisor-header">
-        <span><Route size={14} /> Execution advisor</span>
+        <span><Route size={14} /> {t("executionAdvisorCard.executionAdvisor")}</span>
         <button
           className="btn-icon btn-icon-sm"
           type="button"
-          title="Refresh public model evidence and recompute local recommendations"
+          title={t("executionAdvisorCard.refreshPublicModelEvidenceAnd")}
           disabled={loading}
           onClick={() => void load(true)}
         >
@@ -212,20 +213,20 @@ export function ExecutionAdvisorCard({
         </button>
       </div>
       {loading && !advice ? (
-        <div className="execution-advisor-loading" role="status"><Loader2 size={14} className="is-spinning" /> Comparing compatible routes…</div>
+        <div className="execution-advisor-loading" role="status"><Loader2 size={14} className="is-spinning" /> {t("executionAdvisorCard.comparingCompatibleRoutes")}</div>
       ) : null}
       {error ? <p className="execution-advisor-error" role="alert">{error}</p> : null}
       {advice ? (
         <>
           {advice.assessmentStale ? (
-            <p className="execution-advisor-stale"><AlertTriangle size={12} /> The plan estimate changed; refresh its assessment before launching.</p>
+            <p className="execution-advisor-stale"><AlertTriangle size={12} /> {t("executionAdvisorCard.thePlanEstimateChangedRefresh")}</p>
           ) : null}
           <div className="execution-advisor-roles">
             <RoleRecommendation advice={advice.planner} busy={loading} onOverride={override} onClearOverride={clearOverride} />
             <RoleRecommendation advice={advice.coder} busy={loading} onOverride={override} onClearOverride={clearOverride} />
           </div>
-          <p className="execution-advisor-boundary" title="Recommendations are computed locally; only public model evidence is downloaded">
-            Local decision · public evidence only · no project text uploaded
+          <p className="execution-advisor-boundary" title={t("executionAdvisorCard.recommendationsAreComputedLocallyOnly")}>
+            {t("executionAdvisorCard.localDecisionPublicEvidenceOnly")}
           </p>
         </>
       ) : null}

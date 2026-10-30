@@ -22,6 +22,7 @@ import {
   type FinishPolicy,
 } from "../../../lib/planDependencies";
 import type { PlanningTab } from "../PlanningInspector";
+import { t } from "../../../i18n";
 
 const FINISH_POLICY_LABELS: Record<FinishPolicy, string> = {
   hold: "Hold for review",
@@ -29,23 +30,23 @@ const FINISH_POLICY_LABELS: Record<FinishPolicy, string> = {
   auto_commit_pr: "Auto-commit + PR",
   queue_merge_review: "Queue merge review",
 };
-const ENGINE_OPTION_ITEMS: OptionListOption<EngineKind>[] = [
-  { id: "openspec", label: "OpenSpec", title: "Use the OpenSpec planning engine" },
-  { id: "native", label: "Native", title: "Use the native planning engine" },
+const ENGINE_OPTION_ITEMS = (): OptionListOption<EngineKind>[] => [
+  { id: "openspec", label: t("flowTab.openspec"), title: t("flowTab.useTheOpenspecPlanningEngine") },
+  { id: "native", label: t("flowTab.native"), title: t("flowTab.useTheNativePlanningEngine") },
 ];
-const WORKSPACE_OPTION_ITEMS: OptionListOption<WorkspacePolicy>[] = [
-  { id: "isolated_worktrees", label: "Isolated worktrees", title: "Each run uses its own isolated worktree" },
-  { id: "sequential_primary", label: "Sequential primary", title: "Run sequentially in the primary worktree" },
+const WORKSPACE_OPTION_ITEMS = (): OptionListOption<WorkspacePolicy>[] => [
+  { id: "isolated_worktrees", label: t("flowTab.isolatedWorktrees"), title: t("flowTab.eachRunUsesItsOwnIsolated") },
+  { id: "sequential_primary", label: t("flowTab.sequentialPrimary"), title: t("flowTab.runSequentiallyInThePrimaryWorktree") },
 ];
-const SCHEDULING_OPTION_ITEMS: OptionListOption<SchedulingMode>[] = [
-  { id: "safe", label: "Safe", title: "Safe scheduling — conservative dependency ordering" },
-  { id: "yolo", label: "Yolo", title: "Eager scheduling — run as soon as possible" },
+const SCHEDULING_OPTION_ITEMS = (): OptionListOption<SchedulingMode>[] => [
+  { id: "safe", label: t("flowTab.safe"), title: t("flowTab.safeSchedulingConservativeDependencyOrdering") },
+  { id: "yolo", label: t("flowTab.yolo"), title: t("flowTab.eagerSchedulingRunAsSoonAs") },
 ];
-const FINISH_OPTION_ITEMS: OptionListOption<FinishPolicy>[] = [
-  { id: "hold", label: "Hold for review", title: "Hold finished runs for manual review" },
-  { id: "auto_commit", label: "Auto-commit", title: "Automatically commit changes when a run finishes" },
-  { id: "auto_commit_pr", label: "Auto-commit + PR", title: "Commit changes and open a pull request" },
-  { id: "queue_merge_review", label: "Queue merge review", title: "Queue finished runs for merge review" },
+const FINISH_OPTION_ITEMS = (): OptionListOption<FinishPolicy>[] => [
+  { id: "hold", label: t("flowTab.holdForReview"), title: t("flowTab.holdFinishedRunsForManualReview") },
+  { id: "auto_commit", label: t("flowTab.autoCommit"), title: t("flowTab.automaticallyCommitChangesWhenARun") },
+  { id: "auto_commit_pr", label: t("flowTab.autoCommitPr"), title: t("flowTab.commitChangesAndOpenAPull") },
+  { id: "queue_merge_review", label: t("flowTab.queueMergeReview"), title: t("flowTab.queueFinishedRunsForMergeReview") },
 ];
 
 export type LaunchFormState = {
@@ -185,85 +186,85 @@ export function FlowTab({
       .join("\n");
 
     const resumeBlockedReason = !run
-      ? "Cannot resume: no plan run exists."
+      ? t("flowTab.cannotResumeNoPlanRunExists")
       : !run.chatSessionId
-        ? "Cannot resume: this run has no retained chat owner."
+        ? t("flowTab.cannotResumeThisRunHasNo")
         : null;
     const archiveBlockedReason = !plan
-      ? "Cannot archive: linked plan is unavailable."
+      ? t("flowTab.cannotArchiveLinkedPlanIsUnavailable")
       : plan.status !== "finished"
         ? `Cannot archive: linked plan is ${plan.status}; finish it first.`
         : !plan.changeName
-          ? "Cannot archive: plan has no linked OpenSpec change."
+          ? t("flowTab.cannotArchivePlanHasNoLinked")
           : null;
     return (
       <div className="run-board-row" title={tooltip}>
         <div className="run-board-cell run-board-cell-title">{node.title}</div>
-        <div className="run-board-cell" title={`Priority: ${node.priority}`}>{node.priority}</div>
+        <div className="run-board-cell" title={t("flowTab.priority", { priority: node.priority })}>{node.priority}</div>
         <div className="run-board-cell run-board-cell-badges">
           {node.prerequisites.length > 0
             ? node.prerequisites.map((prereq) => (
-                <span key={prereq} className="run-board-badge" title={`Prerequisite: ${prereq}`}>
+                <span key={prereq} className="run-board-badge" title={t("flowTab.prerequisite", { prereq: prereq })}>
                   {prereq}
                 </span>
               ))
-            : <span className="run-board-badge run-board-badge-empty" title="No prerequisites">—</span>}
+            : <span className="run-board-badge run-board-badge-empty" title={t("flowTab.noPrerequisites")}>—</span>}
         </div>
-        <div className="run-board-cell" title={`Owner chat: ${ownerChat}`}>{ownerChat}</div>
-        <div className="run-board-cell" title={`Engine: ${engine} | Provider: ${provider} | Model: ${model}`}>
+        <div className="run-board-cell" title={t("flowTab.ownerChat", { ownerChat: ownerChat })}>{ownerChat}</div>
+        <div className="run-board-cell" title={t("flowTab.engineProviderModel2", { engine: engine, provider: provider, model: model })}>
           {engine}/{provider}/{model}
         </div>
-        <div className="run-board-cell" title={`Branch: ${branch} | Worktree: ${worktree}`}>
+        <div className="run-board-cell" title={t("flowTab.branchWorktree", { branch: branch, worktree: worktree })}>
           {branch}
         </div>
         <div className="run-board-cell run-board-cell-badges">
           {node.affectedPaths.length > 0
             ? node.affectedPaths.map((path) => (
-                <span key={path} className="run-board-badge" title={`Claimed path: ${path}`}>
+                <span key={path} className="run-board-badge" title={t("flowTab.claimedPath", { path: path })}>
                   {path.split(/[\\/]/).pop() ?? path}
                 </span>
               ))
-            : <span className="run-board-badge run-board-badge-empty" title="No affected paths">—</span>}
+            : <span className="run-board-badge run-board-badge-empty" title={t("flowTab.noAffectedPaths")}>—</span>}
         </div>
-        <div className="run-board-cell" title="Progress: not tracked">—</div>
-        <div className="run-board-cell" title={node.blockReason || "No blockers"}>
-          {node.blockReason ? "blocked" : "—"}
+        <div className="run-board-cell" title={t("flowTab.progressNotTracked")}>—</div>
+        <div className="run-board-cell" title={node.blockReason || t("flowTab.noBlockers")}>
+          {node.blockReason ? t("flowTab.blocked") : "—"}
         </div>
-        <div className="run-board-cell" title={`Collisions: ${node.collisions.join(", ") || "none"}`}>
+        <div className="run-board-cell" title={t("flowTab.collisions2", { value: node.collisions.join(", ") || "none" })}>
           {node.collisions.length}
         </div>
-        <div className="run-board-cell" title={`Merge readiness: ${node.readiness}`}>
+        <div className="run-board-cell" title={t("flowTab.mergeReadiness", { readiness: node.readiness })}>
           {node.readiness}
         </div>
         <div className="run-board-cell run-board-cell-actions">
           {!run ? (
-            <span className="text-muted" title="No plan run exists yet">Not started</span>
+            <span className="text-muted" title={t("flowTab.noPlanRunExistsYet")}>{t("flowTab.notStarted")}</span>
           ) : run.status === "pending" || run.status === "running" ? (
             <button
               className="btn btn-sm"
               type="button"
-              title={run.chatSessionId ? "Open this run's retained chat" : "Cannot open: this run has no retained chat owner."}
+              title={run.chatSessionId ? t("flowTab.openThisRunSRetained") : t("flowTab.cannotOpenThisRunHas")}
               disabled={!run.chatSessionId}
               onClick={() => onOpenChatSession(run.chatSessionId!)}
             >
-              <Play size={10} /> Open
+              <Play size={10} /> {t("flowTab.open")}
             </button>
           ) : run.status === "awaiting_review" ? (
             <>
-              <button className="btn btn-sm" type="button" title={resumeBlockedReason ?? "Resume this plan in its retained chat"} disabled={resumeBlockedReason !== null} onClick={() => run && void handleResumePlanRun(run)}>
-                <Play size={10} /> Resume
+              <button className="btn btn-sm" type="button" title={resumeBlockedReason ?? t("flowTab.resumeThisPlanInIts")} disabled={resumeBlockedReason !== null} onClick={() => run && void handleResumePlanRun(run)}>
+                <Play size={10} /> {t("flowTab.resume")}
               </button>
-              <button className="btn btn-sm" type="button" title="Review the linked OpenSpec tasks and retained artifacts" onClick={() => setTab("changes")}>
-                <ClipboardCheck size={10} /> Review
+              <button className="btn btn-sm" type="button" title={t("flowTab.reviewTheLinkedOpenspecTasks")} onClick={() => setTab("changes")}>
+                <ClipboardCheck size={10} /> {t("flowTab.review")}
               </button>
             </>
           ) : run.status === "failed" || run.status === "cancelled" ? (
-            <button className="btn btn-sm" type="button" title={resumeBlockedReason ?? "Retry this plan in its retained chat"} disabled={resumeBlockedReason !== null} onClick={() => run && void handleResumePlanRun(run)}>
-              <RotateCcw size={10} /> Retry
+            <button className="btn btn-sm" type="button" title={resumeBlockedReason ?? t("flowTab.retryThisPlanInIts")} disabled={resumeBlockedReason !== null} onClick={() => run && void handleResumePlanRun(run)}>
+              <RotateCcw size={10} /> {t("flowTab.retry")}
             </button>
           ) : (
-            <button className="btn btn-sm" type="button" title={archiveBlockedReason ?? "Open the linked completed change to archive it"} disabled={archiveBlockedReason !== null} onClick={() => setTab("changes")}>
-              <Archive size={10} /> Archive
+            <button className="btn btn-sm" type="button" title={archiveBlockedReason ?? t("flowTab.openTheLinkedCompletedChange")} disabled={archiveBlockedReason !== null} onClick={() => setTab("changes")}>
+              <Archive size={10} /> {t("flowTab.archive")}
             </button>
           )}
         </div>
@@ -275,45 +276,45 @@ export function FlowTab({
     if (!sessionId) {
       return (
         <div className="run-board">
-          <div className="run-board-empty" title="No session selected">No session selected</div>
+          <div className="run-board-empty" title={t("flowTab.noSessionSelected")}>{t("flowTab.noSessionSelected")}</div>
         </div>
       );
     }
     if (runBoardLoading) {
       return (
         <div className="run-board">
-          <div className="run-board-empty" title="Loading dependency graph">Loading run board…</div>
+          <div className="run-board-empty" title={t("flowTab.loadingDependencyGraph")}>{t("flowTab.loadingRunBoard")}</div>
         </div>
       );
     }
     if (!dependencyGraph?.nodes.length) {
       return (
         <div className="run-board">
-          <div className="run-board-empty" title="No dependency graph nodes available">No run board entries</div>
+          <div className="run-board-empty" title={t("flowTab.noDependencyGraphNodesAvailable")}>{t("flowTab.noRunBoardEntries")}</div>
         </div>
       );
     }
     return (
-      <div className="run-board" title={`Dependency graph for session ${sessionId.slice(0, 8)}`}>
+      <div className="run-board" title={t("flowTab.dependencyGraphForSession", { value: sessionId.slice(0, 8) })}>
         <div className="run-board-header">
-          <span className="run-board-header-title">Run board</span>
-          <span className="text-muted text-sm" title={`${dependencyGraph.nodes.length} node(s)`}>
-            {dependencyGraph.nodes.length} node(s)
+          <span className="run-board-header-title">{t("flowTab.runBoard")}</span>
+          <span className="text-muted text-sm" title={t("flowTab.nodeS2", { nodesCount: dependencyGraph.nodes.length })}>
+            {t("flowTab.nodeS", { nodesCount: dependencyGraph.nodes.length })}
           </span>
         </div>
-        <div className="run-board-row run-board-row-header" title="Run board column headers">
-          <div className="run-board-cell">Plan</div>
-          <div className="run-board-cell">Prio</div>
-          <div className="run-board-cell">Prereqs</div>
-          <div className="run-board-cell">Chat</div>
-          <div className="run-board-cell">Engine/Provider/Model</div>
-          <div className="run-board-cell">Branch</div>
-          <div className="run-board-cell">Claims</div>
+        <div className="run-board-row run-board-row-header" title={t("flowTab.runBoardColumnHeaders")}>
+          <div className="run-board-cell">{t("flowTab.plan")}</div>
+          <div className="run-board-cell">{t("flowTab.prio")}</div>
+          <div className="run-board-cell">{t("flowTab.prereqs")}</div>
+          <div className="run-board-cell">{t("flowTab.chat")}</div>
+          <div className="run-board-cell">{t("flowTab.engineProviderModel")}</div>
+          <div className="run-board-cell">{t("flowTab.branch")}</div>
+          <div className="run-board-cell">{t("flowTab.claims")}</div>
           <div className="run-board-cell">%</div>
-          <div className="run-board-cell">Blockers</div>
-          <div className="run-board-cell">Collisions</div>
-          <div className="run-board-cell">Readiness</div>
-          <div className="run-board-cell">Next</div>
+          <div className="run-board-cell">{t("flowTab.blockers")}</div>
+          <div className="run-board-cell">{t("flowTab.collisions")}</div>
+          <div className="run-board-cell">{t("flowTab.readiness")}</div>
+          <div className="run-board-cell">{t("flowTab.next")}</div>
         </div>
         {dependencyGraph.nodes.map((node) => (
           <RunBoardRow key={node.planId} node={node} />
@@ -326,14 +327,14 @@ export function FlowTab({
     if (mergeQueueLoading) {
       return (
         <div className="merge-queue">
-          <div className="run-board-empty" title="Loading merge-review queue">Loading merge queue…</div>
+          <div className="run-board-empty" title={t("flowTab.loadingMergeReviewQueue")}>{t("flowTab.loadingMergeQueue")}</div>
         </div>
       );
     }
     if (mergeQueue.length === 0) {
       return (
         <div className="merge-queue">
-          <div className="run-board-empty" title="No merge-review entries">No merge-review entries</div>
+          <div className="run-board-empty" title={t("flowTab.noMergeReviewEntries")}>{t("flowTab.noMergeReviewEntries")}</div>
         </div>
       );
     }
@@ -430,48 +431,48 @@ export function FlowTab({
     return (
       <div className="merge-queue">
         <div className="run-board-header">
-          <span className="run-board-header-title">Merge review</span>
-          <span className="text-muted text-sm" title={`${mergeQueue.length} entry(ies)`}>
-            {mergeQueue.length} entry(ies)
+          <span className="run-board-header-title">{t("flowTab.mergeReview")}</span>
+          <span className="text-muted text-sm" title={t("flowTab.entryIes2", { mergeQueueCount: mergeQueue.length })}>
+            {t("flowTab.entryIes", { mergeQueueCount: mergeQueue.length })}
           </span>
         </div>
         {mergeSession.active ? (
-          <div className="merge-session-active" title="Review session in progress">
+          <div className="merge-session-active" title={t("flowTab.reviewSessionInProgress")}>
             <span className="merge-session-label">
               {mergeSession.results.length + 1}/{mergeSession.total}
             </span>
             <div className="merge-session-actions">
-              <button className="btn btn-sm btn-primary" type="button" title="Merge this entry" onClick={() => void handleSessionAction("merged")}>Merge</button>
-              <button className="btn btn-sm" type="button" title="Skip this entry" onClick={() => void handleSessionAction("skipped")}>Skip</button>
-              <button className="btn btn-sm" type="button" title="Stop the review session" onClick={() => void handleSessionAction("stop")}>Stop</button>
+              <button className="btn btn-sm btn-primary" type="button" title={t("flowTab.mergeThisEntry")} onClick={() => void handleSessionAction("merged")}>{t("flowTab.merge")}</button>
+              <button className="btn btn-sm" type="button" title={t("flowTab.skipThisEntry")} onClick={() => void handleSessionAction("skipped")}>{t("flowTab.skip")}</button>
+              <button className="btn btn-sm" type="button" title={t("flowTab.stopTheReviewSession")} onClick={() => void handleSessionAction("stop")}>{t("flowTab.stop")}</button>
             </div>
           </div>
         ) : null}
         {showSummary ? (
-          <div className="merge-session-summary" title="Session summary">
-            <span className="merge-session-summary-title">Session summary</span>
-            <span className="merge-session-summary-row">Merged: {mergedCount}</span>
-            <span className="merge-session-summary-row">Skipped: {skippedCount}</span>
-            {conflictedCount > 0 ? <span className="merge-session-summary-row merge-session-conflict">Conflicted: {conflictedCount}</span> : null}
+          <div className="merge-session-summary" title={t("flowTab.sessionSummary")}>
+            <span className="merge-session-summary-title">{t("flowTab.sessionSummary")}</span>
+            <span className="merge-session-summary-row">{t("flowTab.merged", { mergedCount: mergedCount })}</span>
+            <span className="merge-session-summary-row">{t("flowTab.skipped", { skippedCount: skippedCount })}</span>
+            {conflictedCount > 0 ? <span className="merge-session-summary-row merge-session-conflict">{t("flowTab.conflicted", { conflictedCount: conflictedCount })}</span> : null}
             {mergedCount > 0 ? (
-              <button className="btn btn-sm" type="button" title="Clean up merged entries from the queue" onClick={handleCleanupMerged}>Clean up merged</button>
+              <button className="btn btn-sm" type="button" title={t("flowTab.cleanUpMergedEntriesFrom")} onClick={handleCleanupMerged}>{t("flowTab.cleanUpMerged")}</button>
             ) : null}
           </div>
         ) : null}
         {!mergeSession.active ? (
           <div className="merge-queue-batch-actions">
-            <label className="merge-queue-select-all" title="Select all pending entries">
-              <input type="checkbox" checked={allSelected} onChange={handleToggleAll} title="Select all" />
-              <span>Select all</span>
+            <label className="merge-queue-select-all" title={t("flowTab.selectAllPendingEntries")}>
+              <input type="checkbox" checked={allSelected} onChange={handleToggleAll} title={t("flowTab.selectAll")} />
+              <span>{t("flowTab.selectAll")}</span>
             </label>
             <button
               className="btn btn-sm btn-primary"
               type="button"
-              title="Start a guided review session for selected entries"
+              title={t("flowTab.startAGuidedReviewSession")}
               disabled={mergeSelected.size === 0}
               onClick={handleStartSession}
             >
-              Review &amp; merge ({mergeSelected.size})
+              {t("flowTab.reviewMerge", { size: mergeSelected.size })}
             </button>
           </div>
         ) : null}
@@ -500,22 +501,22 @@ export function FlowTab({
                     type="checkbox"
                     checked={isSelected}
                     onChange={() => handleToggleSelect(entry.id)}
-                    title={`Select ${title}`}
+                    title={t("flowTab.select", { title: title })}
                   />
                 ) : null}
                 <span className="merge-queue-entry-title" title={title}>{title}</span>
-                <span className="merge-queue-entry-status" title={`Status: ${entry.status}`}>{entry.status}</span>
+                <span className="merge-queue-entry-status" title={t("flowTab.status", { status: entry.status })}>{entry.status}</span>
                 {sessionResult ? (
-                  <span className="merge-queue-entry-session-result" title={`Session result: ${sessionResult.action}`}>
+                  <span className="merge-queue-entry-session-result" title={t("flowTab.sessionResult", { action: sessionResult.action })}>
                     {sessionResult.action}
                   </span>
                 ) : null}
               </div>
               {!mergeSession.active ? (
                 <div className="merge-queue-entry-actions">
-                  <button className="btn btn-sm" type="button" title={`Approve merge entry ${entry.id.slice(0, 8)}`} onClick={() => void handleReviewMergeEntry(entry.id, "approved")}>Approve</button>
-                  <button className="btn btn-sm" type="button" title={`Reject merge entry ${entry.id.slice(0, 8)}`} onClick={() => void handleReviewMergeEntry(entry.id, "rejected")}>Reject</button>
-                  <button className="btn btn-sm btn-primary" type="button" title={`Merge entry ${entry.id.slice(0, 8)}`} onClick={() => void handleReviewMergeEntry(entry.id, "merged")}>Merge</button>
+                  <button className="btn btn-sm" type="button" title={t("flowTab.approveMergeEntry", { value: entry.id.slice(0, 8) })} onClick={() => void handleReviewMergeEntry(entry.id, "approved")}>{t("flowTab.approve")}</button>
+                  <button className="btn btn-sm" type="button" title={t("flowTab.rejectMergeEntry", { value: entry.id.slice(0, 8) })} onClick={() => void handleReviewMergeEntry(entry.id, "rejected")}>{t("flowTab.reject")}</button>
+                  <button className="btn btn-sm btn-primary" type="button" title={t("flowTab.mergeEntry", { value: entry.id.slice(0, 8) })} onClick={() => void handleReviewMergeEntry(entry.id, "merged")}>{t("flowTab.merge")}</button>
                 </div>
               ) : null}
             </div>
@@ -553,15 +554,15 @@ export function FlowTab({
         }}
       />
       {/* Launch profile */}
-      <div className="launch-profile-form" title="Configure how ready plans are launched">
+      <div className="launch-profile-form" title={t("flowTab.configureHowReadyPlansAre")}>
         <Disclosure
-          label="Launch profile"
+          label={t("flowTab.launchProfile")}
           summary={`${launchForm.workerCount} worker${launchForm.workerCount === 1 ? "" : "s"} · ${launchForm.workspacePolicy.replace(/_/g, " ")} · ${launchForm.schedulingMode} · ${FINISH_POLICY_LABELS[launchForm.finishPolicy]}`}
-          title="Workers, workspace, scheduling, engine, and finish policy for launched plans"
+          title={t("flowTab.workersWorkspaceSchedulingEngineAnd")}
         >
         <div className="launch-profile-row">
-          <label className="launch-profile-field" title="Number of workers that may run simultaneously (1–8)">
-            <span>Workers</span>
+          <label className="launch-profile-field" title={t("flowTab.numberOfWorkersThatMay")}>
+            <span>{t("flowTab.workers")}</span>
             <input
               type="number"
               min={1}
@@ -571,47 +572,47 @@ export function FlowTab({
                 const value = Math.min(Math.max(parseInt(e.target.value, 10) || 1, 1), 8);
                 setLaunchForm((prev) => ({ ...prev, workerCount: value }));
               }}
-              title="Worker count"
+              title={t("flowTab.workerCount")}
             />
           </label>
-          <label className="launch-profile-field" title="Effective concurrent provider call cap derived from worker count">
-            <span>Provider cap</span>
+          <label className="launch-profile-field" title={t("flowTab.effectiveConcurrentProviderCallCap")}>
+            <span>{t("flowTab.providerCap")}</span>
             <span className="launch-profile-summary">{launchForm.workerCount}</span>
           </label>
-          <label className="launch-profile-field" title="Workspace isolation policy for launched runs">
-            <span>Workspace</span>
+          <label className="launch-profile-field" title={t("flowTab.workspaceIsolationPolicyForLaunched")}>
+            <span>{t("flowTab.workspace")}</span>
             <OptionList
               value={launchForm.workspacePolicy}
-              options={WORKSPACE_OPTION_ITEMS}
+              options={WORKSPACE_OPTION_ITEMS()}
               onChange={(id) => setLaunchForm((prev) => ({ ...prev, workspacePolicy: id }))}
-              label="Workspace policy"
+              label={t("flowTab.workspacePolicy")}
             />
           </label>
-          <label className="launch-profile-field" title="Scheduling safety mode">
-            <span>Scheduling</span>
+          <label className="launch-profile-field" title={t("flowTab.schedulingSafetyMode")}>
+            <span>{t("flowTab.scheduling")}</span>
             <OptionList
               value={launchForm.schedulingMode}
-              options={SCHEDULING_OPTION_ITEMS}
+              options={SCHEDULING_OPTION_ITEMS()}
               onChange={(id) => setLaunchForm((prev) => ({ ...prev, schedulingMode: id }))}
-              label="Scheduling mode"
+              label={t("flowTab.schedulingMode")}
             />
           </label>
-          <label className="launch-profile-field" title="Execution engine for launched plans">
-            <span>Engine</span>
+          <label className="launch-profile-field" title={t("flowTab.executionEngineForLaunchedPlans")}>
+            <span>{t("flowTab.engine")}</span>
             <OptionList
               value={launchForm.engine}
-              options={ENGINE_OPTION_ITEMS}
+              options={ENGINE_OPTION_ITEMS()}
               onChange={(id) => setLaunchForm((prev) => ({ ...prev, engine: id }))}
-              label="Engine kind"
+              label={t("flowTab.engineKind")}
             />
           </label>
-          <label className="launch-profile-field" title="What happens when a plan run finishes — hold for manual review, auto-commit to the worktree, commit + push a PR, or queue for merge review">
-            <span>On finish</span>
+          <label className="launch-profile-field" title={t("flowTab.whatHappensWhenAPlan")}>
+            <span>{t("flowTab.onFinish")}</span>
             <OptionList
               value={launchForm.finishPolicy}
-              options={FINISH_OPTION_ITEMS}
+              options={FINISH_OPTION_ITEMS()}
               onChange={(id) => setLaunchForm((prev) => ({ ...prev, finishPolicy: id }))}
-              label="Finish policy"
+              label={t("flowTab.finishPolicy")}
             />
           </label>
         </div>
@@ -619,80 +620,80 @@ export function FlowTab({
           <button
             className="btn btn-sm btn-primary"
             type="button"
-            title="Save launch profile for this project"
+            title={t("flowTab.saveLaunchProfileForThis")}
             onClick={() => void handleSaveLaunchProfile()}
             disabled={launchSaving || !projectPath}
           >
-            {launchSaving ? "Saving…" : "Save launch profile"}
+            {launchSaving ? t("flowTab.saving") : t("flowTab.saveLaunchProfile")}
           </button>
         </div>
         </Disclosure>
       </div>
       {/* Schematic stage */}
-      <div className="flow-stage" title="Project schematic — the steering document">
+      <div className="flow-stage" title={t("flowTab.projectSchematicTheSteeringDocument")}>
         <div className="flow-stage-header">
-          <span className="flow-stage-name">Schematic</span>
+          <span className="flow-stage-name">{t("flowTab.schematic")}</span>
           <span className={`flow-stage-count flow-count-${schematicReport ? (schematicReport.health === "complete" ? "ok" : "warn") : "empty"}`}>
             {schematicReport ? (schematicReport.health === "complete" ? "✓" : "!") : "0"}
           </span>
         </div>
         <span className="flow-stage-detail text-muted text-sm">
-          {schematicReport ? `${schematicReport.sections.filter((s) => s.state === "filled").length}/${schematicReport.sections.length} sections` : "No schematic"}
+          {schematicReport ? t("flowTab.sections", { valueCount: schematicReport.sections.filter((s) => s.state === "filled").length, sectionsCount: schematicReport.sections.length }) : t("flowTab.noSchematic")}
         </span>
       </div>
 
       {/* Ideas stage */}
-      <div className="flow-stage" title="Generated ideas across all categories">
+      <div className="flow-stage" title={t("flowTab.generatedIdeasAcrossAllCategories")}>
         <div className="flow-stage-header">
-          <span className="flow-stage-name">Ideas</span>
+          <span className="flow-stage-name">{t("flowTab.ideas")}</span>
           <span className="flow-stage-count">{ideaState.ideas.length}</span>
         </div>
         <span className="flow-stage-detail text-muted text-sm">
-          {ideaState.ideas.filter((i) => i.status === "concept").length} concept, {ideaState.ideas.filter((i) => i.status === "picked").length} picked
+          {t("flowTab.conceptPicked", { conceptCount: ideaState.ideas.filter((i) => i.status === "concept").length, pickedCount: ideaState.ideas.filter((i) => i.status === "picked").length })}
         </span>
       </div>
 
       {/* Plans stage */}
-      <div className="flow-stage" title="Plans promoted from ideas">
+      <div className="flow-stage" title={t("flowTab.plansPromotedFromIdeas")}>
         <div className="flow-stage-header">
-          <span className="flow-stage-name">Plans</span>
+          <span className="flow-stage-name">{t("flowTab.plans")}</span>
           <span className="flow-stage-count">{plans.length}</span>
         </div>
         <span className="flow-stage-detail text-muted text-sm">
-          {plans.filter((p) => p.status === "draft" || p.status === "openspec").length} draft, {plans.filter((p) => p.status === "ready").length} ready
+          {t("flowTab.draftReady", { draftCount: plans.filter((p) => p.status === "draft" || p.status === "openspec").length, readyCount: plans.filter((p) => p.status === "ready").length })}
         </span>
         {plans.filter((p) => p.status === "ready").length > 0 ? (
           launchConfirmOpen && launchSummary ? (
-            <div className="launch-profile-confirm" title="Review launch summary before dispatching">
-              <span className="launch-profile-confirm-title">Launch summary</span>
+            <div className="launch-profile-confirm" title={t("flowTab.reviewLaunchSummaryBeforeDispatching")}>
+              <span className="launch-profile-confirm-title">{t("flowTab.launchSummary")}</span>
               <ul className="launch-profile-confirm-list">
-                <li><span className="label">Workers</span><span className="value">{launchSummary.workerCount}</span></li>
-                <li><span className="label">Provider cap</span><span className="value">{launchSummary.providerCap}</span></li>
-                <li><span className="label">Start / queue</span><span className="value">{launchSummary.startCount} / {launchSummary.queueCount}</span></li>
-                <li><span className="label">Worktrees</span><span className="value">{launchSummary.worktrees}</span></li>
-                <li><span className="label">Branches</span><span className="value">{launchSummary.branches}</span></li>
-                <li><span className="label">Prerequisites</span><span className="value">{launchSummary.prerequisites}</span></li>
-                <li><span className="label">Collisions</span><span className="value">{launchSummary.collisions}</span></li>
-                <li><span className="label">Policy</span><span className="value">{launchSummary.policy}</span></li>
-                <li><span className="label">Scheduling</span><span className="value">{launchSummary.schedulingMode}</span></li>
-                <li><span className="label">On finish</span><span className="value">{FINISH_POLICY_LABELS[launchSummary.finishPolicy]}</span></li>
+                <li><span className="label">{t("flowTab.workers")}</span><span className="value">{launchSummary.workerCount}</span></li>
+                <li><span className="label">{t("flowTab.providerCap")}</span><span className="value">{launchSummary.providerCap}</span></li>
+                <li><span className="label">{t("flowTab.startQueue")}</span><span className="value">{launchSummary.startCount} / {launchSummary.queueCount}</span></li>
+                <li><span className="label">{t("flowTab.worktrees")}</span><span className="value">{launchSummary.worktrees}</span></li>
+                <li><span className="label">{t("flowTab.branches")}</span><span className="value">{launchSummary.branches}</span></li>
+                <li><span className="label">{t("flowTab.prerequisites")}</span><span className="value">{launchSummary.prerequisites}</span></li>
+                <li><span className="label">{t("flowTab.collisions")}</span><span className="value">{launchSummary.collisions}</span></li>
+                <li><span className="label">{t("flowTab.policy")}</span><span className="value">{launchSummary.policy}</span></li>
+                <li><span className="label">{t("flowTab.scheduling")}</span><span className="value">{launchSummary.schedulingMode}</span></li>
+                <li><span className="label">{t("flowTab.onFinish")}</span><span className="value">{FINISH_POLICY_LABELS[launchSummary.finishPolicy]}</span></li>
               </ul>
               <div className="launch-profile-confirm-actions">
                 <button
                   className="btn btn-sm"
                   type="button"
-                  title="Cancel launch"
+                  title={t("flowTab.cancelLaunch")}
                   onClick={() => setLaunchConfirmOpen(false)}
                 >
-                  Cancel
+                  {t("flowTab.cancel")}
                 </button>
                 <button
                   className="btn btn-sm btn-primary"
                   type="button"
-                  title={`Launch ${launchSummary.startCount + launchSummary.queueCount} ready plan(s)`}
+                  title={t("flowTab.launchTitle", { count: launchSummary.startCount + launchSummary.queueCount })}
                   onClick={() => void handleLaunchConfirm()}
                 >
-                  Confirm launch
+                  {t("flowTab.confirmLaunch")}
                 </button>
               </div>
             </div>
@@ -700,15 +701,15 @@ export function FlowTab({
             <button
               className="btn btn-sm btn-primary flow-stage-action"
               type="button"
-              title={`Launch ${plans.filter((p) => p.status === "ready").length} ready plan(s) — review summary before dispatch`}
+              title={t("flowTab.launchReviewTitle", { count: plans.filter((p) => p.status === "ready").length })}
               onClick={() => void handleLaunchClick()}
             >
-              Launch {plans.filter((p) => p.status === "ready").length} ready
+              {t("flowTab.launchReady", { count: plans.filter((p) => p.status === "ready").length })}
             </button>
           ) : (
-            <div className="flow-runtime-blocked" title="OpenSpec runtime not configured">
+            <div className="flow-runtime-blocked" title={t("flowTab.openSpecRuntimeNotConfigured")}>
               <span className="text-sm text-muted">
-                OpenSpec runtime {runtimeState ?? "missing"}. Configure in Settings → OpenSpec.
+                {t("flowTab.openSpecRuntimeState", { state: runtimeState ?? t("flowTab.missing") })}
               </span>
             </div>
           )
@@ -716,27 +717,27 @@ export function FlowTab({
       </div>
 
       {/* Running stage */}
-      <div className="flow-stage" title="Plans currently running in worktrees">
+      <div className="flow-stage" title={t("flowTab.plansCurrentlyRunningInWorktrees")}>
         <div className="flow-stage-header">
-          <span className="flow-stage-name">Running</span>
+          <span className="flow-stage-name">{t("flowTab.running")}</span>
           <span className={`flow-stage-count flow-count-${planRuns.some((r) => r.status === "running") ? "active" : "empty"}`}>
             {planRuns.filter((r) => r.status === "running").length}
           </span>
         </div>
         <span className="flow-stage-detail text-muted text-sm">
-          {planRuns.filter((r) => r.status === "running").length} active run(s)
+          {t(planRuns.filter((r) => r.status === "running").length === 1 ? "flowTab.activeRunOne" : "flowTab.activeRunMany", { count: planRuns.filter((r) => r.status === "running").length })}
         </span>
       </div>
 
       {/* Finished stage */}
-      <div className="flow-stage" title="Finished and cancelled plans">
+      <div className="flow-stage" title={t("flowTab.finishedAndCancelledPlans")}>
         <div className="flow-stage-header">
-          <span className="flow-stage-name">Finished</span>
+          <span className="flow-stage-name">{t("flowTab.finished")}</span>
           <span className="flow-stage-count flow-count-ok">{plans.filter((p) => p.status === "finished").length}</span>
         </div>
 
         <span className="flow-stage-detail text-muted text-sm">
-          {plans.filter((p) => p.status === "finished").length} done, {plans.filter((p) => p.status === "cancelled").length} cancelled
+          {t("flowTab.doneCancelled", { doneCount: plans.filter((p) => p.status === "finished").length, cancelledCount: plans.filter((p) => p.status === "cancelled").length })}
         </span>
         {plans.filter((p) => p.status === "finished").length > 0 ? (
           <IntegrationQueue sessionId={sessionId} projectPath={projectPath} />

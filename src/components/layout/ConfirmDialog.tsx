@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { useEffect } from "react";
 import { AlertTriangle } from "lucide-react";
 import { ModalPortal } from "../ModalPortal";
@@ -17,8 +18,8 @@ export function ConfirmDialog({
   open,
   title,
   message,
-  confirmLabel = "Confirm",
-  cancelLabel = "Cancel",
+  confirmLabel = t("confirmDialog.confirm"),
+  cancelLabel = t("confirmDialog.cancel"),
   destructive = false,
   onConfirm,
   onCancel,

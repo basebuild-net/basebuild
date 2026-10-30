@@ -11,6 +11,7 @@ import {
 } from "../../lib/native-chat";
 import { ModalPortal } from "../ModalPortal";
 import { LoadingBlock } from "./Loading";
+import { t } from "../../i18n";
 
 export type DestinationChoice =
   | { kind: "existing"; chatSessionId: string; panelId: string; model?: ChatModelDefault | null }
@@ -46,7 +47,7 @@ export function DestinationPicker({
   onClose,
   onSelect,
   panels,
-  title = "Choose destination",
+  title = t("destinationPicker.chooseDestination"),
   projectPath = null,
   mode = "deliver",
 }: DestinationPickerProps) {
@@ -139,11 +140,11 @@ export function DestinationPicker({
     ? `Chat's current model (${sessionModel.modelId})`
     : resolvedDefault
       ? `Project default (${resolvedDefault.modelId})`
-      : "Project default";
+      : t("destinationPicker.projectDefault");
   // Deliver-mode new chats go through the transactional panel-create path,
   // which always starts on the project default — no override there.
   const modelOverrideDisabled = mode === "deliver" && selected === "new";
-  const confirmLabel = mode === "assign" ? "Assign" : "Deliver";
+  const confirmLabel = mode === "assign" ? t("destinationPicker.assign") : t("destinationPicker.deliver");
 
   function chosenModel(): ChatModelDefault | null {
     if (modelOverrideDisabled || modelChoice === MODEL_AUTO || !catalog) return null;
@@ -191,7 +192,7 @@ export function DestinationPicker({
       <div className="modal destination-picker-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h3>{title}</h3>
-          <button className="btn-icon" type="button" title="Close (Esc)" aria-label="Close" onClick={onClose} disabled={busy}>
+          <button className="btn-icon" type="button" title={t("destinationPicker.closeEsc")} aria-label={t("destinationPicker.close")} onClick={onClose} disabled={busy}>
             <X size={14} />
           </button>
         </div>
@@ -199,7 +200,7 @@ export function DestinationPicker({
           <ul className="destination-picker-list" role="listbox">
             {chatPanels.length === 0 ? (
               <li className="destination-picker-empty text-muted text-sm">
-                No open chat panels.
+                {t("destinationPicker.noOpenChatPanels")}
               </li>
             ) : null}
             {chatPanels.map((panel) => (
@@ -207,14 +208,14 @@ export function DestinationPicker({
                 <button
                   className={`destination-picker-item ${selected === panel.panelId ? "selected" : ""}`}
                   type="button"
-                  title={`Send to ${panel.title}${panel.chatSessionId ? ` (session ${panel.chatSessionId.slice(-6)})` : " (no session yet)"}`}
+                  title={t("destinationPicker.sendTo", { title: panel.title, value: panel.chatSessionId ? ` (session ${panel.chatSessionId.slice(-6)})` : " (no session yet)" })}
                   onClick={() => setSelected(panel.panelId)}
                   disabled={!panel.chatSessionId}
                 >
                   <MessageSquare size={14} className="destination-picker-item-icon" />
                   <span className="destination-picker-item-label">{panel.title}</span>
                   {!panel.chatSessionId ? (
-                    <span className="destination-picker-item-badge text-muted text-sm">initializing…</span>
+                    <span className="destination-picker-item-badge text-muted text-sm">{t("destinationPicker.initializing")}</span>
                   ) : null}
                 </button>
               </li>
@@ -224,24 +225,24 @@ export function DestinationPicker({
               <button
                 className={`destination-picker-item ${selected === "new" ? "selected" : ""}`}
                 type="button"
-                title={mode === "assign" ? "Create a new chat and assign the plan to it" : "Create a new chat panel for this prompt"}
+                title={mode === "assign" ? t("destinationPicker.createANewChatAnd") : t("destinationPicker.createANewChatPanel")}
                 onClick={() => setSelected("new")}
               >
                 <Plus size={14} className="destination-picker-item-icon" />
-                <span className="destination-picker-item-label">New conversation</span>
+                <span className="destination-picker-item-label">{t("destinationPicker.newConversation")}</span>
               </button>
             </li>
           </ul>
-          {/* Nothing to keep on screen yet — a bare "Project default" label
+          {/* Nothing to keep on screen yet — a bare t("destinationPicker.projectDefault") label
               over empty optgroups would understate what is actually offered. */}
           {selected && bootstrapLoading && !catalog ? (
-            <LoadingBlock label="Loading models…" compact />
+            <LoadingBlock label={t("destinationPicker.loadingModels")} compact />
           ) : null}
           {catalog && selected ? (
             <div className="destination-picker-model">
               <label className="destination-picker-model-label" htmlFor="destination-picker-model-select">
                 <Cpu size={11} />
-                Model
+                {t("destinationPicker.model")}
                 {bootstrapLoading ? <Loader2 size={11} className="is-spinning" /> : null}
               </label>
               <select
@@ -251,8 +252,8 @@ export function DestinationPicker({
                 disabled={modelOverrideDisabled}
                 title={
                   modelOverrideDisabled
-                    ? "New chats start with the project default model — change it from the chat composer"
-                    : "Confirm or change the model used at this destination"
+                    ? t("destinationPicker.newChatsStartWithThe")
+                    : t("destinationPicker.confirmOrChangeTheModel")
                 }
                 onChange={(e) => setModelChoice(e.target.value)}
               >
@@ -269,31 +270,31 @@ export function DestinationPicker({
               </select>
               {modelOverrideDisabled ? (
                 <span className="destination-picker-model-note text-muted">
-                  New chats start with the project default; change it in the composer.
+                  {t("destinationPicker.newChatsStartWithThe2")}
                 </span>
               ) : null}
             </div>
           ) : null}
         </div>
         <div className="modal-actions">
-          <button className="btn" type="button" title="Cancel — deliver nothing" onClick={onClose} disabled={busy}>
-            Cancel
+          <button className="btn" type="button" title={t("destinationPicker.cancelDeliverNothing")} onClick={onClose} disabled={busy}>
+            {t("destinationPicker.cancel")}
           </button>
           <button
             className="btn btn-primary"
             type="button"
             title={
               busy
-                ? (mode === "assign" ? "Assigning the plan…" : "Delivering…")
+                ? (mode === "assign" ? t("destinationPicker.assigningThePlan") : t("destinationPicker.delivering"))
                 : selected
-                  ? "Deliver prompt to the selected destination"
-                  : "Pick a destination first"
+                  ? t("destinationPicker.deliverPromptToTheSelected")
+                  : t("destinationPicker.pickADestinationFirst")
             }
             onClick={handleConfirm}
             disabled={!selected || busy}
           >
             {busy ? <Loader2 size={12} className="is-spinning" /> : null}
-            {busy ? (mode === "assign" ? "Assigning…" : "Sending…") : confirmLabel}
+            {busy ? (mode === "assign" ? t("destinationPicker.assigning") : t("destinationPicker.sending")) : confirmLabel}
           </button>
         </div>
       </div>

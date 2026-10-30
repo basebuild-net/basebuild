@@ -127,6 +127,7 @@ import { assignPlanWithProfile, getLaunchProfile, validateReadiness, type Launch
 import { isTerminalRunStatus, pipelineListRunsByProject } from "../../lib/pipeline";
 import { usePlanningEvents } from "../../state/planningEvents";
 import { humanizeChatTitle } from "../../lib/titles";
+import { t } from "../../i18n";
 export type ToolId = "terminal";
 
 
@@ -1634,12 +1635,12 @@ export function AppShell({ updates }: AppShellProps) {
           return (
             <div className="empty-state">
               <TerminalSquare size={32} className="text-muted" />
-              <h3>Terminal not connected</h3>
-              <p>The terminal process from the previous session is no longer running.</p>
+              <h3>{t("appShell.terminalNotConnected")}</h3>
+              <p>{t("appShell.theTerminalProcessFromThe")}</p>
               <button
                 className="btn btn-primary"
                 type="button"
-                title="Create a new terminal"
+                title={t("appShell.createANewTerminal")}
                 onClick={() => {
                   void (async () => {
                     const shell = DEFAULT_SHELL();
@@ -1654,7 +1655,7 @@ export function AppShell({ updates }: AppShellProps) {
                   })();
                 }}
               >
-                Reconnect
+                {t("appShell.reconnect")}
               </button>
             </div>
           );
@@ -2126,7 +2127,7 @@ export function AppShell({ updates }: AppShellProps) {
     <div className="app-container app-container-chat-first">
       {restorePhase !== "ready" ? <WorkspaceSplash phase={restorePhase} /> : null}
       <div className="window-taskbar" role="banner">
-        <span className="window-taskbar-title" title="Basebuild">Basebuild</span>
+        <span className="window-taskbar-title" title={t("appShell.basebuild")}>{t("appShell.basebuild")}</span>
         <div className="window-taskbar-right">
           <TaskbarNotifications onNavigate={handleNotificationNavigate} appToasts={appToasts} onDismissAppToast={dismissAppToast} />
           <BackgroundAgents
@@ -2282,18 +2283,18 @@ export function AppShell({ updates }: AppShellProps) {
             {!activeProjectPath ? (
               <div className="empty-state">
                 <TerminalSquare size={32} className="text-muted" />
-                <h3>No project open</h3>
-                <p>Open a folder to start managing terminals, files, source control, and plans.</p>
-                <button className="btn btn-primary" type="button" title={sidebar.pickerInFlight ? "Opening folder picker…" : "Open a project folder"} onClick={handleOpenFolder} disabled={sidebar.pickerInFlight}>Open project</button>
+                <h3>{t("appShell.noProjectOpen")}</h3>
+                <p>{t("appShell.openAFolderToStart")}</p>
+                <button className="btn btn-primary" type="button" title={sidebar.pickerInFlight ? t("appShell.openingFolderPicker") : t("appShell.openAProjectFolder")} onClick={handleOpenFolder} disabled={sidebar.pickerInFlight}>{t("appShell.openProject")}</button>
               </div>
             ) : null}
             {activeProjectPath && projectRestoreError ? (
               <div className="project-restore-error" role="alert">
-                <h3>Project restore failed</h3>
+                <h3>{t("appShell.projectRestoreFailed")}</h3>
                 <p>{projectRestoreError}</p>
                 <div className="empty-state-actions">
-                  <button className="btn btn-primary" type="button" title="Retry project restore" onClick={handleRetryRestore}>Retry</button>
-                  <button className="btn" type="button" title="Switch to another project" onClick={() => setActiveProjectPath(null)}>Switch project</button>
+                  <button className="btn btn-primary" type="button" title={t("appShell.retryProjectRestore")} onClick={handleRetryRestore}>{t("appShell.retry")}</button>
+                  <button className="btn" type="button" title={t("appShell.switchToAnotherProject")} onClick={() => setActiveProjectPath(null)}>{t("appShell.switchProject")}</button>
                 </div>
               </div>
             ) : null}
@@ -2345,11 +2346,11 @@ export function AppShell({ updates }: AppShellProps) {
       </Suspense>
       {changesModalOpen && activeProjectPath ? (
         <ModalPortal>
-        <div className="modal-overlay" role="dialog" aria-label="Changes" onClick={() => setChangesModalOpen(false)}>
+        <div className="modal-overlay" role="dialog" aria-label={t("appShell.changes")} onClick={() => setChangesModalOpen(false)}>
           <div className="modal modal-changes" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>Changes</h2>
-              <button className="btn-icon" type="button" title="Close (Esc)" onClick={() => setChangesModalOpen(false)}><X size={14} /></button>
+              <h2>{t("appShell.changes")}</h2>
+              <button className="btn-icon" type="button" title={t("appShell.closeEsc")} onClick={() => setChangesModalOpen(false)}><X size={14} /></button>
             </div>
             <div className="modal-body">
               <Suspense fallback={<ModalLoading />}><SourcePanel projectPath={activeProjectPath} /></Suspense>
@@ -2360,11 +2361,11 @@ export function AppShell({ updates }: AppShellProps) {
       ) : null}
       {plansModalOpen && activeProjectPath ? (
         <ModalPortal>
-        <div className="modal-overlay" role="dialog" aria-label="Plans & Ideas" onClick={() => setPlansModalOpen(false)}>
+        <div className="modal-overlay" role="dialog" aria-label={t("appShell.plansIdeas")} onClick={() => setPlansModalOpen(false)}>
           <div className="modal modal-plans" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>Plans & Ideas</h2>
-              <button className="btn-icon" type="button" title="Close (Esc)" onClick={() => setPlansModalOpen(false)}><X size={14} /></button>
+              <h2>{t("appShell.plansIdeas")}</h2>
+              <button className="btn-icon" type="button" title={t("appShell.closeEsc")} onClick={() => setPlansModalOpen(false)}><X size={14} /></button>
             </div>
             <div className="modal-body">
               <Suspense fallback={<ModalLoading />}>
@@ -2401,11 +2402,11 @@ export function AppShell({ updates }: AppShellProps) {
       ) : null}
       {schematicModalOpen && activeProjectPath ? (
         <ModalPortal>
-        <div className="modal-overlay" role="dialog" aria-label="Project Schematic" onClick={() => setSchematicModalOpen(false)}>
+        <div className="modal-overlay" role="dialog" aria-label={t("appShell.projectSchematic")} onClick={() => setSchematicModalOpen(false)}>
           <div className="modal modal-schematic" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
-              <h2>Project Schematic</h2>
-              <button className="btn-icon" type="button" title="Close project schematic" onClick={() => setSchematicModalOpen(false)}><X size={14} /></button>
+              <h2>{t("appShell.projectSchematic")}</h2>
+              <button className="btn-icon" type="button" title={t("appShell.closeProjectSchematic")} onClick={() => setSchematicModalOpen(false)}><X size={14} /></button>
             </div>
             <div className="modal-body">
               <ProjectSchematicTab
@@ -2421,15 +2422,15 @@ export function AppShell({ updates }: AppShellProps) {
       <CrashReportNotice onViewReports={() => setDebugPanelOpen(true)} />
       <Suspense fallback={<ModalLoading />}><LogPanel open={logPanelOpen} onClose={() => setLogPanelOpen(false)} /></Suspense>
       {debugPanelOpen ? (
-        <div className="debug-panel-overlay" role="dialog" aria-label="Debug Panel">
+        <div className="debug-panel-overlay" role="dialog" aria-label={t("appShell.debugPanel")}>
           <div className="debug-panel-modal">
             <div className="debug-panel-header">
-              <h2>Debug Panel</h2>
+              <h2>{t("appShell.debugPanel")}</h2>
               <button
                 className="btn-icon"
                 type="button"
-                title="Close debug panel"
-                aria-label="Close debug panel"
+                title={t("appShell.closeDebugPanel")}
+                aria-label={t("appShell.closeDebugPanel")}
                 onClick={() => setDebugPanelOpen(false)}
               >
                 <X size={16} />
@@ -2500,7 +2501,7 @@ export function AppShell({ updates }: AppShellProps) {
           }
         }}
         panels={flattenPanels(panelGridState.root)}
-        title={pendingAssign ? "Assign plan to chat" : "Send to…"}
+        title={pendingAssign ? t("appShell.assignPlanToChat") : t("appShell.sendTo")}
         projectPath={activeProjectPath}
         mode={pendingAssign ? "assign" : "deliver"}
         onSelect={(choice: DestinationChoice) => {
@@ -2623,11 +2624,11 @@ export function AppShell({ updates }: AppShellProps) {
       />
       {globalInteraction ? (
         <ModalPortal>
-          <div className="modal-overlay" role="dialog" aria-label="Background agent question" onClick={() => setGlobalInteraction(null)}>
+          <div className="modal-overlay" role="dialog" aria-label={t("appShell.backgroundAgentQuestion")} onClick={() => setGlobalInteraction(null)}>
             <div className="modal modal-interaction" onClick={(e) => e.stopPropagation()}>
               <div className="modal-header">
-                <span className="modal-title">Background agent needs your input</span>
-                <button className="btn-icon" type="button" title="Close" onClick={() => setGlobalInteraction(null)}>
+                <span className="modal-title">{t("appShell.backgroundAgentNeedsYourInput")}</span>
+                <button className="btn-icon" type="button" title={t("appShell.close")} onClick={() => setGlobalInteraction(null)}>
                   <X size={14} />
                 </button>
               </div>

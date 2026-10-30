@@ -160,6 +160,7 @@ import { ToolEventCard } from "./chat/ToolEventCard";
 import { ChatTranscript } from "./chat/ChatTranscript";
 import { ProviderManageModal } from "./chat/ProviderManageModal";
 import { ProviderCatalogModal } from "./chat/ProviderCatalogModal";
+import { t } from "../../i18n";
 type ChatPanelProps = {
   projectPath: string;
   chatSessionId?: string | null;
@@ -2894,7 +2895,7 @@ export function ChatPanel({
       }
     }}>
       <div aria-live="polite" aria-atomic="true" className="sr-only" >
-        {streaming ? `Agent is responding${streamPhase === "tools" ? " — running tools" : streamPhase === "thinking" ? " — thinking" : ""}` : ""}
+        {streaming ? t((streamPhase === "tools" ? "chatPanel.agentIsResponding.runningTools" : streamPhase === "thinking" ? "chatPanel.agentIsResponding.thinking" : "chatPanel.agentIsResponding.none")) : ""}
       </div>
       {showPrCard && prRec ? (
         <PrRecommendationCard
@@ -2905,24 +2906,24 @@ export function ChatPanel({
       ) : null}
       {showAssignPlanPicker ? (
         <ModalPortal>
-        <div className="modal-overlay" onClick={() => setShowAssignPlanPicker(false)} title="Close plan picker">
-          <div className="modal modal-sm" onClick={(e) => e.stopPropagation()} title="Assign a ready plan">
+        <div className="modal-overlay" onClick={() => setShowAssignPlanPicker(false)} title={t("chatPanel.closePlanPicker")}>
+          <div className="modal modal-sm" onClick={(e) => e.stopPropagation()} title={t("chatPanel.assignAReadyPlan")}>
             <div className="modal-header">
-              <h2>Assign plan</h2>
-              <button className="btn-icon" type="button" title="Close plan picker" onClick={() => setShowAssignPlanPicker(false)}>
+              <h2>{t("chatPanel.assignPlan")}</h2>
+              <button className="btn-icon" type="button" title={t("chatPanel.closePlanPicker")} onClick={() => setShowAssignPlanPicker(false)}>
                 <X size={16} />
               </button>
             </div>
             <div className="modal-body stack">
               {readyPlans.length === 0 ? (
-                <p className="text-muted text-sm">No ready plans.</p>
+                <p className="text-muted text-sm">{t("chatPanel.noReadyPlans")}</p>
               ) : null}
               {readyPlans.map((p) => (
                 <button
                   key={p.id}
                   className="btn"
                   type="button"
-                  title={`Assign "${p.title}" (${p.referenceId}) to this chat`}
+                  title={t("chatPanel.assignToThisChat", { title: p.title, referenceId: p.referenceId })}
                   onClick={() => void handleAssignPlan(p.id)}
                 >
                   <span>{p.title}</span>
@@ -3048,16 +3049,16 @@ export function ChatPanel({
         const resolveAll = (decision: "allow" | "allow_session" | "deny") =>
           pending.forEach((e) => void handleResolveApproval(e.id, decision));
         return (
-          <div className="chat-approval-bar" title={`Approval required: ${names}`}>
+          <div className="chat-approval-bar" title={t("chatPanel.approvalRequired", { names: names })}>
             <span className="chat-approval-bar-label">
               <span className="chat-approval-bar-icon" aria-hidden="true">🔐</span>
-              Approve <strong>{names}</strong>?
+              {t("chatPanel.approve")} <strong>{names}</strong>?
             </span>
             <div className="chat-approval-bar-actions">
-              <button className="btn btn-sm btn-primary" type="button" title="Allow this tool call once" onClick={() => resolveAll("allow")}>Allow Once</button>
-              <button className="btn btn-sm" type="button" title="Allow all calls to this tool for this session" onClick={() => resolveAll("allow_session")}>Allow Session</button>
-              <button className="btn btn-sm" type="button" title="Deny this tool call" onClick={() => resolveAll("deny")}>Deny</button>
-              <button className="btn btn-sm chat-approval-bar-auto" type="button" title="Switch to Auto mode: allow all tool calls without asking. Change back in Settings." onClick={() => void handleSetApprovalMode("auto")}>Allow All (Auto)</button>
+              <button className="btn btn-sm btn-primary" type="button" title={t("chatPanel.allowThisToolCallOnce")} onClick={() => resolveAll("allow")}>{t("chatPanel.allowOnce")}</button>
+              <button className="btn btn-sm" type="button" title={t("chatPanel.allowAllCallsToThis")} onClick={() => resolveAll("allow_session")}>{t("chatPanel.allowSession")}</button>
+              <button className="btn btn-sm" type="button" title={t("chatPanel.denyThisToolCall")} onClick={() => resolveAll("deny")}>{t("chatPanel.deny")}</button>
+              <button className="btn btn-sm chat-approval-bar-auto" type="button" title={t("chatPanel.switchToAutoModeAllow")} onClick={() => void handleSetApprovalMode("auto")}>{t("chatPanel.allowAllAuto")}</button>
             </div>
           </div>
         );
@@ -3072,14 +3073,14 @@ export function ChatPanel({
               className="chat-question-preview"
               type="button"
               key={`preview-${intr.id}`}
-              title="Reopen the agent's question"
+              title={t("chatPanel.reopenTheAgentSQuestion")}
               onClick={() => restoreQuestion(intr.id)}
             >
               <HelpCircle size={13} className="chat-question-preview-icon" />
               <span className="chat-question-preview-text">
-                {intr.title ?? intr.questions[0]?.prompt ?? "Agent is asking a question"}
+                {intr.title ?? intr.questions[0]?.prompt ?? t("chatPanel.agentIsAskingAQuestion")}
               </span>
-              <span className="chat-question-preview-action">Answer</span>
+              <span className="chat-question-preview-action">{t("chatPanel.answer")}</span>
             </button>
           ))}
         </>
@@ -3089,7 +3090,7 @@ export function ChatPanel({
         <button
           className="chat-scroll-bottom-btn"
           type="button"
-          title="Scroll to bottom of conversation"
+          title={t("chatPanel.scrollToBottomOfConversation")}
           onClick={scrollToBottom}
         >
           <ChevronDown size={16} />
@@ -3102,7 +3103,7 @@ export function ChatPanel({
             className="chat-search-input"
             type="text"
             autoFocus
-            placeholder="Search conversation…"
+            placeholder={t("chatPanel.searchConversation")}
             value={searchQuery}
             onChange={(e) => {
               const q = e.target.value;
@@ -3130,12 +3131,12 @@ export function ChatPanel({
                 els[next].scrollIntoView({ block: "center" });
               }
             }}
-            title="Search messages and tool cards — Enter for next, Shift+Enter for prev, Escape to close"
+            title={t("chatPanel.searchMessagesAndToolCards")}
           />
-          <span className="chat-search-count" title="Match count">
-            {searchMatchCount > 0 ? `${searchActiveIndex + 1}/${searchMatchCount}` : "0/0"}
+          <span className="chat-search-count" title={t("chatPanel.matchCount")}>
+            {searchMatchCount > 0 ? t("chatPanel.text", { value: searchActiveIndex + 1, searchMatchCount: searchMatchCount }) : "0/0"}
           </span>
-          <button className="chat-search-btn" type="button" title="Previous match (Shift+Enter)" onClick={() => {
+          <button className="chat-search-btn" type="button" title={t("chatPanel.previousMatchShiftEnter")} onClick={() => {
             const els = scrollRef.current?.querySelectorAll<HTMLElement>("mark.chat-search-highlight") ?? [];
             if (els.length === 0) return;
             const prev = (searchActiveIndex - 1 + els.length) % els.length;
@@ -3144,7 +3145,7 @@ export function ChatPanel({
           }}>
             <ChevronUp size={12} />
           </button>
-          <button className="chat-search-btn" type="button" title="Next match (Enter)" onClick={() => {
+          <button className="chat-search-btn" type="button" title={t("chatPanel.nextMatchEnter")} onClick={() => {
             const els = scrollRef.current?.querySelectorAll<HTMLElement>("mark.chat-search-highlight") ?? [];
             if (els.length === 0) return;
             const next = (searchActiveIndex + 1) % els.length;
@@ -3153,7 +3154,7 @@ export function ChatPanel({
           }}>
             <ChevronDown size={12} />
           </button>
-          <button className="chat-search-btn" type="button" title="Close search (Escape)" onClick={() => {
+          <button className="chat-search-btn" type="button" title={t("chatPanel.closeSearchEscape")} onClick={() => {
             setShowSearch(false);
             setSearchQuery("");
             setSearchMatchCount(0);
@@ -3169,7 +3170,7 @@ export function ChatPanel({
         <div className="chat-notice-bar" title={modelNotice}>
           <AlertCircle size={12} />
           <span className="text-sm">{modelNotice}</span>
-          <button className="btn-icon btn-icon-sm" title="Dismiss" type="button" onClick={() => setModelNotice(null)}>
+          <button className="btn-icon btn-icon-sm" title={t("chatPanel.dismiss")} type="button" onClick={() => setModelNotice(null)}>
             <X size={11} />
           </button>
         </div>
@@ -3183,15 +3184,15 @@ export function ChatPanel({
           <button
             className="btn btn-sm"
             type="button"
-            title="Retry creating the chat session"
+            title={t("chatPanel.retryCreatingTheChatSession")}
             onClick={() => {
               setError(null);
               setNativeSessionId(null);
             }}
           >
-            <RefreshCw size={12} /> Retry
+            <RefreshCw size={12} /> {t("chatPanel.retry")}
           </button>
-          <button className="btn-icon btn-icon-sm" title="Clear error" type="button" onClick={() => setError(null)}>
+          <button className="btn-icon btn-icon-sm" title={t("chatPanel.clearError")} type="button" onClick={() => setError(null)}>
             <X size={11} />
           </button>
         </div>
@@ -3206,20 +3207,20 @@ export function ChatPanel({
             <button
               className="btn btn-sm"
               type="button"
-              title={`Log in to ${setupRequired.providerLabel}`}
+              title={t("chatPanel.logInTo", { providerLabel: setupRequired.providerLabel })}
               onClick={() => {
                 setLoginError(null);
                 setManagedProviderId(setupRequired.providerId);
                 setShowLogin(true);
               }}
             >
-              <Key size={11} /> Log in
+              <Key size={11} /> {t("chatPanel.logIn")}
             </button>
           ) : (
             <button
               className="btn-icon btn-icon-sm"
               type="button"
-              title="Dismiss"
+              title={t("chatPanel.dismiss")}
               onClick={() => setSetupRequired(null)}
             >
               <X size={11} />
@@ -3275,7 +3276,7 @@ export function ChatPanel({
           passed (used by "Log out all"). Destructive in both cases. */}
       <ConfirmDialog
         open={confirmLogoutProvider !== null}
-        title={`Log out of ${confirmLogoutProvider?.label ?? "provider"}?`}
+        title={t("chatPanel.logOutOf", { label: confirmLogoutProvider?.label ?? "provider" })}
         message={
           confirmLogoutProvider && managedProvider && confirmLogoutProvider.id === managedProvider.id
             ? `This removes every stored ${confirmLogoutProvider?.label ?? ""} credential from Basebuild's local credential store and blocks Oh My Pi re-import until the next explicit login. Chats using this provider will stop working until you log in again.`
@@ -3297,20 +3298,20 @@ export function ChatPanel({
       {/* Command payload modal: shows the full injected skill/command body. */}
       {commandPayloadModal ? (
         <ModalPortal>
-        <div className="modal-overlay" onClick={() => setCommandPayloadModal(null)} title="Close command payload">
-          <div className="modal modal-sm" onClick={(e) => e.stopPropagation()} title={`${commandPayloadModal.name} payload`}>
+        <div className="modal-overlay" onClick={() => setCommandPayloadModal(null)} title={t("chatPanel.closeCommandPayload")}>
+          <div className="modal modal-sm" onClick={(e) => e.stopPropagation()} title={t("chatPanel.payload", { name: commandPayloadModal.name })}>
             <div className="modal-header">
               <h2>{commandPayloadModal.name}</h2>
               <button
                 className="btn-icon"
-                title="Close"
+                title={t("chatPanel.close")}
                 type="button"
                 onClick={() => setCommandPayloadModal(null)}
               >
                 <X size={16} />
               </button>
             </div>
-            <div className="modal-body command-payload-body" onClick={(e) => e.stopPropagation()} title="Full injected command payload">
+            <div className="modal-body command-payload-body" onClick={(e) => e.stopPropagation()} title={t("chatPanel.fullInjectedCommandPayload")}>
               <pre className="command-payload-pre">{commandPayloadModal.content}</pre>
             </div>
           </div>
@@ -3324,11 +3325,11 @@ export function ChatPanel({
           <>
             {showPlanningMenu ? (
               <ModalPortal>
-              <div className="modal-overlay" onClick={() => setShowPlanningMenu(false)} title="Close ideas menu">
-                <div className="modal modal-sm" onClick={(e) => e.stopPropagation()} title="Idea actions">
+              <div className="modal-overlay" onClick={() => setShowPlanningMenu(false)} title={t("chatPanel.closeIdeasMenu")}>
+                <div className="modal modal-sm" onClick={(e) => e.stopPropagation()} title={t("chatPanel.ideaActions")}>
                   <div className="modal-header">
-                    <h2>Ideas</h2>
-                    <button className="btn-icon" type="button" title="Close ideas menu" onClick={() => setShowPlanningMenu(false)}>
+                    <h2>{t("chatPanel.ideas")}</h2>
+                    <button className="btn-icon" type="button" title={t("chatPanel.closeIdeasMenu")} onClick={() => setShowPlanningMenu(false)}>
                       <X size={16} />
                     </button>
                   </div>
@@ -3337,21 +3338,21 @@ export function ChatPanel({
                       <button
                         className="btn"
                         type="button"
-                        title={`Schematic ${schematicReport.health}: incomplete sections may lead to ungrounded generation — click to open the schematic`}
+                        title={t("chatPanel.schematicIncompleteSectionsMayLeadTo", { health: schematicReport.health })}
                         onClick={() => {
                           setShowPlanningMenu(false);
                           onOpenSchematic?.();
                         }}
                       >
                         <AlertCircle size={11} />
-                        <span>Schematic {schematicReport.health}</span>
-                        <span className="text-muted text-sm">Fix</span>
+                        <span>{t("chatPanel.schematic", { health: schematicReport.health })}</span>
+                        <span className="text-muted text-sm">{t("chatPanel.fix")}</span>
                       </button>
                     )}
                     <button
                       className="btn"
                       type="button"
-                      title="Quick freeform idea generation in the chat"
+                      title={t("chatPanel.quickFreeformIdeaGenerationIn")}
                       disabled={generatingIdeas || !nativeSessionId}
                       onClick={() => {
                         setShowPlanningMenu(false);
@@ -3359,31 +3360,31 @@ export function ChatPanel({
                       }}
                     >
                       <Sparkles size={11} />
-                      <span>Quick ideas</span>
+                      <span>{t("chatPanel.quickIdeas")}</span>
                     </button>
                     <button
                       className="btn"
                       type="button"
-                      title="Pick a category and generate ideas for it"
+                      title={t("chatPanel.pickACategoryAndGenerate")}
                       onClick={() => {
                         setShowPlanningMenu(false);
                         setShowCategoryPicker(true);
                       }}
                     >
                       <FolderTree size={11} />
-                      <span>By category…</span>
+                      <span>{t("chatPanel.byCategory")}</span>
                     </button>
                     <button
                       className="btn"
                       type="button"
-                      title="Open the planning inspector"
+                      title={t("chatPanel.openThePlanningInspector")}
                       onClick={() => {
                         setShowPlanningMenu(false);
                         onOpenPlanningInspector?.();
                       }}
                     >
                       <LayoutGrid size={11} />
-                      <span>Planning inspector</span>
+                      <span>{t("chatPanel.planningInspector")}</span>
                     </button>
                   </div>
                 </div>
@@ -3392,24 +3393,24 @@ export function ChatPanel({
             ) : null}
             {showCategoryPicker ? (
               <ModalPortal>
-              <div className="modal-overlay" onClick={() => setShowCategoryPicker(false)} title="Close category picker">
-                <div className="modal modal-sm" onClick={(e) => e.stopPropagation()} title="Pick a category">
+              <div className="modal-overlay" onClick={() => setShowCategoryPicker(false)} title={t("chatPanel.closeCategoryPicker")}>
+                <div className="modal modal-sm" onClick={(e) => e.stopPropagation()} title={t("chatPanel.pickACategory")}>
                   <div className="modal-header">
-                    <h2>Pick a category</h2>
-                    <button className="btn-icon" type="button" title="Close category picker" onClick={() => setShowCategoryPicker(false)}>
+                    <h2>{t("chatPanel.pickACategory")}</h2>
+                    <button className="btn-icon" type="button" title={t("chatPanel.closeCategoryPicker")} onClick={() => setShowCategoryPicker(false)}>
                       <X size={16} />
                     </button>
                   </div>
                   <div className="modal-body stack">
                     {sessionCategories.length === 0 ? (
-                      <p className="text-muted text-sm">No categories yet.</p>
+                      <p className="text-muted text-sm">{t("chatPanel.noCategoriesYet")}</p>
                     ) : null}
                     {sessionCategories.map((cat) => (
                       <button
                         key={cat.id}
                         className="btn"
                         type="button"
-                        title={`Generate ideas for ${cat.name}`}
+                        title={t("chatPanel.generateIdeasFor", { name: cat.name })}
                         disabled={generatingIdeas}
                         onClick={() => void handleGenerateForCategory(cat.id)}
                       >
@@ -3420,12 +3421,12 @@ export function ChatPanel({
                     <button
                       className="btn"
                       type="button"
-                      title="Freeform generation (no category)"
+                      title={t("chatPanel.freeformGenerationNoCategory")}
                       disabled={generatingIdeas}
                       onClick={() => void handleGenerateForCategory(undefined)}
                     >
-                      <span>Freeform</span>
-                      <span className="text-muted text-sm">No specific category</span>
+                      <span>{t("chatPanel.freeform")}</span>
+                      <span className="text-muted text-sm">{t("chatPanel.noSpecificCategory")}</span>
                     </button>
                   </div>
                 </div>
@@ -3484,11 +3485,11 @@ export function ChatPanel({
               <div className="chat-command-notice">
                 <span>{commandNotice}</span>
                 {input.trim().startsWith("/") ? (
-                  <button className="btn btn-sm" type="button" title="Send this slash-prefixed text as a normal message" onClick={() => void sendMessage(input.trim())}>
-                    Send as text
+                  <button className="btn btn-sm" type="button" title={t("chatPanel.sendThisSlashPrefixedText")} onClick={() => void sendMessage(input.trim())}>
+                    {t("chatPanel.sendAsText")}
                   </button>
                 ) : null}
-                <button className="btn-icon btn-icon-sm" type="button" title="Dismiss command notice" onClick={() => setCommandNotice(null)}>
+                <button className="btn-icon btn-icon-sm" type="button" title={t("chatPanel.dismissCommandNotice")} onClick={() => setCommandNotice(null)}>
                   <X size={11} />
                 </button>
               </div>
@@ -3508,32 +3509,32 @@ export function ChatPanel({
             ) : null}
             {showClearConfirm ? (
               <ModalPortal>
-              <div className="modal-overlay" onClick={() => setShowClearConfirm(false)} title="Cancel clear chat">
-                <div className="modal modal-sm" onClick={(e) => e.stopPropagation()} title="Confirm clear chat">
+              <div className="modal-overlay" onClick={() => setShowClearConfirm(false)} title={t("chatPanel.cancelClearChat")}>
+                <div className="modal modal-sm" onClick={(e) => e.stopPropagation()} title={t("chatPanel.confirmClearChat")}>
                   <div className="modal-header">
-                    <h2>Clear chat?</h2>
-                    <button className="btn-icon" type="button" title="Cancel" onClick={() => setShowClearConfirm(false)}>
+                    <h2>{t("chatPanel.clearChat")}</h2>
+                    <button className="btn-icon" type="button" title={t("chatPanel.cancel")} onClick={() => setShowClearConfirm(false)}>
                       <X size={16} />
                     </button>
                   </div>
                   <div className="modal-body stack">
-                    <p className="text-sm">This will delete all messages and tool events in this chat. The chat session and its provider/model/effort selection are preserved. This cannot be undone.</p>
+                    <p className="text-sm">{t("chatPanel.thisWillDeleteAllMessages")}</p>
                     <div className="row gap-sm">
                       <button
                         className="btn"
                         type="button"
-                        title="Cancel and keep the chat as-is"
+                        title={t("chatPanel.cancelAndKeepTheChat")}
                         onClick={() => setShowClearConfirm(false)}
                       >
-                        Cancel
+                        {t("chatPanel.cancel")}
                       </button>
                       <button
                         className="btn btn-primary"
                         type="button"
-                        title="Delete all messages and tool events in this chat"
+                        title={t("chatPanel.deleteAllMessagesAndTool")}
                         onClick={() => void handleClearChat()}
                       >
-                        Clear
+                        {t("chatPanel.clear")}
                       </button>
                     </div>
                   </div>
@@ -3566,13 +3567,12 @@ export function ChatPanel({
             <button
               className="chat-bg-agent-gate"
               type="button"
-              title="Enable the chat input for this session — the background agent keeps running either way"
+              title={t("chatPanel.enableTheChatInputFor")}
               onClick={() => setBgInputUnlocked(true)}
             >
               <Bot size={12} className="chat-bg-agent-gate-icon" />
               <span>
-                A background agent is running. Click here to enable the chat input —
-                interrupting may cause the background agent to fail its original task.
+                {t("chatPanel.aBackgroundAgentIsRunning")}
               </span>
             </button>
           ) : null}
@@ -3580,13 +3580,13 @@ export function ChatPanel({
             <textarea
               ref={chatInputRef}
               className="input chat-input"
-              aria-label="Chat message input"
+              aria-label={t("chatPanel.chatMessageInput")}
               placeholder={
                 !nativeMode
-                  ? "Agent not connected. Click retry above to start."
+                  ? t("chatPanel.agentNotConnectedClickRetry")
                   : steerable
-                    ? "Steer the agent while it works… (Enter to send)"
-                    : "Type a message… (Enter to send, Shift+Enter for newline)"
+                    ? t("chatPanel.steerTheAgentWhileIt")
+                    : t("chatPanel.typeAMessageEnterTo")
               }
               value={input}
               onChange={(e) => {
@@ -3725,7 +3725,7 @@ export function ChatPanel({
               }}
               rows={2}
               disabled={inputDisabled}
-              title={!nativeMode ? "Chat input: start the agent to enable sending" : steerable ? "Chat input: the agent is working, press Enter to steer it mid-turn" : "Chat input: type a message and press Enter to send"}
+              title={!nativeMode ? t("chatPanel.chatInputStartTheAgent") : steerable ? t("chatPanel.chatInputTheAgentIs") : t("chatPanel.chatInputTypeAMessage")}
             />
           </div>
           <div className="chat-composer-controls">
@@ -3758,19 +3758,19 @@ export function ChatPanel({
                     className={`chat-route-badge is-${routeVia}`}
                     title={
                       routeVia === "omp"
-                        ? "This chat routes through the Oh My Pi (OMP) RPC bridge — some Basebuild tools may be unavailable."
-                        : "This chat uses Basebuild's native transport (first-party) — full tool support."
+                        ? t("chatPanel.thisChatRoutesThroughThe")
+                        : t("chatPanel.thisChatUsesBasebuildS")
                     }
                   >
-                    {routeVia === "omp" ? "OMP" : "Native"}
+                    {routeVia === "omp" ? t("chatPanel.oMP") : t("chatPanel.native")}
                   </span>
                 ) : null}
                 {isLocalProvider && genStats ? (
-                  <span className="chat-gen-stats" title="Local generation stats from the last completed turn">
-                    <span className="chat-gen-stats-label">Local</span>
-                    {genStats.tokensPerSecond != null ? <span>{genStats.tokensPerSecond.toFixed(1)} tok/s</span> : null}
-                    {genStats.ttftMs != null ? <span>{genStats.ttftMs} ms TTFT</span> : null}
-                    {genStats.durationMs != null ? <span>{(genStats.durationMs / 1000).toFixed(1)}s</span> : null}
+                  <span className="chat-gen-stats" title={t("chatPanel.localGenerationStatsFromThe")}>
+                    <span className="chat-gen-stats-label">{t("chatPanel.local")}</span>
+                    {genStats.tokensPerSecond != null ? <span>{t("chatPanel.tokS", { value: genStats.tokensPerSecond.toFixed(1) })}</span> : null}
+                    {genStats.ttftMs != null ? <span>{t("chatPanel.msTtft", { ttftMs: genStats.ttftMs })}</span> : null}
+                    {genStats.durationMs != null ? <span>{t("chatPanel.s", { value: (genStats.durationMs / 1000).toFixed(1) })}</span> : null}
                   </span>
                 ) : null}
               </div>
@@ -3780,7 +3780,7 @@ export function ChatPanel({
                 <button
                   className="btn chat-send-btn chat-stop-btn"
                   type="button"
-                  title="Stop the agent and unlock the composer"
+                  title={t("chatPanel.stopTheAgentAndUnlock")}
                   onClick={() => void handleStopNative()}
                 >
                   <Square size={13} />
@@ -3793,8 +3793,8 @@ export function ChatPanel({
                     type="button"
                     title={
                       voiceReady
-                        ? "Push to talk: hold and speak, release to send (or hold Space bar)"
-                        : "Start a chat session before dictating"
+                        ? t("chatPanel.pushToTalkHoldAnd")
+                        : t("chatPanel.startAChatSessionBefore")
                     }
                     disabled={!voiceReady || voice.callActive}
                     onPointerDown={() => void voice.beginPushToTalk()}
@@ -3808,8 +3808,8 @@ export function ChatPanel({
                     type="button"
                     title={
                       voice.callActive
-                        ? "Hang up the voice call"
-                        : "Start a voice call: continuous listening, hands free, talk over the agent to interrupt"
+                        ? t("chatPanel.hangUpTheVoiceCall")
+                        : t("chatPanel.startAVoiceCallContinuous")
                     }
                     disabled={!voiceReady}
                     onClick={() => {
@@ -3824,7 +3824,7 @@ export function ChatPanel({
               <button
                 className="btn btn-primary chat-send-btn"
                 type="button"
-                title={steerable ? "Steer the running agent: your message is injected into the turn in progress" : "Send message"}
+                title={steerable ? t("chatPanel.steerTheRunningAgentYour") : t("chatPanel.sendMessage")}
                 disabled={sendDisabled}
                 onClick={() => void handleSend()}
               >
@@ -3883,32 +3883,32 @@ export function ChatPanel({
           </div>
         )}
         {debugMode ? (
-          <div className="chat-debug-panel" title="Raw event stream from the model and agent loop">
+          <div className="chat-debug-panel" title={t("chatPanel.rawEventStreamFromThe")}>
             <button
               type="button"
               className="chat-debug-panel-toggle"
-              title={debugExpanded ? "Collapse debug event stream" : "Expand debug event stream"}
+              title={debugExpanded ? t("chatPanel.collapseDebugEventStream") : t("chatPanel.expandDebugEventStream")}
               onClick={() => setDebugExpanded(!debugExpanded)}
             >
-              {debugExpanded ? "▼" : "▶"} Debug Event Stream ({debugEvents.length})
+              {t("chatPanel.debugEventStream", { value: debugExpanded ? "▼" : "▶", debugEventsCount: debugEvents.length })}
             </button>
             {debugExpanded ? (
               <div className="chat-debug-panel-body">
                 {/* Session info row with copy button */}
-                <div className="chat-debug-session-info" title="Current chat session id — click to copy">
-                  <span className="chat-debug-session-label">session</span>
-                  <code className="chat-debug-session-id">{nativeSessionId ?? "none"}</code>
+                <div className="chat-debug-session-info" title={t("chatPanel.currentChatSessionIdClick")}>
+                  <span className="chat-debug-session-label">{t("chatPanel.session")}</span>
+                  <code className="chat-debug-session-id">{nativeSessionId ?? t("chatPanel.none")}</code>
                   <button
                     type="button"
                     className="btn-icon btn-icon-sm chat-debug-copy-btn"
-                    title="Copy session id"
+                    title={t("chatPanel.copySessionId")}
                     onClick={() => void navigator.clipboard.writeText(nativeSessionId ?? "")}
                   >
                     <Copy size={10} />
                   </button>
                 </div>
                 {debugEvents.length === 0 ? (
-                  <div className="chat-debug-empty text-muted text-sm">No events yet. Send a message to see raw event data.</div>
+                  <div className="chat-debug-empty text-muted text-sm">{t("chatPanel.noEventsYetSendA")}</div>
                 ) : (
                   <div className="chat-debug-event-list">
                     {debugEvents.slice(-100).map((e, i) => (
@@ -3919,7 +3919,7 @@ export function ChatPanel({
                           <button
                             type="button"
                             className="btn-icon btn-icon-sm chat-debug-copy-btn"
-                            title="Copy this event"
+                            title={t("chatPanel.copyThisEvent")}
                             onClick={() => void navigator.clipboard.writeText(
                               typeof e.data === "string" ? e.data : JSON.stringify(e.data, null, 2),
                             )}
@@ -3936,7 +3936,7 @@ export function ChatPanel({
                   <button
                     type="button"
                     className="btn btn-sm chat-debug-copy-all"
-                    title="Copy all debug events to clipboard"
+                    title={t("chatPanel.copyAllDebugEventsTo")}
                     disabled={debugEvents.length === 0}
                     onClick={() => {
                       const text = debugEvents.map((e) =>
@@ -3947,14 +3947,14 @@ export function ChatPanel({
                       void navigator.clipboard.writeText(text);
                     }}
                   >
-                    <Copy size={10} /> Copy All
+                    <Copy size={10} /> {t("chatPanel.copyAll")}
                   </button>
                   <button
                     type="button"
                     className="btn btn-sm chat-debug-clear"
-                    title="Clear debug event log"
+                    title={t("chatPanel.clearDebugEventLog")}
                     onClick={() => setDebugEvents([])}
-                  >Clear</button>
+                  >{t("chatPanel.clear")}</button>
                 </div>
               </div>
               ) : null}

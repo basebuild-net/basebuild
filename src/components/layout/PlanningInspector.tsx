@@ -30,6 +30,7 @@ import {
 import { IdeasTab } from "./inspector/IdeasTab";
 import { CategoriesTab } from "./inspector/CategoriesTab";
 import { FlowTab, type LaunchFormState, type LaunchSummary, type MergeSessionState } from "./inspector/FlowTab";
+import { t } from "../../i18n";
 
 export type PlanningTab = "plans" | "ideas" | "categories" | "flow" | "runs" | "changes";
 
@@ -171,7 +172,7 @@ export function PlanningInspector({
         if (issues.length > 0) {
           addLog(
             "warn",
-            "Planning data desync detected",
+            t("planningInspector.planningDataDesyncDetected"),
             issues.map((issue) => `${issue.kind}: ${issue.detail}`).join(" | "),
           );
         }
@@ -266,8 +267,8 @@ export function PlanningInspector({
       if (createdPlans.length === 0) return;
       setTab("plans");
       onShowToast?.(
-        createdPlans.length === 1 ? "Getting plan ready" : `Getting ${createdPlans.length} plans ready`,
-        "OpenSpec is generating the proposal, specs, design, and tasks.",
+        createdPlans.length === 1 ? t("planningInspector.gettingPlanReady") : `Getting ${createdPlans.length} plans ready`,
+        t("planningInspector.openspecIsGeneratingTheProposalSpecs"),
         "info",
       );
       const preparations = createdPlans.map((plan) => (
@@ -286,8 +287,8 @@ export function PlanningInspector({
           );
         } else {
           onShowToast?.(
-            createdPlans.length === 1 ? "OpenSpec plan ready" : `${createdPlans.length} OpenSpec plans ready`,
-            "Review the generated artifacts, then approve the plans for execution.",
+            createdPlans.length === 1 ? t("planningInspector.openspecPlanReady") : `${createdPlans.length} OpenSpec plans ready`,
+            t("planningInspector.reviewTheGeneratedArtifactsThenApprove"),
             "success",
           );
         }
@@ -304,7 +305,7 @@ export function PlanningInspector({
         const result = await batchPromoteIdeas(sessionId, [idea.id]);
         const created = result.created[0];
         if (!created) {
-          throw new Error(result.errors[0]?.error ?? "The idea could not be promoted.");
+          throw new Error(result.errors[0]?.error ?? t("planningInspector.theIdeaCouldNotBePromoted"));
         }
         await ideaState.refresh();
         setTab("plans");
@@ -312,7 +313,7 @@ export function PlanningInspector({
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
         addLog("error", "Failed to promote idea", message);
-        onShowToast?.("Could not prepare plan", message, "error");
+        onShowToast?.(t("planningInspector.couldNotPreparePlan"), message, "error");
       } finally {
         setPromotingIdeaId(null);
       }
@@ -461,7 +462,7 @@ export function PlanningInspector({
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         addLog("error", "Failed to review merge entry", msg);
-        onShowToast?.("Review failed", msg, "error");
+        onShowToast?.(t("planningInspector.reviewFailed"), msg, "error");
       }
     },
     [addLog, onShowToast],
@@ -469,7 +470,7 @@ export function PlanningInspector({
 
   const handleResumePlanRun = useCallback(async (run: PlanRun) => {
     if (!run.chatSessionId) {
-      onShowToast?.("Resume blocked", "This run has no retained chat owner.", "error");
+      onShowToast?.(t("planningInspector.resumeBlocked"), t("planningInspector.thisRunHasNoRetainedChat"), "error");
       return;
     }
     try {
@@ -478,7 +479,7 @@ export function PlanningInspector({
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       addLog("error", "Failed to resume plan run", message);
-      onShowToast?.("Resume failed", message, "error");
+      onShowToast?.(t("planningInspector.resumeFailed"), message, "error");
     }
   }, [addLog, onOpenChatSession, onShowToast]);
 
@@ -525,7 +526,7 @@ export function PlanningInspector({
       <div className="side-section planning-inspector" data-collapsed="true">
         <button
           className="btn-icon side-section-action"
-          title="Expand planning inspector"
+          title={t("planningInspector.expandPlanningInspector")}
           type="button"
           onClick={onToggleCollapse}
         >
@@ -540,14 +541,14 @@ export function PlanningInspector({
       <div className="side-section-header">
         {showHeader ? (
           <>
-            <span className="side-section-title">Planning</span>
+            <span className="side-section-title">{t("planningInspector.planning")}</span>
             {schematic.report && schematic.report.health !== "complete" && (
               <span
                 className={`schematic-health-badge is-${schematic.report.health}`}
-                title={`Schematic ${schematic.report.health}: ${schematic.report.sections
+                title={t("planningInspector.schematicOpenTheWizardToFix", { health: schematic.report.health, value: schematic.report.sections
                   .filter((s) => s.state !== "filled")
                   .map((s) => s.name)
-                  .join(", ")} — open the wizard to fix`}
+                  .join(", ") })}
               >
                 {schematic.report.health}
               </span>
@@ -558,55 +559,55 @@ export function PlanningInspector({
           <button
             className={`inspector-tab${tab === "plans" ? " is-active" : ""}`}
             type="button"
-            title="Plans"
+            title={t("planningInspector.plans")}
             onClick={() => setTab("plans")}
           >
-            Plans
+            {t("planningInspector.plans")}
           </button>
           <button
             className={`inspector-tab${tab === "ideas" ? " is-active" : ""}`}
             type="button"
-            title="Ideas history"
+            title={t("planningInspector.ideasHistory")}
             onClick={() => setTab("ideas")}
           >
-            Ideas
+            {t("planningInspector.ideas")}
           </button>
           <button
             className={`inspector-tab${tab === "categories" ? " is-active" : ""}`}
             type="button"
-            title="Categories"
+            title={t("planningInspector.categories")}
             onClick={() => setTab("categories")}
           >
-            Categories
+            {t("planningInspector.categories")}
           </button>
           <button
             className={`inspector-tab${tab === "flow" ? " is-active" : ""}`}
             type="button"
-            title="Flow board — live stage counts across the planning pipeline"
+            title={t("planningInspector.flowBoardLiveStageCounts")}
             onClick={() => setTab("flow")}
           >
-            Flow
+            {t("planningInspector.flow")}
           </button>
           <button
             className={`inspector-tab${tab === "runs" ? " is-active" : ""}`}
             type="button"
-            title="Mission control — live run cards with progress and estimates"
+            title={t("planningInspector.missionControlLiveRunCards")}
             onClick={() => setTab("runs")}
           >
-            Runs
+            {t("planningInspector.runs")}
           </button>
           <button
             className={`inspector-tab${tab === "changes" ? " is-active" : ""}`}
             type="button"
-            title="OpenSpec change catalog — browse and toggle tasks"
+            title={t("planningInspector.openSpecChangeCatalogBrowseAnd")}
             onClick={() => setTab("changes")}
           >
-            Changes
+            {t("planningInspector.changes")}
           </button>
           {hostContext === "dock" ? (
             <button
               className="btn-icon btn-icon-sm"
-              title="Collapse planning inspector"
+              title={t("planningInspector.collapsePlanningInspector")}
               type="button"
               onClick={onToggleCollapse}
             >
@@ -623,7 +624,7 @@ export function PlanningInspector({
         >
           <AlertTriangle size={12} />
           <span>
-            Planning data desync: {integrityIssues.length} issue{integrityIssues.length === 1 ? "" : "s"} found — some actions may fail. Hover for details.
+            {t(integrityIssues.length === 1 ? "planningInspector.desyncOne" : "planningInspector.desyncMany", { count: integrityIssues.length })}
           </span>
         </div>
       ) : null}
