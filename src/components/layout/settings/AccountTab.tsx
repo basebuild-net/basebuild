@@ -219,8 +219,8 @@ function sourceState(source: SourceSyncStatus): {
       label: t("accountTab.synced"),
       className: "is-ok",
       detail: queued
-        ? `${formatRelativeTime(source.lastSuccessAt)} · ${queuedText}`
-        : formatRelativeTime(source.lastSuccessAt),
+        ? `${formatRelativeTime(source.lastSuccessAt, "long")} · ${queuedText}`
+        : formatRelativeTime(source.lastSuccessAt, "long"),
     };
   }
   if (queued) {
