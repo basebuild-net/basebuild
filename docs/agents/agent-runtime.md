@@ -422,6 +422,17 @@ intervals; restart after a stopped interval emits a `collector_stopped` gap.
 Dropping the oldest rows at the bounded spool cap emits an `exporter_error`
 gap.
 
+Every envelope names its sender in `client`: `name` is the fixed
+`basebuild-app`, `version` is the crate version, and `platform` is `windows`,
+`macos`, `linux`, or null. A quota window that a provider scopes to one model
+(Gemini) carries `modelId`; account-wide windows omit it. When OMP's `stats.db`
+lags its session files, the interval newer than its newest ingested message is
+sent as a `gap` with reason `ingestion_pending` rather than `complete`. This
+marks ingestion lag, not a collector failure. Known limitation: an idle OMP
+install looks the same as a lagging one, because the horizon cannot tell them
+apart. Version 1 `plan_utilization` rows accept `windowDurationMs`, but no
+client emits them yet.
+
 ### OMP delta collection
 
 OMP cumulative counters are diffed against a persisted baseline in
@@ -1290,3 +1301,7 @@ Signed-in accounts additionally use the raw paths (`sync_raw_usage`,
 `sync_messages`); guest/private installations are restricted by the server to
 the closed envelope and skip the account-only tools locally rather than
 spending a request on a guaranteed `-32001`.
+
+The envelope's `client` block holds only the fixed app name, the crate version,
+and the OS family. `modelId` is a normalized model identifier, the same charset
+as request-span `model`. Neither carries account, host, or path data.

@@ -82,6 +82,45 @@ pub struct UsageEnvelope {
     pub generated_at: i64,
     /// One or more source-scoped batches.
     pub batches: Vec<UsageBatch>,
+    /// Who assembled this envelope. Omitted when absent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client: Option<ClientAttribution>,
+}
+
+/// Who assembled an envelope. The server stores it per receipt so usage can be
+/// attributed to a client release and platform.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ClientAttribution {
+    pub name: String,
+    pub version: String,
+    /// `windows`, `macos`, or `linux`; `None` on any other target.
+    pub platform: Option<String>,
+}
+
+/// Wire name of this client. The server rejects any other value.
+pub const CLIENT_NAME: &str = "basebuild-app";
+
+/// Attribution for this build. The version is the crate version, the same
+/// value `app_version` reports and sync sends as `appVersion`.
+pub fn client_attribution() -> ClientAttribution {
+    ClientAttribution {
+        name: CLIENT_NAME.to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        platform: client_platform().map(str::to_string),
+    }
+}
+
+fn client_platform() -> Option<&'static str> {
+    if cfg!(target_os = "windows") {
+        Some("windows")
+    } else if cfg!(target_os = "macos") {
+        Some("macos")
+    } else if cfg!(target_os = "linux") {
+        Some("linux")
+    } else {
+        None
+    }
 }
 
 /// A single provider request event. All timestamps are epoch milliseconds.
@@ -138,6 +177,9 @@ pub struct QuotaSnapshotRow {
     pub window_duration_ms: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plan_type: Option<String>,
+    /// Model a per-model window is scoped to (Gemini). Absent for account-wide windows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
 }
 
 /// Whether the collector observed an interval completely or was unavailable.
@@ -178,6 +220,9 @@ pub struct V2UsageEnvelope {
     pub version: u32,
     pub generated_at: i64,
     pub batches: Vec<V2UsageBatch>,
+    /// Who assembled this envelope. Omitted when absent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client: Option<ClientAttribution>,
 }
 
 /// Fields that must NEVER appear in a usage row. If any are present, the
@@ -255,6 +300,7 @@ const ALLOWED_FIELDS: &[&str] = &[
     "usedFraction",
     "remainingFraction",
     "resetsAt",
+    "windowDurationMs",
 ];
 
 const MODEL_USAGE_FIELDS: &[&str] = &[
@@ -285,6 +331,7 @@ const PLAN_UTILIZATION_FIELDS: &[&str] = &[
     "usedFraction",
     "remainingFraction",
     "resetsAt",
+    "windowDurationMs",
 ];
 
 /// Coerce an arbitrary provider/model string into the identifier shape the
@@ -470,6 +517,14 @@ pub fn validate_row(row: &Value) -> Result<(), String> {
                     return Err(format!("invalid {key}"));
                 }
             }
+            if obj.get("windowDurationMs").is_some_and(|value| {
+                !value.is_null()
+                    && !value
+                        .as_i64()
+                        .is_some_and(|duration| (1..=2_678_400_000).contains(&duration))
+            }) {
+                return Err("invalid windowDurationMs".to_string());
+            }
         }
         _ => return Err("usage row kind must be model_usage or plan_utilization".to_string()),
     }
@@ -490,8 +545,7 @@ fn valid_account_hash(value: Option<&str>) -> bool {
     match value {
         None => true,
         Some(hash) => {
-            (16..=64).contains(&hash.len())
-                && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+            (16..=64).contains(&hash.len()) && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
         }
     }
 }
@@ -540,14 +594,13 @@ pub fn validate_v2_row(row: &V2Row) -> Result<(), String> {
                 || !valid_optional_counter(row.output_tokens, MAX_COUNTER)
                 || !valid_optional_counter(row.cache_read_tokens, MAX_COUNTER)
                 || !valid_optional_counter(row.cache_write_tokens, MAX_COUNTER)
-                || row.cost_total.is_some_and(|cost| {
-                    !cost.is_finite() || !(0.0..=1_000_000.0).contains(&cost)
-                })
-                || !valid_optional_counter(row.ttft_ms, 86_400_000)
                 || row
-                    .effort
-                    .as_deref()
-                    .is_some_and(|effort| !["none", "low", "medium", "high", "xhigh"].contains(&effort))
+                    .cost_total
+                    .is_some_and(|cost| !cost.is_finite() || !(0.0..=1_000_000.0).contains(&cost))
+                || !valid_optional_counter(row.ttft_ms, 86_400_000)
+                || row.effort.as_deref().is_some_and(|effort| {
+                    !["none", "low", "medium", "high", "xhigh"].contains(&effort)
+                })
                 || !["success", "error", "cancelled"].contains(&row.outcome.as_str())
             {
                 return Err("invalid request_span row".to_string());
@@ -569,6 +622,10 @@ pub fn validate_v2_row(row: &V2Row) -> Result<(), String> {
                     .window_duration_ms
                     .is_some_and(|duration| !(1..=2_678_400_000).contains(&duration))
                 || !valid_optional_label_str(row.plan_type.as_deref())
+                || row
+                    .model_id
+                    .as_deref()
+                    .is_some_and(|value| !bounded_identifier_str(value))
             {
                 return Err("invalid quota_snapshot row".to_string());
             }
@@ -584,6 +641,7 @@ pub fn validate_v2_row(row: &V2Row) -> Result<(), String> {
                                 | "exporter_error"
                                 | "provider_error"
                                 | "unknown"
+                                | "ingestion_pending"
                         )
                     )
             );
@@ -657,9 +715,7 @@ pub fn v2_window_bounds(rows: &[V2Row]) -> Option<(i64, i64)> {
 /// Whether every row's timestamps fall inside the declared batch window.
 fn rows_fit_window(batch: &V2UsageBatch) -> bool {
     match v2_window_bounds(&batch.rows) {
-        Some((earliest, latest)) => {
-            earliest >= batch.window_start && latest <= batch.window_end
-        }
+        Some((earliest, latest)) => earliest >= batch.window_start && latest <= batch.window_end,
         None => true,
     }
 }
@@ -727,7 +783,10 @@ pub fn assemble_v2_envelope(
         let (reason, deferred) = if accepted.len() >= MAX_BATCHES_PER_ENVELOPE {
             (Some("envelope batch limit reached".to_string()), true)
         } else if accepted.iter().any(|kept| kept.source == batch.source) {
-            (Some(format!("duplicate {} batch", batch.source.as_str())), false)
+            (
+                Some(format!("duplicate {} batch", batch.source.as_str())),
+                false,
+            )
         } else if rows_used + batch.rows.len() > MAX_ROWS_PER_ENVELOPE {
             (Some("envelope row limit reached".to_string()), true)
         } else {
@@ -753,6 +812,7 @@ pub fn assemble_v2_envelope(
             version: ENVELOPE_VERSION_V2,
             generated_at,
             batches: accepted,
+            client: Some(client_attribution()),
         }),
         rejected,
     )
@@ -857,7 +917,10 @@ pub fn assemble_envelope(
         let (reason, deferred) = if accepted.len() >= MAX_BATCHES_PER_ENVELOPE {
             (Some("envelope batch limit reached".to_string()), true)
         } else if accepted.iter().any(|kept| kept.source == batch.source) {
-            (Some(format!("duplicate {} batch", batch.source.as_str())), false)
+            (
+                Some(format!("duplicate {} batch", batch.source.as_str())),
+                false,
+            )
         } else if rows_used + batch.rows.len() > MAX_ROWS_PER_ENVELOPE {
             (Some("envelope row limit reached".to_string()), true)
         } else {
@@ -884,6 +947,7 @@ pub fn assemble_envelope(
             version: ENVELOPE_VERSION,
             generated_at,
             batches: accepted,
+            client: Some(client_attribution()),
         }),
         rejected,
     )
@@ -1063,7 +1127,10 @@ mod tests {
     fn normalize_identifier_rescues_harness_model_ids() {
         // Claude Code's internally generated turns, which used to fail the
         // whole envelope and starve every other source.
-        assert_eq!(normalize_identifier("<synthetic>").as_deref(), Some("synthetic"));
+        assert_eq!(
+            normalize_identifier("<synthetic>").as_deref(),
+            Some("synthetic")
+        );
         assert_eq!(
             normalize_identifier("lmstudio:google/gemma-4-e4b").as_deref(),
             Some("lmstudio:google/gemma-4-e4b")
@@ -1083,6 +1150,7 @@ mod tests {
             version: 99,
             generated_at: 0,
             batches: vec![batch(vec![safe_row()])],
+            client: None,
         };
         assert!(validate_envelope(&env).is_err());
     }
@@ -1093,6 +1161,7 @@ mod tests {
             version: ENVELOPE_VERSION,
             generated_at: 0,
             batches: vec![],
+            client: None,
         };
         assert!(validate_envelope(&env).is_err());
     }
@@ -1128,8 +1197,7 @@ mod tests {
         poisoned.source = SourceKind::ClaudeCode;
         poisoned.idempotency_key = "claude-code:1784592000:v1".to_string();
 
-        let (envelope, rejected) =
-            assemble_envelope(vec![batch(vec![safe_row()]), poisoned], NOW);
+        let (envelope, rejected) = assemble_envelope(vec![batch(vec![safe_row()]), poisoned], NOW);
         let envelope = envelope.expect("native batch must still ship");
         assert_eq!(envelope.batches.len(), 1);
         assert_eq!(envelope.batches[0].source, SourceKind::Native);
@@ -1342,18 +1410,19 @@ mod tests {
             resets_at: Some(NOW * 1000 + 18_000_000),
             window_duration_ms: Some(18_000_000),
             plan_type: Some("Claude Max".to_string()),
+            model_id: None,
         }))
         .is_ok());
-        assert!(validate_v2_row(&V2Row::CollectorCoverage(
-            CollectorCoverageRow {
+        assert!(
+            validate_v2_row(&V2Row::CollectorCoverage(CollectorCoverageRow {
                 coverage_id: "coverage:1".to_string(),
                 started_at: NOW * 1000,
                 ended_at: NOW * 1000 + 300_000,
                 status: "complete".to_string(),
                 reason: None,
-            }
-        ))
-        .is_ok());
+            }))
+            .is_ok()
+        );
     }
 
     #[test]
@@ -1376,8 +1445,7 @@ mod tests {
 
     #[test]
     fn v2_envelope_assembly_sets_version_two() {
-        let (envelope, rejected) =
-            assemble_v2_envelope(vec![v2_batch(vec![request_span()])], NOW);
+        let (envelope, rejected) = assemble_v2_envelope(vec![v2_batch(vec![request_span()])], NOW);
         assert!(rejected.is_empty());
         let envelope = envelope.unwrap();
         assert_eq!(envelope.version, ENVELOPE_VERSION_V2);
@@ -1428,5 +1496,82 @@ mod tests {
         assert!(validate_v2_row(&V2Row::RequestSpan(span.clone())).is_ok());
         span.account_hash = Some("not-a-hex-account".to_string());
         assert!(validate_v2_row(&V2Row::RequestSpan(span)).is_err());
+    }
+
+    #[test]
+    fn client_attribution_matches_the_server_client_schema() {
+        let client = client_attribution();
+        assert_eq!(client.name, "basebuild-app");
+        assert!((1..=32).contains(&client.version.len()));
+        assert!(client
+            .version
+            .chars()
+            .all(|value| value.is_ascii_alphanumeric() || matches!(value, '.' | '-' | '+')));
+        assert!(matches!(
+            client.platform.as_deref(),
+            None | Some("windows" | "macos" | "linux")
+        ));
+    }
+
+    #[test]
+    fn envelope_carries_client_attribution_on_the_wire() {
+        let (envelope, _) = assemble_envelope(vec![batch(vec![safe_row()])], NOW);
+        let wire = serde_json::to_value(envelope.unwrap()).unwrap();
+        assert_eq!(wire["client"]["name"], "basebuild-app");
+        assert_eq!(wire["client"]["version"], env!("CARGO_PKG_VERSION"));
+    }
+
+    #[test]
+    fn quota_model_scope_is_optional_and_validated() {
+        let base = QuotaSnapshotRow {
+            snapshot_id: "snapshot:scope".to_string(),
+            provider: "google".to_string(),
+            account_hash: None,
+            limit_id: "google:gemini-2.5-pro:daily".to_string(),
+            window_label: Some("daily".to_string()),
+            observed_at: NOW * 1000,
+            used_fraction: 0.4,
+            remaining_fraction: 0.6,
+            resets_at: None,
+            window_duration_ms: Some(86_400_000),
+            plan_type: None,
+            model_id: None,
+        };
+        let unscoped = serde_json::to_value(V2Row::QuotaSnapshot(base.clone())).unwrap();
+        assert!(unscoped.get("modelId").is_none());
+        let scoped = QuotaSnapshotRow {
+            model_id: Some("gemini-2.5-pro".to_string()),
+            ..base.clone()
+        };
+        assert!(validate_v2_row(&V2Row::QuotaSnapshot(scoped)).is_ok());
+        let malformed = QuotaSnapshotRow {
+            model_id: Some("two words".to_string()),
+            ..base
+        };
+        assert!(validate_v2_row(&V2Row::QuotaSnapshot(malformed)).is_err());
+    }
+
+    #[test]
+    fn ingestion_pending_and_plan_window_duration_are_accepted() {
+        let pending = V2Row::CollectorCoverage(CollectorCoverageRow {
+            coverage_id: "coverage:pending".to_string(),
+            started_at: NOW * 1000,
+            ended_at: NOW * 1000 + 300_000,
+            status: "gap".to_string(),
+            reason: Some("ingestion_pending".to_string()),
+        });
+        assert!(validate_v2_row(&pending).is_ok());
+        let plan = json!({
+            "kind": "plan_utilization",
+            "provider": "anthropic",
+            "windowLabel": "five-hour",
+            "usedFraction": 0.42,
+            "remainingFraction": 0.58,
+            "windowDurationMs": 18_000_000
+        });
+        assert!(validate_row(&plan).is_ok());
+        let mut zero = plan.clone();
+        zero["windowDurationMs"] = json!(0);
+        assert!(validate_row(&zero).is_err());
     }
 }
