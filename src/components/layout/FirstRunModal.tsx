@@ -5,6 +5,7 @@ import { getAnalyticsConsent, setAnalyticsConsent, type AnalyticsConsent } from 
 import { startupEnable, startupDisable, startupGetStatus, type StartupRegistrationStatus } from "../../lib/startup";
 import { ModalPortal } from "../ModalPortal";
 import { LanguagePicker } from "./LanguagePicker";
+import { startupCopy } from "./startup-copy";
 import { useTheme, type AppTheme } from "../../state/useTheme";
 import { useLogs } from "../../state/log";
 import { t } from "../../i18n";
@@ -155,16 +156,16 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
                 <label className="first-run-check">
                   <input
                     type="checkbox"
-                    title={t("firstRunModal.launchAtWindowsSignIn")}
+                    title={t(startupCopy.firstRunLabel)}
                     checked={launchAtSignin}
                     onChange={(e) => {
                       addLog("debug", "First run: launch at sign-in toggled", `enabled=${e.target.checked}`);
                       setLaunchAtSignin(e.target.checked);
                     }}
                   />
-                  <span className="text-sm">{t("firstRunModal.launchAtWindowsSignIn")}</span>
+                  <span className="text-sm">{t(startupCopy.firstRunLabel)}</span>
                 </label>
-                <p className="text-muted text-xs first-run-hint">{t("firstRunModal.startupHint")}</p>
+                <p className="text-muted text-xs first-run-hint">{t(startupCopy.firstRunHint)}</p>
               </section>
             ) : null}
 

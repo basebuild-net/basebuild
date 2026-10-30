@@ -1,6 +1,11 @@
 import { expect, test } from "@playwright/test";
 
+const WINDOWS_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
+const MACOS_USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko)";
+
 test.describe("Windows startup settings", () => {
+  test.use({ userAgent: WINDOWS_USER_AGENT });
+
   test("first-run setup shows launch-at-sign-in default on", async ({ page }) => {
     await page.addInitScript(() => {
       localStorage.removeItem("basebuild:first-run-complete");
@@ -114,5 +119,36 @@ test.describe("Windows startup settings", () => {
     await expect(page.getByText("Windows Startup")).toBeVisible({ timeout: 10_000 });
     const checkbox = page.getByTitle("Launch Basebuild at Windows sign-in (minimized to tray)");
     await expect(checkbox).toBeVisible();
+  });
+});
+
+test.describe("macOS login item copy", () => {
+  test.use({ userAgent: MACOS_USER_AGENT });
+
+  test("first-run sheet offers open-at-login with menu bar wording", async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.removeItem("basebuild:first-run-complete");
+    });
+
+    await page.goto("/");
+
+    const modal = page.locator(".modal-first-run");
+    await expect(modal).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTitle("Open Basebuild at login")).toBeChecked();
+    await expect(page.getByText("Starts in the background with a menu bar icon")).toBeVisible();
+    await expect(modal).not.toContainText("Windows");
+  });
+
+  test("settings shows the macOS startup section", async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem("basebuild:first-run-complete", "true");
+    });
+
+    await page.goto("/");
+    await page.getByTitle("Open Settings").click();
+
+    await expect(page.getByRole("heading", { name: "Startup", exact: true })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTitle("Open Basebuild at login")).toBeVisible();
+    await expect(page.getByText("Windows Startup")).toHaveCount(0);
   });
 });
