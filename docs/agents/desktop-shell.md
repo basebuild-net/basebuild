@@ -297,7 +297,8 @@ Before the main shell renders, Basebuild shows a startup update splash
 that checks for updates. The splash displays the current build version
 and transitions through these states:
 
-- **Checking** — update check in progress.
+- **Checking** — update check in progress (every platform). After 8 seconds
+  the shell opens and the check continues in the background.
 - **Optional update** — target version, summary, and `Upgrade` / `Skip
   update for now` buttons. Skip is version-scoped: the same target version
   is not prompted again, but a newer release will prompt.
@@ -306,7 +307,8 @@ and transitions through these states:
   update auto-starts.
 - **Progress** — download progress bar and step text (downloading,
   installing, restarting).
-- **Error** — actionable diagnostics with retry and "Continue anyway".
+- **Check failed** — the shell opens immediately; the taskbar update control
+  surfaces the failure and its retry.
 
 The splash does not replace the in-app update controls. The taskbar
 update button and Settings → Updates tab remain functional after startup.

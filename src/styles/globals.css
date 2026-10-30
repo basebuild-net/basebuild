@@ -3903,7 +3903,6 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 @keyframes splash-indeterminate { 0% { transform: translateX(-100%); } 100% { transform: translateX(350%); } }
 .splash-progress-message { text-align: center; line-height: 1.4; }
 .splash-skip-check { margin-top: 8px; }
-.splash-error-copy { display: flex; justify-content: center; }
 .splash-spinner { flex-shrink: 0; }
 .workspace-splash { transition: opacity 0.2s ease-out; }
 .workspace-splash-fading { opacity: 0; }
