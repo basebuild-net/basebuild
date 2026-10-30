@@ -275,5 +275,4 @@ export const layoutSettingsZhTW = {
   "localePicker.traditionalChinese": "繁體中文",
   "localePicker.traditionalChineseTitle": "使用繁體中文",
   "firstRunModal.chooseYourLanguage": "選擇語言",
-  "firstRunModal.languageHint": "之後可以在設定中更改。",
 } as const;

@@ -7,7 +7,6 @@ export const panelsChatZhTW = {
   "chatMessageParts.expandModelThinkingTrace": "展開模型思考過程",
   "chatTranscript.loadingConversation": "正在載入會話…",
   "chatTranscript.loadingConversationHistory": "正在載入會話歷史",
-  "chatTranscript.you": "你",
   "chatTranscript.system": "系統",
   "chatTranscript.offline": "離線",
   "chatTranscript.noExternalModelWasContacted": "未聯絡任何外部模型",
