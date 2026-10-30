@@ -297,11 +297,7 @@ impl UsageV2CollectorService {
             .and_then(|value| value.parse::<i64>().ok())
             .unwrap_or(now_ms);
         let mut rows = Vec::new();
-        if previous < now_ms {
-            rows.push(V2Row::CollectorCoverage(coverage_row(
-                previous, now_ms, "complete", None,
-            )));
-        }
+        rows.extend(interval_coverage(previous, now_ms));
         if let Some(gap) = get_state(STATE_SPOOL_GAP)? {
             if let Some((start, end)) = parse_gap(&gap) {
                 rows.push(V2Row::CollectorCoverage(coverage_row(
@@ -322,13 +318,7 @@ impl UsageV2CollectorService {
         let previous = get_state(STATE_HEARTBEAT_MS)?
             .and_then(|value| value.parse::<i64>().ok())
             .unwrap_or(now_ms);
-        let rows = if previous < now_ms {
-            vec![V2Row::CollectorCoverage(coverage_row(
-                previous, now_ms, "complete", None,
-            ))]
-        } else {
-            Vec::new()
-        };
+        let rows = interval_coverage(previous, now_ms);
         set_state(STATE_RUNNING, "0", now_ms)?;
         set_state(STATE_HEARTBEAT_MS, &now_ms.to_string(), now_ms)?;
         Ok(rows)
@@ -447,6 +437,7 @@ impl UsageV2CollectorService {
                     resets_at: window.resets_at,
                     window_duration_ms: window.window_duration_ms,
                     plan_type: None,
+                    model_id: None,
                 }))
             })
             .take(MAX_ROWS_PER_BATCH)
@@ -562,10 +553,10 @@ impl UsageV2CollectorService {
 
 /// One quota reading, flattened out of whatever shape the sampler emitted.
 ///
-/// `model_id` never reaches the wire — `QuotaSnapshotRow` is a closed schema —
-/// but it is what makes local correlation possible: a per-model quota window
-/// attributes its own drain, while an account-wide window has to be solved
-/// against whatever mix of models was running.
+/// `model_id` scopes a per-model window (Gemini) and is sent on the quota row.
+/// Locally it also decides correlation: a per-model window attributes its own
+/// drain, while an account-wide window has to be solved against whatever mix
+/// of models was running.
 struct QuotaObservation {
     provider: String,
     limit_id: String,
@@ -1024,6 +1015,7 @@ fn quota_rows_from_payload(payload: &Value, now_ms: i64) -> Result<Vec<V2Row>, S
             resets_at: observation.resets_at,
             window_duration_ms: observation.window_duration_ms,
             plan_type: observation.plan_type.clone(),
+            model_id: observation.model_id.clone(),
         }));
         sampled_providers.insert((debounce_key, observation.provider.clone()));
     }
@@ -1102,6 +1094,46 @@ fn coverage_row(
         status: status.to_string(),
         reason: reason.map(str::to_string),
     }
+}
+
+/// Coverage for `[started_at, ended_at)`, split at the OMP ingestion horizon.
+///
+/// Traffic newer than `ingested_through` may already sit in OMP's session files
+/// without being in `stats.db` yet, so that tail is `ingestion_pending`: not a
+/// collector gap, but not provably complete either. `None` means there is no OMP
+/// store to lag behind, so the whole interval is `complete`.
+fn coverage_rows_through(
+    started_at: i64,
+    ended_at: i64,
+    ingested_through: Option<i64>,
+) -> Vec<V2Row> {
+    if ended_at <= started_at {
+        return Vec::new();
+    }
+    let split = ingested_through.map_or(ended_at, |horizon| horizon.clamp(started_at, ended_at));
+    let mut rows = Vec::with_capacity(2);
+    if split > started_at {
+        rows.push(V2Row::CollectorCoverage(coverage_row(
+            started_at, split, "complete", None,
+        )));
+    }
+    if split < ended_at {
+        rows.push(V2Row::CollectorCoverage(coverage_row(
+            split,
+            ended_at,
+            "gap",
+            Some("ingestion_pending"),
+        )));
+    }
+    rows
+}
+
+fn interval_coverage(started_at: i64, ended_at: i64) -> Vec<V2Row> {
+    coverage_rows_through(
+        started_at,
+        ended_at,
+        crate::services::usage_source_service::omp_ingestion_horizon(),
+    )
 }
 
 fn get_state(key: &str) -> Result<Option<String>, String> {
@@ -1193,7 +1225,11 @@ fn duration_from_label(label: &str) -> Option<i64> {
         .find(|c: char| !c.is_ascii_digit() && c != '.')
         .unwrap_or(normalized.len());
     let (count, unit) = normalized.split_at(split);
-    let count: f64 = if count.is_empty() { 1.0 } else { count.parse().ok()? };
+    let count: f64 = if count.is_empty() {
+        1.0
+    } else {
+        count.parse().ok()?
+    };
     let unit_ms: i64 = match unit.trim() {
         "m" | "min" | "mins" | "minute" | "minutes" => 60_000,
         "h" | "hr" | "hrs" | "hour" | "hours" => 3_600_000,
@@ -1748,5 +1784,54 @@ mod tests {
         assert_eq!(gap.status, "gap");
         assert_eq!(gap.reason.as_deref(), Some("collector_stopped"));
         validate_v2_row(&restarted[0]).unwrap();
+    }
+
+    #[test]
+    fn coverage_splits_at_the_ingestion_horizon() {
+        type Span = (i64, i64, String, Option<String>);
+        let spans = |rows: Vec<V2Row>| -> Vec<Span> {
+            rows.into_iter()
+                .filter_map(|row| match row {
+                    V2Row::CollectorCoverage(coverage) => Some((
+                        coverage.started_at,
+                        coverage.ended_at,
+                        coverage.status,
+                        coverage.reason,
+                    )),
+                    _ => None,
+                })
+                .collect()
+        };
+        let complete =
+            |start: i64, end: i64| -> Span { (start, end, "complete".to_string(), None) };
+        let pending = |start: i64, end: i64| -> Span {
+            (
+                start,
+                end,
+                "gap".to_string(),
+                Some("ingestion_pending".to_string()),
+            )
+        };
+
+        assert_eq!(
+            spans(coverage_rows_through(1_000, 2_000, None)),
+            vec![complete(1_000, 2_000)]
+        );
+        assert_eq!(
+            spans(coverage_rows_through(1_000, 2_000, Some(1_500))),
+            vec![complete(1_000, 1_500), pending(1_500, 2_000)]
+        );
+        assert_eq!(
+            spans(coverage_rows_through(1_000, 2_000, Some(500))),
+            vec![pending(1_000, 2_000)]
+        );
+        assert_eq!(
+            spans(coverage_rows_through(1_000, 2_000, Some(3_000))),
+            vec![complete(1_000, 2_000)]
+        );
+        assert!(coverage_rows_through(2_000, 2_000, None).is_empty());
+        for row in coverage_rows_through(1_000, 2_000, Some(1_500)) {
+            validate_v2_row(&row).unwrap();
+        }
     }
 }
