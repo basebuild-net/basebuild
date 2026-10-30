@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { AlertTriangle, Download, RefreshCw, X } from "lucide-react";
 import type { UpdaterState } from "../../state/updater";
 import { appVersion } from "../../lib/app";
-import { CopyButton } from "./CopyButton";
 import { t } from "../../i18n";
 
 type StartupSplashProps = {
@@ -15,7 +14,6 @@ type SplashPhase =
   | "checking"
   | "mandatory"
   | "progress"
-  | "error"
   | "ready";
 
 const SPLASH_CHECK_TIMEOUT_MS = 8_000;
@@ -65,9 +63,11 @@ export function StartupSplash({ updates, onComplete }: StartupSplashProps) {
       return;
     }
 
-    // Error state.
+    // A failed check never blocks startup: enter the app; the taskbar update
+    // control shows the failure and offers a retry.
     if (status === "error") {
-      setPhase("error");
+      setPhase("ready");
+      onComplete();
       return;
     }
 
@@ -102,11 +102,6 @@ export function StartupSplash({ updates, onComplete }: StartupSplashProps) {
   const handleContinueWithoutRestart = () => {
     setPhase("ready");
     onComplete();
-  };
-
-  const handleRetry = () => {
-    void updates.checkNow();
-    setAutoStarted(false);
   };
 
   // Progress percentage from backend events.
@@ -186,49 +181,6 @@ export function StartupSplash({ updates, onComplete }: StartupSplashProps) {
                 disabled
               >
                 <Download size={12} /> {t("startupSplash.updating")}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {phase === "error" && (
-          <div className="splash-update-info">
-            <div className="splash-update-title">
-              <AlertTriangle size={14} /> {t("startupSplash.updateCheckFailed")}
-            </div>
-            <p className="splash-update-summary text-muted text-sm">
-              {updates.info?.channelExplanation ?? updates.error ?? t("startupSplash.couldNotCheckForUpdates")}
-            </p>
-            {updates.info?.rawError ? (
-              <details className="update-raw-error">
-                <summary className="text-muted text-sm">{t("startupSplash.rawError")}</summary>
-                <pre className="text-sm mono">{updates.info.rawError}</pre>
-              </details>
-            ) : null}
-            {updates.info?.rawError ? (
-              <div className="splash-error-copy">
-                <CopyButton text={updates.info.rawError} label={t("startupSplash.copyError")} />
-              </div>
-            ) : null}
-            <div className="splash-actions">
-              <button
-                className="btn btn-sm"
-                type="button"
-                title={t("startupSplash.retryUpdateCheck")}
-                onClick={handleRetry}
-              >
-                <RefreshCw size={12} /> {t("startupSplash.retry")}
-              </button>
-              <button
-                className="btn btn-ghost btn-sm"
-                type="button"
-                title={t("startupSplash.continueToBasebuildWithoutUpdating")}
-                onClick={() => {
-                  setPhase("ready");
-                  onComplete();
-                }}
-              >
-                {t("startupSplash.continueAnyway")}
               </button>
             </div>
           </div>

@@ -288,14 +288,19 @@ pub async fn check_for_updates(app: AppHandle) -> Result<UpdateInfo, String> {
             skipped: false,
         });
     }
-    let updater = app
-        .updater()
-        .map_err(|e| format!("Failed to get updater: {e}"))?;
+    let updater = app.updater().map_err(|e| {
+        let message = format!("Failed to get updater: {e}");
+        eprintln!("[updater] {message}");
+        message
+    })?;
 
     let update = updater.check().await.map_err(|e| {
         let status = UpdateChannelStatus::from_plugin_error(&e);
         let explanation = status.explanation();
-        format!("Failed to check for updates: {e} | channel_status={status:?} | {explanation}")
+        let message =
+            format!("Failed to check for updates: {e} | channel_status={status:?} | {explanation}");
+        eprintln!("[updater] {message}");
+        message
     })?;
 
     match update {

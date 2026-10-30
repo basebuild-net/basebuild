@@ -179,7 +179,9 @@ The `latest.json` manifest supports optional policy fields:
 On launch, Basebuild shows a startup splash that checks for updates before
 the main shell becomes interactive. The splash has these states:
 
-- **Checking** — Shows current version and update-check progress.
+- **Checking** — Shows current version and update-check progress. Runs on
+  Windows, macOS, and Linux. After 8 seconds the app opens anyway and the
+  check finishes in the background.
 - **Optional update** — Shows target version, summary, and `Upgrade` /
   `Skip update for now` buttons. The skip is version-scoped: the user is
   not prompted again for the same target version, but will be prompted for
@@ -187,7 +189,9 @@ the main shell becomes interactive. The splash has these states:
 - **Mandatory update** — Hides the skip button and auto-starts the update
   when the running version is below `minimumSupportedVersion`.
 - **Progress** — Shows download/install progress bar and step text.
-- **Error** — Shows actionable diagnostics with retry and "Continue anyway".
+- **Check failed** — never blocks startup: the app opens and the taskbar
+  update control shows the failure with a retry. The backend also logs it to
+  stderr with an `[updater]` prefix.
 
 The existing in-app update UI (taskbar button + Settings → Updates tab)
 remains functional after startup for manual checks and installs.
