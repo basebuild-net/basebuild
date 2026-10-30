@@ -213,7 +213,7 @@ export function PlanningIndicators({
           <button
             key={stage.key}
             type="button"
-            className={`planning-indicator${isOpen ? " is-open" : ""}${isPulsing ? " is-pulsing" : ""}`}
+            className={`planning-indicator${isOpen ? " is-open" : ""}${isPulsing ? " is-pulsing" : ""}${stage.count === 0 ? " is-empty" : ""}`}
             data-stage={stage.key}
             title={t(
               stage.key === "running" ? "planningIndicators.textRunning" :

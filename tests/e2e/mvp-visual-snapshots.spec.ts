@@ -25,7 +25,7 @@ for (const vp of VIEWPORTS) {
       await expect(page.locator(".app-shell")).toBeVisible({ timeout: 10_000 });
       await expect(page.locator(".activity-sidebar-project-name, .activity-sidebar-row-title").first()).toBeVisible({ timeout: 10_000 });
       await expect(page.locator("h1.session-title")).toHaveCount(0);
-      await expect(page.locator(".chat-header-context").first()).toBeVisible({ timeout: 10_000 });
+      await expect(page.locator(".chat-header-run-state").first()).toBeVisible({ timeout: 10_000 });
 
       // Command strip is reachable.
       await expect(page.getByTitle(/Schematic/i).first()).toBeVisible({ timeout: 5_000 });
@@ -101,10 +101,10 @@ for (const vp of VIEWPORTS) {
       await waitForAppReady(page);
 
       // A chat panel should be visible after restore.
-      await expect(page.locator(".chat-input, textarea[placeholder*='Type a message']").first()).toBeVisible({ timeout: 10_000 });
+      await expect(page.locator(".chat-input, textarea[placeholder*='Ask anything']").first()).toBeVisible({ timeout: 10_000 });
 
       // Verify the chat input is within viewport.
-      const chatInput = page.locator("textarea[placeholder*='Type a message']").first();
+      const chatInput = page.locator("textarea[placeholder*='Ask anything']").first();
       const box = await chatInput.boundingBox();
       if (box) {
         expect(box.x).toBeGreaterThanOrEqual(0);

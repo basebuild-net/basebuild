@@ -271,5 +271,4 @@ export const layoutSettingsEn = {
   "localePicker.simplifiedChinese": "简体中文",
   "localePicker.simplifiedChineseTitle": "Use Simplified Chinese",
   "firstRunModal.chooseYourLanguage": "Choose your language",
-  "firstRunModal.languageHint": "You can change this later in Settings.",
 } as const;

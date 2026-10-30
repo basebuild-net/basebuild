@@ -1,4 +1,4 @@
-import { AlertCircle, AlertTriangle, CheckCircle } from "lucide-react";
+import { AlertCircle, AlertTriangle } from "lucide-react";
 import { useLogs } from "../../state/log";
 import { t } from "../../i18n";
 
@@ -6,52 +6,35 @@ type StatusBarProps = {
   onClick: () => void;
 };
 
-const icons = {
-  debug: CheckCircle,
-  info: CheckCircle,
-  warn: AlertTriangle,
-  error: AlertCircle,
-};
-
-const levelClass = {
-  debug: "is-info",
-  info: "is-info",
-  warn: "is-warn",
-  error: "is-error",
-};
-
+/** Quiet by default: renders only while a warning or error is outstanding. */
 export function StatusBar({ onClick }: StatusBarProps) {
-  const { lastEntry, hasErrors, hasWarnings, logs } = useLogs();
+  const { logs, addLog, hasErrors, hasWarnings } = useLogs();
 
-  if (!lastEntry) {
-    return (
-      <button className="status-bar" type="button" title={t("statusBar.openLogPanel")} onClick={onClick}>
-        <span className="status-bar-message text-muted">{t("statusBar.noIssues")}</span>
-        <span className="status-bar-count">{t("statusBar.events", { count: logs.length })}</span>
-      </button>
-    );
-  }
+  if (!hasErrors && !hasWarnings) return null;
 
-  const Icon = icons[lastEntry.level];
-  const status = hasErrors ? "error" : hasWarnings ? "warn" : "info";
+  const Icon = hasErrors ? AlertCircle : AlertTriangle;
+  const lastIssue = [...logs].reverse().find((entry) => entry.level === "error" || entry.level === "warn");
+  const errorCount = logs.filter((entry) => entry.level === "error").length;
+  const warnCount = logs.filter((entry) => entry.level === "warn").length;
 
   return (
     <button
-      className={`status-bar ${levelClass[status]}`}
+      className={`status-bar ${hasErrors ? "is-error" : "is-warn"}`}
       type="button"
-      onClick={onClick}
+      onClick={() => {
+        addLog("debug", "Status bar: open log panel");
+        onClick();
+      }}
       title={t("statusBar.clickToViewAllWarnings")}
     >
       <span className="status-bar-message">
         <Icon size={10} />
-        {lastEntry.message}
+        {lastIssue?.message}
       </span>
       <span className="status-bar-meta">
-        {hasErrors ? t("statusBar.errorS", { valueCount: logs.filter((l) => l.level === "error").length }) : null}
+        {hasErrors ? t("statusBar.errorS", { valueCount: errorCount }) : null}
         {hasErrors && hasWarnings ? " · " : null}
-        {hasWarnings ? t("statusBar.warningS", { valueCount: logs.filter((l) => l.level === "warn").length }) : null}
-        {(hasErrors || hasWarnings) ? " · " : null}
-        {t("statusBar.events", { count: logs.length })}
+        {hasWarnings ? t("statusBar.warningS", { valueCount: warnCount }) : null}
       </span>
     </button>
   );
