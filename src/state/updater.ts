@@ -213,9 +213,6 @@ export function useUpdater(): UpdaterState {
   useEffect(() => {
     // No automatic update checks in dev builds (see auto-download note above).
     if (import.meta.env.DEV && !import.meta.env.BASEBUILD_E2E) return;
-    // Releases are Windows-only (NSIS). Skip the check on other platforms to
-    // avoid a guaranteed "platform missing" error every 5 minutes.
-    if (!navigator.platform.includes("Win" /* i18n-exempt: platform detection id */)) return;
     void checkNow();
     const id = window.setInterval(() => void checkNow(), UPDATE_CHECK_INTERVAL_MS);
     return () => window.clearInterval(id);
