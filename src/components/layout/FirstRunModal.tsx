@@ -1,13 +1,12 @@
 import { useEffect, useState } from "react";
+import { Moon, Sun, TerminalSquare } from "lucide-react";
 import { useEscapeKey } from "../../lib/useEscapeKey";
-import { Check, ChevronRight, Moon, Sun, TerminalSquare, X } from "lucide-react";
-import { listRuntimeProfiles, getRuntimeDefaults, setRuntimeDefaults, type RuntimeProfile, type RuntimeDefaults } from "../../lib/settings";
-import { RuntimeDefaultsFields } from "./RuntimeDefaultsFields";
-import { LanguagePicker } from "./LanguagePicker";
 import { getAnalyticsConsent, setAnalyticsConsent, type AnalyticsConsent } from "../../lib/analytics";
 import { startupEnable, startupDisable, startupGetStatus, type StartupRegistrationStatus } from "../../lib/startup";
 import { ModalPortal } from "../ModalPortal";
+import { LanguagePicker } from "./LanguagePicker";
 import { useTheme, type AppTheme } from "../../state/useTheme";
+import { useLogs } from "../../state/log";
 import { t } from "../../i18n";
 
 type FirstRunModalProps = {
@@ -16,246 +15,194 @@ type FirstRunModalProps = {
   onSkip: () => void;
 };
 
-type Step = "theme" | "welcome" | "adapter" | "terminal" | "startup" | "privacy";
+const USAGE_CONSENT_VERSION = "usage-sharing-v1";
 
+const THEME_CHOICES: { id: AppTheme; label: () => string; Icon: typeof Moon }[] = [
+  { id: "dark", label: () => t("firstRunModal.dark"), Icon: Moon },
+  { id: "light", label: () => t("firstRunModal.light"), Icon: Sun },
+];
+
+/**
+ * One-sheet welcome. Nothing is persisted until "Get started": usage sharing
+ * is opt-in (off by default) and Skip/Escape registers no OS startup entry.
+ */
 export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) {
-  const [step, setStep] = useState<Step>("theme");
+  const { addLog } = useLogs();
   const { theme, setTheme } = useTheme();
-  const [profiles, setProfiles] = useState<RuntimeProfile[]>([]);
-  const [defaults, setDefaults] = useState<RuntimeDefaults | null>(null);
-  useEscapeKey(open, onSkip);
   const [consent, setConsent] = useState<AnalyticsConsent | null>(null);
   const [launchAtSignin, setLaunchAtSignin] = useState(true);
   const [startupStatus, setStartupStatus] = useState<StartupRegistrationStatus | null>(null);
   const [consentError, setConsentError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  useEscapeKey(open, onSkip);
 
   useEffect(() => {
     if (!open) return;
     void (async () => {
       try {
-        const [p, d, c, s] = await Promise.all([listRuntimeProfiles(), getRuntimeDefaults(), getAnalyticsConsent(), startupGetStatus().catch(() => null)]);
-        setProfiles(p);
-        setDefaults(d);
+        const [c, s] = await Promise.all([getAnalyticsConsent(), startupGetStatus().catch(() => null)]);
         // Usage sharing is opt-in: the checkbox starts from the stored choice,
-        // which is off on a fresh install. Nothing is persisted until Finish.
+        // which is off on a fresh install.
         setConsent(c);
         setStartupStatus(s);
       } catch {
-        // ignore
+        // Settings can still change these later; the sheet stays usable.
       }
     })();
   }, [open]);
 
   if (!open) return null;
 
-  const chatProfiles = profiles.filter((p) => p.kind === "chat");
-  const terminalProfiles = profiles.filter((p) => p.kind === "terminal");
+  const usageDraft: AnalyticsConsent = consent ?? {
+    collectionEnabled: false,
+    uploadEnabled: false,
+    consentVersion: null,
+    consentedAt: null,
+  };
+  const startupSupported = startupStatus?.platformSupported === true;
 
-  async function saveDefaultsAndAdvance(d: RuntimeDefaults, next: Step) {
-    try {
-      await setRuntimeDefaults(d);
-      setDefaults(d);
-    } catch {
-      // ignore
-    }
-    setStep(next);
+  function pickTheme(next: AppTheme) {
+    addLog("debug", "First run: theme picked", { theme: next });
+    setTheme(next);
   }
 
-  async function saveConsentAndFinish(c: AnalyticsConsent) {
-    const finalizedConsent = {
-      ...c,
-      consentVersion: "usage-sharing-v1",
+  function skip() {
+    addLog("debug", "First run: skipped");
+    onSkip();
+  }
+
+  async function getStarted() {
+    if (saving) return;
+    setSaving(true);
+    addLog("debug", "First run: get started", { uploadEnabled: usageDraft.uploadEnabled, launchAtSignin });
+    const finalized: AnalyticsConsent = {
+      ...usageDraft,
+      consentVersion: USAGE_CONSENT_VERSION,
       consentedAt: Math.floor(Date.now() / 1000),
     };
     try {
-      await setAnalyticsConsent(finalizedConsent);
-      setConsent(finalizedConsent);
+      await setAnalyticsConsent(finalized);
+      setConsent(finalized);
       setConsentError(null);
     } catch (error) {
       setConsentError(error instanceof Error ? error.message : String(error));
+      setSaving(false);
       return;
     }
-    // Apply the launch-at-sign-in preference only when the user finishes
-    // setup. Skip/Escape does NOT call this function, so no OS registration
-    // is created as a side effect of a dismissed setup.
-    try {
-      if (launchAtSignin) {
-        const status = await startupEnable();
+    // Startup registration is applied only here. Skip never calls this, so a
+    // dismissed sheet creates no OS registration. Failure is non-fatal.
+    if (startupSupported) {
+      try {
+        const status = launchAtSignin ? await startupEnable() : await startupDisable();
         setStartupStatus(status);
-      } else {
-        const status = await startupDisable();
-        setStartupStatus(status);
+      } catch {
+        // The user can retry in Settings.
       }
-    } catch {
-      // Registration failure is non-fatal. The user can retry in Settings.
     }
+    setSaving(false);
     onComplete();
   }
 
   return (
     <ModalPortal>
-    <div className="modal-overlay" onClick={onSkip}>
-      <div className="modal modal-first-run" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2>{t("firstRunModal.welcomeToBasebuild")}</h2>
-          <button className="btn-icon" title={t("firstRunModal.skipSetup")} type="button" onClick={onSkip}>
-            <X size={16} />
-          </button>
-        </div>
-        <div className="modal-body stack modal-first-run-body">
-          {step === "theme" ? (
-            <>
-              <h3>{t("firstRunModal.chooseYourLanguage")}</h3>
-              <p className="text-muted text-sm">{t("firstRunModal.languageHint")}</p>
+      <div className="modal-overlay" onClick={skip}>
+        <div
+          className="modal modal-first-run"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="first-run-title"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="modal-header first-run-header">
+            <div className="first-run-brand">
+              <span className="first-run-mark" aria-hidden="true"><TerminalSquare size={16} /></span>
+              <h2 id="first-run-title">{t("firstRunModal.welcomeToBasebuild")}</h2>
+            </div>
+          </div>
+
+          <div className="modal-body stack first-run-body">
+            <p className="text-muted text-sm first-run-tagline">{t("firstRunModal.tagline")}</p>
+
+            <section className="first-run-field">
+              <div className="first-run-label">{t("firstRunModal.chooseYourLanguage")}</div>
               <LanguagePicker />
-              <h3>{t("firstRunModal.chooseYourTheme")}</h3>
-              <p className="text-muted text-sm">
-                {t("firstRunModal.startWithDarkOrLight")}
-              </p>
-              <div className="theme-picker">
-                {([
-                  { id: "dark", label: t("firstRunModal.dark"), icon: Moon },
-                  { id: "light", label: t("firstRunModal.light"), icon: Sun },
-                ] as { id: AppTheme; label: string; icon: typeof Moon }[]).map((choice) => {
-                  const Icon = choice.icon;
+            </section>
+
+            <section className="first-run-field">
+              <div className="first-run-label">{t("firstRunModal.chooseYourTheme")}</div>
+              <div className="first-run-theme-options" role="group" aria-label={t("firstRunModal.chooseYourTheme")}>
+                {THEME_CHOICES.map(({ id, label, Icon }) => {
+                  const selected = theme === id;
                   return (
                     <button
-                      key={choice.id}
-                      className={`btn theme-picker-card${theme === choice.id ? " btn-primary" : ""}`}
+                      key={id}
                       type="button"
-                      title={t("firstRunModal.useMode", { toLowerCase: choice.label.toLowerCase() })}
-                      aria-pressed={theme === choice.id}
-                      onClick={() => {
-                        setTheme(choice.id);
-                        setStep("welcome");
-                      }}
+                      className={`first-run-theme${selected ? " is-selected" : ""}`}
+                      aria-pressed={selected}
+                      title={t("firstRunModal.useMode", { toLowerCase: label().toLowerCase() })}
+                      onClick={() => pickTheme(id)}
                     >
-                      <Icon size={24} />
-                      <span>{choice.label}</span>
-                      {theme === choice.id ? <Check size={12} /> : null}
+                      <Icon size={14} />
+                      <span>{label()}</span>
                     </button>
                   );
                 })}
               </div>
-            </>
-          ) : null}
+            </section>
 
-          {step === "welcome" ? (
-            <>
-              <TerminalSquare size={32} className="text-muted" />
-              <h3>{t("firstRunModal.localFirstDesktopControlPlane")}</h3>
-              <p className="text-muted text-sm">
-                {t("firstRunModal.basebuildRunsAiCodingAgents")}
-              </p>
-              <div className="row">
-                <button className="btn btn-primary" type="button" title={t("firstRunModal.startSetup")} onClick={() => setStep("adapter")}>
-                  {t("firstRunModal.getStarted")} <ChevronRight size={12} />
-                </button>
-                <button className="btn btn-ghost" type="button" title={t("firstRunModal.skipAndUseConservativeDefaults")} onClick={onSkip}>
-                  {t("firstRunModal.skip")}
-                </button>
-              </div>
-            </>
-          ) : null}
-
-          {step === "adapter" && defaults ? (
-            <>
-              <h3>{t("firstRunModal.chooseYourChatAdapter")}</h3>
-              <p className="text-muted text-sm">{t("firstRunModal.theBasebuildNativeAgentLoop")}</p>
-              <RuntimeDefaultsFields
-                defaults={defaults}
-                chatProfiles={chatProfiles}
-                terminalProfiles={terminalProfiles}
-                onChange={(d) => setDefaults(d)}
-              />
-              <div className="row">
-                <button className="btn" type="button" title={t("firstRunModal.goBack")} onClick={() => setStep("welcome")}>{t("firstRunModal.back")}</button>
-                <button className="btn btn-primary" type="button" title={t("firstRunModal.continueToTerminalSetup")} onClick={() => void saveDefaultsAndAdvance(defaults, "terminal")}>
-                  {t("firstRunModal.next")} <ChevronRight size={12} />
-                </button>
-              </div>
-            </>
-          ) : null}
-
-          {step === "terminal" && defaults ? (
-            <>
-              <h3>{t("firstRunModal.chooseYourTerminal")}</h3>
-              <RuntimeDefaultsFields
-                defaults={defaults}
-                chatProfiles={chatProfiles}
-                terminalProfiles={terminalProfiles}
-                onChange={(d) => setDefaults(d)}
-              />
-              <div className="row">
-                <button className="btn" type="button" title={t("firstRunModal.goBack")} onClick={() => setStep("adapter")}>{t("firstRunModal.back")}</button>
-                <button className="btn btn-primary" type="button" title={t("firstRunModal.continueToWindowsStartupSetup")} onClick={() => void saveDefaultsAndAdvance(defaults, "startup")}>
-                  {t("firstRunModal.next")} <ChevronRight size={12} />
-                </button>
-              </div>
-            </>
-          ) : null}
-
-          {step === "startup" ? (
-            <>
-              <h3>{t("firstRunModal.windowsStartup")}</h3>
-              <p className="text-muted text-sm">
-                {t("firstRunModal.launchBasebuildAutomaticallyWhenYou")}
-              </p>
-              {startupStatus && !startupStatus.platformSupported ? (
-                <p className="text-muted text-sm">
-                  {t("firstRunModal.automaticStartupIsNotSupported")}
-                </p>
-              ) : (
-                <label className="row gap-sm">
+            {startupSupported ? (
+              <section className="first-run-field">
+                <label className="first-run-check">
                   <input
                     type="checkbox"
-                    title={t("firstRunModal.launchBasebuildAtWindowsSign")}
+                    title={t("firstRunModal.launchAtWindowsSignIn")}
                     checked={launchAtSignin}
-                    onChange={(e) => setLaunchAtSignin(e.target.checked)}
+                    onChange={(e) => {
+                      addLog("debug", "First run: launch at sign-in toggled", { enabled: e.target.checked });
+                      setLaunchAtSignin(e.target.checked);
+                    }}
                   />
                   <span className="text-sm">{t("firstRunModal.launchAtWindowsSignIn")}</span>
                 </label>
-              )}
-              <div className="row">
-                <button className="btn" type="button" title={t("firstRunModal.goBack")} onClick={() => setStep("terminal")}>{t("firstRunModal.back")}</button>
-                <button className="btn btn-primary" type="button" title={t("firstRunModal.continueToPrivacySetup")} onClick={() => void setStep("privacy")}>
-                  {t("firstRunModal.next")} <ChevronRight size={12} />
-                </button>
-              </div>
-            </>
-          ) : null}
+                <p className="text-muted text-xs first-run-hint">{t("firstRunModal.startupHint")}</p>
+              </section>
+            ) : null}
 
-          {step === "privacy" && consent ? (
-            <>
-              <h3>{t("firstRunModal.helpImproveBasebuild")}</h3>
-              <p className="text-muted text-sm">
-                {t("firstRunModal.anonymousAggregateUsageSharingIs")}
-              </p>
-              <label className="row gap-sm">
+            <section className="first-run-field">
+              <label className="first-run-check">
                 <input
                   type="checkbox"
-                  title={t("firstRunModal.shareAnonymousAggregateUsageWith")}
-                  checked={consent.uploadEnabled}
-                  onChange={(e) => setConsent({
-                    ...consent,
-                    uploadEnabled: e.target.checked,
-                  })}
+                  title={t("firstRunModal.shareAnonymousAggregateUsage")}
+                  checked={usageDraft.uploadEnabled}
+                  onChange={(e) => {
+                    addLog("debug", "First run: usage sharing toggled", { enabled: e.target.checked });
+                    setConsent({ ...usageDraft, uploadEnabled: e.target.checked });
+                  }}
                 />
                 <span className="text-sm">{t("firstRunModal.shareAnonymousAggregateUsage")}</span>
               </label>
-              {consentError ? <p className="text-danger text-sm">{consentError}</p> : null}
-              <div className="row">
-                <button className="btn" type="button" title={t("firstRunModal.goBack")} onClick={() => setStep("startup")}>{t("firstRunModal.back")}</button>
-                <button className="btn btn-primary" type="button" title={t("firstRunModal.finishSetup")} onClick={() => void saveConsentAndFinish(consent)}>
-                  {t("firstRunModal.finish")} <Check size={12} />
-                </button>
-              </div>
-            </>
-          ) : null}
+              <p className="text-muted text-xs first-run-hint">{t("firstRunModal.shareUsageHint")}</p>
+            </section>
 
+            {consentError ? <p className="text-danger text-sm">{consentError}</p> : null}
+          </div>
+
+          <div className="modal-footer first-run-actions">
+            <button className="btn" type="button" title={t("firstRunModal.skipSetup")} onClick={skip}>
+              {t("firstRunModal.skip")}
+            </button>
+            <button
+              className="btn btn-primary"
+              type="button"
+              title={t("firstRunModal.getStarted")}
+              disabled={saving}
+              onClick={() => void getStarted()}
+            >
+              {t("firstRunModal.getStarted")}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
     </ModalPortal>
   );
 }

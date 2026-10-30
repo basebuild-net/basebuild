@@ -112,7 +112,6 @@ export const panelsEn = {
   "chatPanel.thisChatRoutesThroughThe": "This chat routes through the Oh My Pi (OMP) RPC bridge. Some Basebuild tools may be unavailable.",
   "chatPanel.thisChatUsesBasebuildS": "This chat uses Basebuild's native transport (first-party) with full tool support.",
   "chatPanel.oMP": "OMP",
-  "chatPanel.native": "Native",
   "chatPanel.localGenerationStatsFromThe": "Local generation stats from the last completed turn",
   "chatPanel.local": "Local",
   "chatPanel.tokS": "{value}tok/s",

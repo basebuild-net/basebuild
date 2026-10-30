@@ -112,7 +112,6 @@ export const panelsZhCN = {
   "chatPanel.thisChatRoutesThroughThe": "此聊天通过 Oh My Pi (OMP) RPC 桥接器路由，部分 Basebuild 工具可能不可用。",
   "chatPanel.thisChatUsesBasebuildS": "此聊天使用 Basebuild 原生传输（第一方），完整支持工具。",
   "chatPanel.oMP": "OMP",
-  "chatPanel.native": "原生",
   "chatPanel.localGenerationStatsFromThe": "上一个已完成回合的本地生成统计",
   "chatPanel.local": "本地",
   "chatPanel.tokS": "{value}tok/s",

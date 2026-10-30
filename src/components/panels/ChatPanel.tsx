@@ -3892,16 +3892,9 @@ export function ChatPanel({
                     <FileText size={12} /> {contextFiles.length} {contextFiles.length === 1 ? t("chatPanel.contextFile") : t("chatPanel.contextFiles")}
                   </span>
                 ) : null}
-                {routeVia ? (
-                  <span
-                    className={`chat-route-badge is-${routeVia}`}
-                    title={
-                      routeVia === "omp"
-                        ? t("chatPanel.thisChatRoutesThroughThe")
-                        : t("chatPanel.thisChatUsesBasebuildS")
-                    }
-                  >
-                    {routeVia === "omp" ? t("chatPanel.oMP") : t("chatPanel.native")}
+                {routeVia === "omp" ? (
+                  <span className="chat-route-badge is-omp" title={t("chatPanel.thisChatRoutesThroughThe")}>
+                    {t("chatPanel.oMP")}
                   </span>
                 ) : null}
                 {isLocalProvider && genStats ? (

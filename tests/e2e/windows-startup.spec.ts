@@ -13,22 +13,13 @@ test.describe("Windows startup settings", () => {
     await expect(modal).toBeVisible({ timeout: 10_000 });
 
     // Theme is the first decision and dark mode is presented first.
-    const themeButtons = modal.locator(".theme-picker-card");
+    const themeButtons = modal.locator(".first-run-theme");
     await expect(themeButtons).toHaveCount(2);
     await expect(themeButtons.first()).toContainText("Dark");
     await page.getByTitle("Use dark mode").click();
 
-    // Click "Get started" to advance past welcome
-    await page.getByTitle("Start setup").click();
-
-    // Wait for adapter step and advance through it
-    await page.getByTitle("Continue to terminal setup").click();
-
-    // Wait for terminal step and advance to startup step
-    await page.getByTitle("Continue to Windows startup setup").click();
-
-    // The startup step should show the launch-at-sign-in checkbox, checked by default
-    const checkbox = page.getByTitle("Launch Basebuild at Windows sign-in (minimized to tray)");
+    // Launch-at-sign-in lives on the same welcome sheet, checked by default.
+    const checkbox = page.getByTitle("Launch at Windows sign-in");
     await expect(checkbox).toBeVisible({ timeout: 10_000 });
     await expect(checkbox).toBeChecked();
   });
@@ -55,11 +46,7 @@ test.describe("Windows startup settings", () => {
     await page.reload();
 
     await page.getByTitle("Use dark mode").click();
-    await page.getByTitle("Start setup").click();
-    await page.getByTitle("Continue to terminal setup").click();
-    await page.getByTitle("Continue to Windows startup setup").click();
-    await page.getByTitle("Continue to privacy setup").click();
-    await page.getByTitle("Finish setup").click();
+    await page.getByTitle("Get started").click();
 
     const modal = page.locator(".modal-first-run");
     await expect(modal).not.toBeVisible({ timeout: 10_000 });

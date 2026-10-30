@@ -115,6 +115,11 @@ Current classes include `.btn`, `.btn-primary`, `.btn-update`, `.btn-ghost`,
 `.pre`, `.stack`, `.stack-sm`, `.row`, `.row-between`, `.text-muted`,
 `.text-sm`, `.text-ok`, `.text-danger`, `.mono`, `.spin`.
 
+Onboarding primitives (all in `globals.css`, existing tokens only):
+`.first-run-*` (one-sheet welcome modal), `.get-started-*` (three-step home
+cards), and `.usage-consent-banner` (compact 32px row). `.text-sm` renders at
+10px in this codebase; set an explicit size when the text needs more.
+
 ### Disclosure (`src/components/Disclosure.tsx`)
 
 `.disclosure` / `.disclosure-toggle` / `.disclosure-label` /
