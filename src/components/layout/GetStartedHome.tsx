@@ -85,7 +85,7 @@ export function GetStartedHome({
       doneText: t("getStarted.connectDone"),
       done: connectDone,
       checking: providerCheck === "loading",
-      action: t("getStarted.connectAction"),
+      action: connectDone ? t("getStarted.manageProviders") : t("getStarted.connectAction"),
       disabled: false,
       onAction: () => {
         addLog("debug", "Get started: open provider settings");

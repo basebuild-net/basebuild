@@ -15,7 +15,6 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
-import type { AgentMode } from "../../lib/sessions";
 import type { GitBranch as GitBranchInfo } from "../../lib/git";
 import { ActionMenu, type ActionMenuItem } from "../ActionMenu";
 import { t } from "../../i18n";
@@ -47,8 +46,6 @@ type ChatHeaderProps = {
   onToggleDebug: () => void;
   canCopyConversation: boolean;
   onCopyConversation: () => void;
-  agentMode: AgentMode;
-  onToggleAgentMode: () => void;
   planBadge: PlanBadge;
   onOpenPlan: () => void;
   branch: string | null;
@@ -200,11 +197,6 @@ export function ChatHeader(props: ChatHeaderProps) {
     setBranchOpen(true);
   }
 
-  const modeLabel = props.agentMode === "build" ? t("chatHeader.buildMode") : t("chatHeader.planMode");
-  const modeTitle = props.agentMode === "build"
-    ? t("chatHeader.buildModeEditsAllowedApprovalGateway")
-    : t("chatHeader.planModeReadOnlyPostureClick");
-
   const workspaceLabel = props.worktreePath
     ? props.worktreePath.split(/[\\/]/).pop() ?? t("chatHeader.worktree2")
     : props.projectPath.split(/[\\/]/).pop() ?? t("chatHeader.workspace2");
@@ -253,16 +245,7 @@ export function ChatHeader(props: ChatHeaderProps) {
         <span className={`chat-header-run-state is-${props.runState}`} title={t("chatHeader.agentState", { runState: t(RUN_STATE_KEYS[props.runState]) })}>
           {t(RUN_STATE_KEYS[props.runState])}
         </span>
-        <ContextIndicator used={props.contextUsed} limit={props.contextLimit} />
-        <button
-          className={`chat-column-mode-pill${props.agentMode === "build" ? " is-build" : " is-plan"}`}
-          type="button"
-          title={modeTitle}
-          aria-pressed={props.agentMode === "build"}
-          onClick={props.onToggleAgentMode}
-        >
-          {modeLabel}
-        </button>
+        {props.contextUsed > 0 ? <ContextIndicator used={props.contextUsed} limit={props.contextLimit} /> : null}
         {props.planBadge ? (
           <button
             className="chat-column-plan-badge"

@@ -133,7 +133,6 @@ import { createIdea, type Idea } from "../../lib/ideas";
 import { inspectProjectSchematic, type SchematicReport } from "../../lib/schematic";
 import { schematicWizardAction } from "../../lib/planningActions";
 import { readSkill } from "../../lib/skills";
-import type { AgentMode } from "../../lib/sessions";
 import { readModelRecency, readProviderRecency, recordModelUse, recordProviderUse } from "../../lib/modelRecency";
 import { compareProviders } from "../../lib/providerRanking";
 import { useLogs } from "../../state/log";
@@ -445,7 +444,6 @@ export function ChatPanel({
   const [sessionTitle, setSessionTitle] = useState<{ sessionId: string; title: string } | null>(null);
   const [assignedPlanId, setAssignedPlanId] = useState<string | null>(null);
   const [planBadge, setPlanBadge] = useState<{ referenceId: string; title: string; status: string } | null>(null);
-  const [agentMode, setAgentMode] = useState<AgentMode>("plan");
   const [titleLocked, setTitleLocked] = useState(false);
   const [renameSignal, setRenameSignal] = useState(0);
   const [uncommittedCount, setUncommittedCount] = useState(0);
@@ -3073,8 +3071,6 @@ export function ChatPanel({
           addLog("debug", "Copy conversation selected", `sessionId=${nativeSessionId ?? "none"}`);
           void handleCopyConversation();
         }}
-        agentMode={agentMode}
-        onToggleAgentMode={() => setAgentMode((m) => (m === "build" ? "plan" : "build"))}
         planBadge={planBadge}
         onOpenPlan={() => { /* focus the plan in the side panel */ }}
         branch={branch}

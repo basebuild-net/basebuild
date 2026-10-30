@@ -117,7 +117,8 @@ test.describe("Compact chat context header (MVP §Context)", () => {
 
     await expect(page.locator(".chat-column-model-chip").first()).toBeVisible({ timeout: 5_000 });
     await expect(page.locator(".chat-header-run-state").first()).toContainText(/idle|running|queued/i);
-    await expect(page.locator(".chat-header-context").first()).toHaveAttribute("title", /Context usage:/);
+    const context = page.locator(".chat-header-context");
+    if (await context.count() > 0) await expect(context.first()).toHaveAttribute("title", /Context usage:/);
     const branch = page.locator(".chat-column-branch").first();
     if (await branch.count() > 0) await expect(branch).toHaveAttribute("title", /Branch:/);
   });
@@ -129,7 +130,6 @@ test.describe("Compact chat context header (MVP §Context)", () => {
     for (const control of [
       page.locator(".chat-column-model-chip").first(),
       page.locator(".chat-header-run-state").first(),
-      page.locator(".chat-header-context").first(),
     ]) {
       await expect(control).toHaveAttribute("title", /.+/);
     }

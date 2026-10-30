@@ -19,7 +19,7 @@ test.describe("Get started home", () => {
     await expect(home.getByRole("button", { name: "New chat" })).toBeDisabled();
   });
 
-  test("choose provider card opens the provider settings", async ({ page }) => {
+  test("connected provider card opens the provider settings", async ({ page }) => {
     await page.addInitScript(() => {
       localStorage.setItem("basebuild:first-run-complete", "true");
     });
@@ -28,7 +28,7 @@ test.describe("Get started home", () => {
 
     const home = page.locator(".get-started");
     await expect(home).toBeVisible({ timeout: 10_000 });
-    await home.getByRole("button", { name: "Choose provider" }).click();
+    await home.getByRole("button", { name: "Manage providers" }).click();
     await expect(page.locator(".settings-modal")).toBeVisible({ timeout: 10_000 });
   });
 
