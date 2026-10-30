@@ -165,9 +165,103 @@ function applyVoiceOverlay(catalog, overlay) {
   return stats;
 }
 
+/**
+ * OhMyPi publishes models.json in a compact, hash-consed encoding
+ * (`{version: 1, keys, booleanShapes, nodes, compat, providers}`; see
+ * packages/catalog/src/model-catalog-format.ts upstream). Basebuild's Rust
+ * parser reads the plain `provider -> model id -> model` map, so decode here.
+ * A map-shaped input (the older upstream format) passes through unchanged.
+ */
+export function decodeOhMyPiCatalog(raw) {
+  if (!(raw && raw.version === 1 && Array.isArray(raw.nodes) && Array.isArray(raw.providers))) {
+    return raw;
+  }
+  const { keys, booleanShapes, nodes } = raw;
+  const compatBases = new Map(raw.compat);
+  const values = new Map();
+  const set = (object, key, value) => {
+    if (value === undefined) return;
+    if (key === "__proto__") {
+      Object.defineProperty(object, key, { value, writable: true, enumerable: true, configurable: true });
+    } else {
+      object[key] = value;
+    }
+  };
+  const decodeObject = (object, node) => {
+    for (let i = 0; i < node[1].length; i += 2) set(object, keys[node[1][i]], decode(node[1][i + 1]));
+    const shape = booleanShapes[node[2]];
+    for (let i = 0; i < shape.length; i++) {
+      set(object, keys[shape[i]], ((node[3][i >>> 5] >>> (i % 32)) & 1) !== 0);
+    }
+  };
+  // Decoded values are cloned per use so later overlays can mutate one model
+  // without touching every model that shared the interned node.
+  const decode = (value) => {
+    if (!Array.isArray(value)) return value;
+    const id = value[0];
+    if (id === -1) return undefined;
+    if (!values.has(id)) {
+      const node = nodes[id];
+      if (!node) throw new Error(`compact catalog: missing node ${id}`);
+      let result;
+      if (node[0] === 1) {
+        result = node[1].map((entry) => decode(entry));
+      } else {
+        result = {};
+        decodeObject(result, node);
+      }
+      values.set(id, result);
+    }
+    return structuredClone(values.get(id));
+  };
+  const catalog = {};
+  for (const [provider, encodedConstants, rows] of raw.providers) {
+    const constants = decode(encodedConstants) ?? {};
+    const models = {};
+    for (const [id, encoded, delta] of rows) {
+      if (!Array.isArray(encoded) || encoded[0] < 0 || nodes[encoded[0]]?.[0] !== 0) {
+        throw new Error(`compact catalog: invalid model row ${provider}/${id}`);
+      }
+      const model = { id, ...structuredClone(constants) };
+      decodeObject(model, nodes[encoded[0]]);
+      if (delta) {
+        const compat = decode(compatBases.get(model.api)) ?? {};
+        for (const key of delta[0]) delete compat[keys[key]];
+        const changes = decode(delta[1]) ?? {};
+        for (const key of Object.keys(changes)) set(compat, key, changes[key]);
+        model.compat = compat;
+      }
+      set(models, id, model);
+    }
+    catalog[provider] = models;
+  }
+  return catalog;
+}
+
+/** Fail before writing if the catalog is not the map shape model_catalog.rs parses. */
+export function assertCatalogShape(catalog) {
+  if (!catalog || typeof catalog !== "object" || Array.isArray(catalog)) {
+    throw new Error("catalog: expected an object of providers");
+  }
+  let models = 0;
+  for (const [provider, entries] of Object.entries(catalog)) {
+    if (!entries || typeof entries !== "object" || Array.isArray(entries)) {
+      throw new Error(`catalog: provider '${provider}' is not a model map`);
+    }
+    for (const [id, model] of Object.entries(entries)) {
+      if (!model || typeof model !== "object" || typeof model.id !== "string" || typeof model.api !== "string") {
+        throw new Error(`catalog: model '${provider}/${id}' lacks id/api`);
+      }
+      models += 1;
+    }
+  }
+  if (models === 0) throw new Error("catalog: no models");
+}
+
 async function main() {
   console.log("Fetching OhMyPi catalog from upstream...");
-  const catalog = await fetchJson(OHMYPI_CATALOG_URL);
+  const catalog = decodeOhMyPiCatalog(await fetchJson(OHMYPI_CATALOG_URL));
+  assertCatalogShape(catalog);
   const providerCount = Object.keys(catalog).length;
   let modelCount = 0;
   for (const models of Object.values(catalog)) {
@@ -210,6 +304,7 @@ async function main() {
 
   // Deterministic serialization (stable key order from source objects, tab
   // indent like upstream) so repeated runs with identical data are no-ops.
+  assertCatalogShape(catalog);
   const catalogText = JSON.stringify(catalog, null, "\t") + "\n";
 
   // Content-hash version stamp (SHA-256 of the canonical JSON, first 16 hex chars).
@@ -231,7 +326,9 @@ async function main() {
   console.log("Done. Review the diff before committing.");
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
