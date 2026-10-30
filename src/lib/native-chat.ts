@@ -11,6 +11,8 @@ export type NativeChatSession = {
   effortLevel: string;
   status: string;
   runState: string;
+  /** Plan mode: the agent may only read and plan until the plan is approved. */
+  planMode: boolean;
   createdAt: number;
   updatedAt: number;
 };
@@ -237,6 +239,34 @@ export type NativeChatSendResult = {
   toolEvents: NativeToolEvent[];
   setupRequired: NativeSetupRequired | null;
   offline: boolean;
+  /** Context the loop used for the last request; drives the context circle. */
+  contextTokens: number | null;
+};
+
+/** One checklist item written by the agent's `todo_write` tool. */
+export type NativeTodoItem = {
+  content: string;
+  /** "pending" | "in_progress" | "completed". */
+  status: string;
+};
+
+/** Result of `/compact`: a summary now stands in for the older messages. */
+export type NativeCompactionResult = {
+  sessionId: string;
+  summary: string;
+  compactedMessages: number;
+  keptMessages: number;
+  tokensBefore: number;
+  tokensAfter: number;
+  createdAt: number;
+};
+
+/** A project context file (AGENTS.md, CLAUDE.md) injected into the system prompt. */
+export type NativeContextFile = {
+  label: string;
+  scope: string;
+  bytes: number;
+  truncated: boolean;
 };
 
 /**
@@ -429,6 +459,29 @@ export async function nativeChatSend(input: {
   effortLevel?: string | null;
 }): Promise<NativeChatSendResult> {
   return invoke<NativeChatSendResult>("native_chat_send", { request: input });
+}
+
+/** Turn plan mode on or off for a session. Plan mode gates the agent to read-only tools. */
+export async function nativeChatSetPlanMode(input: {
+  sessionId: string;
+  enabled: boolean;
+}): Promise<NativeChatSession> {
+  return invoke<NativeChatSession>("native_chat_set_plan_mode", input);
+}
+
+/** Summarize older messages of a session with the model (manual `/compact`). */
+export async function nativeChatCompact(sessionId: string): Promise<NativeCompactionResult> {
+  return invoke<NativeCompactionResult>("native_chat_compact", { sessionId });
+}
+
+/** Current checklist written by the agent for a session. */
+export async function nativeChatTodos(sessionId: string): Promise<NativeTodoItem[]> {
+  return invoke<NativeTodoItem[]>("native_chat_todos", { sessionId });
+}
+
+/** Context files that the next request for this project will include. */
+export async function nativeChatContextFiles(projectPath: string): Promise<NativeContextFile[]> {
+  return invoke<NativeContextFile[]>("native_chat_context_files", { projectPath });
 }
 
 /**

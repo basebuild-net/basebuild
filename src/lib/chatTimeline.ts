@@ -5,7 +5,9 @@ import type { PendingInteraction } from "./interactions";
 export type ChatEvent =
   | { kind: "user" | "assistant" | "system"; id: string; content: string; reasoning: string | null; createdAt: number | null; providerId: string | null; modelId: string | null; index: number }
   | { kind: "tool"; id: string; event: NativeToolEvent; createdAt: number | null; index: number }
-  | { kind: "interaction"; id: string; interaction: PendingInteraction; createdAt: number | null; index: number };
+  | { kind: "interaction"; id: string; interaction: PendingInteraction; createdAt: number | null; index: number }
+  /** Marks where `/compact` folded older messages; sits after the last compacted message. */
+  | { kind: "compaction"; id: string; compactedMessages: number | null; keptMessages: number | null; tokensBefore: number | null; tokensAfter: number | null; createdAt: number | null; index: number };
 
 /**
  * A completed live-turn segment: text/reasoning of a finished agent-loop
@@ -21,6 +23,34 @@ export type LiveSegment = {
   createdAt: number;
   order: number;
 };
+
+/** Counts recorded by the backend in a `compaction` tool event's arguments JSON. */
+type CompactionCounts = {
+  compactedMessages: number | null;
+  keptMessages: number | null;
+  tokensBefore: number | null;
+  tokensAfter: number | null;
+};
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function parseCompactionCounts(raw: string | null): CompactionCounts {
+  const empty: CompactionCounts = { compactedMessages: null, keptMessages: null, tokensBefore: null, tokensAfter: null };
+  if (!raw) return empty;
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    return {
+      compactedMessages: numberOrNull(parsed.compactedMessages),
+      keptMessages: numberOrNull(parsed.keptMessages),
+      tokensBefore: numberOrNull(parsed.tokensBefore),
+      tokensAfter: numberOrNull(parsed.tokensAfter),
+    };
+  } catch {
+    return empty;
+  }
+}
 
 /**
  * Build the merged chronological event list from messages, tool events,
@@ -71,6 +101,11 @@ export function buildChatTimeline(
     const bound = msg.id ? toolsByMessage.get(msg.id) : undefined;
     if (bound) {
       for (const te of bound) {
+        if (te.kind === "compaction") {
+          const counts = parseCompactionCounts(te.arguments);
+          events.push({ kind: "compaction", id: te.id, ...counts, createdAt: te.createdAt, index: i + 0.5 });
+          continue;
+        }
         events.push({
           kind: "tool",
           id: te.id,
@@ -92,7 +127,7 @@ export function buildChatTimeline(
   // approval card emitted in the same second as the (possibly huge)
   // optimistic user message sorts above it and ends up off-screen.
   for (const te of toolEvents) {
-    if (te.kind === "request_metrics") continue;
+    if (te.kind === "request_metrics" || te.kind === "compaction") continue;
     if (!te.messageId) {
       events.push({
         kind: "tool",

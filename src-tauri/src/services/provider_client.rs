@@ -14,6 +14,8 @@ use std::time::{Duration, Instant};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde_json::{json, Value};
 
+use crate::services::context_service::estimate_tokens;
+
 pub const LOCAL_PROVIDER_ID: &str = "basebuild-local";
 pub const OMP_CODEX_BASE_URL: &str = "omp://openai-codex";
 const OPENAI_CODEX_PROVIDER_ID: &str = "openai-codex";
@@ -721,14 +723,6 @@ fn classify_reqwest_error(e: &reqwest::Error) -> ProviderError {
     }
 }
 
-fn estimate_tokens(text: &str) -> i64 {
-    let trimmed = text.trim();
-    if trimmed.is_empty() {
-        0
-    } else {
-        trimmed.split_whitespace().count().max(1) as i64
-    }
-}
 fn strip_think_tags(content: &str) -> (String, String) {
     let markers: &[(&str, &str)] = &[
         ("\u{2764}", "\u{2764}"),
