@@ -1,71 +1,83 @@
-import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Check, RefreshCw, Terminal, Wrench } from "lucide-react";
-import {
-  openspecRuntimeStatus,
-  openspecRuntimeInstall,
-  openspecRuntimeUpdate,
-  type OpenSpecRuntimeStatus,
-} from "../../lib/openspecRuntime";
+import type { OpenSpecRuntimeAction } from "../../lib/openspecRuntime";
+import { useLogs } from "../../state/log";
+import { useOpenSpecRuntime } from "../../state/useOpenSpecRuntime";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { LoadingBlock } from "./Loading";
 
 type OpenSpecSettingsTabProps = {
   projectPath: string | null;
 };
 
+const CONFIRM_COPY: Record<OpenSpecRuntimeAction, { title: string; message: string; confirmLabel: string }> = {
+  install: {
+    title: "Install OpenSpec?",
+    message:
+      "Basebuild will run `npm install -g @fission-ai/openspec@latest` on this machine. This requires Node.js and npm on your PATH.",
+    confirmLabel: "Install",
+  },
+  update: {
+    title: "Update OpenSpec?",
+    message:
+      "Basebuild will run `npm install -g @fission-ai/openspec@latest`, replacing the globally installed OpenSpec with the latest release.",
+    confirmLabel: "Update",
+  },
+};
+
+const BUSY_LABEL: Record<OpenSpecRuntimeAction, string> = {
+  install: "Installing OpenSpec…",
+  update: "Updating OpenSpec…",
+};
+
 export function OpenSpecSettingsTab({ projectPath }: OpenSpecSettingsTabProps) {
-  const [status, setStatus] = useState<OpenSpecRuntimeStatus | null>(null);
-  // True until the mount check settles — the effect below fires after the
-  // first paint, so `false` here would flash a "missing" verdict.
-  const [loading, setLoading] = useState(true);
-  const [actionError, setActionError] = useState<string | null>(null);
-
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    setActionError(null);
-    try {
-      const s = await openspecRuntimeStatus(projectPath);
-      setStatus(s);
-    } catch (e) {
-      setActionError(String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [projectPath]);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
-
-  async function handleInstall() {
-    setActionError(null);
-    try {
-      const s = await openspecRuntimeInstall(projectPath);
-      setStatus(s);
-    } catch (e) {
-      setActionError(String(e));
-    }
-  }
-
-  async function handleUpdate() {
-    setActionError(null);
-    try {
-      const s = await openspecRuntimeUpdate(projectPath);
-      setStatus(s);
-    } catch (e) {
-      setActionError(String(e));
-    }
-  }
+  const { addLog } = useLogs();
+  const {
+    status,
+    loading,
+    error,
+    refresh,
+    pendingAction,
+    activeAction,
+    progressLines,
+    actionError,
+    requestAction,
+    cancelPendingAction,
+    confirmPendingAction,
+  } = useOpenSpecRuntime(projectPath);
 
   const state = status?.state ?? "missing";
   const isReady = state === "ready";
   const isMissing = state === "missing";
   const isError = state === "error";
-  const isInstalling = state === "installing";
+  const isInstalled = status?.executablePath != null;
+  const isBusy = activeAction !== null || state === "installing";
   // `status ?? "missing"` reads as a definitive verdict, so the very first
   // check must not render the badge, the details grid, or the manual-install
   // callout. A re-check keeps the previous status on screen (the Refresh
   // button already spins) instead of blanking the panel.
   const initialLoading = loading && status === null;
+  const visibleError = actionError ?? error;
+  const confirmCopy = pendingAction ? CONFIRM_COPY[pendingAction] : null;
+
+  function handleRefresh() {
+    addLog("debug", "OpenSpec runtime refresh requested", projectPath ?? "no project");
+    void refresh();
+  }
+
+  function handleRequest(action: OpenSpecRuntimeAction) {
+    addLog("debug", `OpenSpec ${action} requested`, projectPath ?? "no project");
+    requestAction(action);
+  }
+
+  function handleConfirm() {
+    addLog("debug", `OpenSpec ${pendingAction ?? "action"} confirmed`, projectPath ?? "no project");
+    void confirmPendingAction();
+  }
+
+  function handleCancel() {
+    addLog("debug", `OpenSpec ${pendingAction ?? "action"} cancelled`, projectPath ?? "no project");
+    cancelPendingAction();
+  }
 
   return (
     <div className="stack">
@@ -75,8 +87,8 @@ export function OpenSpecSettingsTab({ projectPath }: OpenSpecSettingsTabProps) {
           className="btn btn-sm"
           type="button"
           title="Re-check OpenSpec runtime status"
-          onClick={() => void refresh()}
-          disabled={loading}
+          onClick={handleRefresh}
+          disabled={loading || isBusy}
         >
           <RefreshCw size={12} className={loading ? "spin" : ""} /> Refresh
         </button>
@@ -88,7 +100,7 @@ export function OpenSpecSettingsTab({ projectPath }: OpenSpecSettingsTabProps) {
         <>
           {/* Status badge */}
           <div
-            className={`requirement-row ${isReady ? "is-ok" : isError ? "is-warn" : "is-warn"}`}
+            className={`requirement-row ${isReady ? "is-ok" : "is-warn"}`}
             title={`OpenSpec runtime: ${state}`}
           >
             <span className={`requirement-badge ${isReady ? "is-ok" : "is-warn"}`}>
@@ -131,22 +143,46 @@ export function OpenSpecSettingsTab({ projectPath }: OpenSpecSettingsTabProps) {
             <button
               className="btn btn-sm"
               type="button"
-              title="Attempt to install OpenSpec (requires a configured source)"
-              onClick={() => void handleInstall()}
-              disabled={isInstalling || loading}
+              title={
+                isInstalled
+                  ? "OpenSpec is already installed. Use Update to get the latest release."
+                  : "Install OpenSpec from npm (asks for confirmation first)"
+              }
+              onClick={() => handleRequest("install")}
+              disabled={isBusy || loading || isInstalled}
             >
               <Wrench size={12} /> Install
             </button>
             <button
               className="btn btn-sm"
               type="button"
-              title="Check for OpenSpec updates (requires a configured source)"
-              onClick={() => void handleUpdate()}
-              disabled={isInstalling || loading || isMissing}
+              title={
+                isInstalled
+                  ? "Update OpenSpec to the latest npm release (asks for confirmation first)"
+                  : "Install OpenSpec before updating it"
+              }
+              onClick={() => handleRequest("update")}
+              disabled={isBusy || loading || !isInstalled}
             >
               <RefreshCw size={12} /> Update
             </button>
           </div>
+
+          {/* npm output for the current or most recent run */}
+          {activeAction !== null || progressLines.length > 0 ? (
+            <div className="stack-sm">
+              <div className="text-muted text-sm">
+                {activeAction ? BUSY_LABEL[activeAction] : "Last run output"}
+              </div>
+              <pre
+                className="openspec-progress-log"
+                title="npm output from the last OpenSpec install or update"
+                aria-live="polite"
+              >
+                {progressLines.join("\n")}
+              </pre>
+            </div>
+          ) : null}
 
           {/* Manual path guidance */}
           {isMissing ? (
@@ -157,8 +193,8 @@ export function OpenSpecSettingsTab({ projectPath }: OpenSpecSettingsTabProps) {
               <div>
                 <div className="requirement-name">Manual setup</div>
                 <div className="requirement-detail text-muted text-sm">
-                  Install OpenSpec on your system and ensure the <code className="mono">openspec</code> command is on your PATH.
-                  Then click Refresh. Alternatively, set a manual executable path once path configuration is available.
+                  Install OpenSpec with the button above, or install it yourself so the <code className="mono">openspec</code> command is on your PATH.
+                  Then click Refresh.
                 </div>
               </div>
             </div>
@@ -167,17 +203,26 @@ export function OpenSpecSettingsTab({ projectPath }: OpenSpecSettingsTabProps) {
       )}
 
       {/* Error display */}
-      {actionError ? (
+      {visibleError ? (
         <div className="requirement-row is-warn" title="Action error">
           <span className="requirement-badge is-warn">
             <AlertTriangle size={14} />
           </span>
           <div>
             <div className="requirement-name">Action error</div>
-            <div className="requirement-detail text-muted text-sm mono">{actionError}</div>
+            <div className="requirement-detail text-muted text-sm mono">{visibleError}</div>
           </div>
         </div>
       ) : null}
+
+      <ConfirmDialog
+        open={confirmCopy !== null}
+        title={confirmCopy?.title ?? ""}
+        message={confirmCopy?.message ?? ""}
+        confirmLabel={confirmCopy?.confirmLabel}
+        onConfirm={handleConfirm}
+        onCancel={handleCancel}
+      />
     </div>
   );
 }

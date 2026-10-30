@@ -4,8 +4,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// - `missing` — no executable found; plans that need OpenSpec are blocked.
 /// - `ready` — executable detected and project has an `openspec/` directory.
-/// - `installing` — an install/update is in progress (future; stubs return
-///   `missing` with an actionable message until a source is selected).
+/// - `installing` — an install or update is running (npm global install).
 /// - `error` — detection or validation failed with a specific message.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -39,4 +38,17 @@ impl Default for OpenSpecRuntimeStatus {
             message: Some("OpenSpec runtime not configured.".to_string()),
         }
     }
+}
+
+/// Event name for OpenSpec install and update progress.
+pub const OPENSPEC_RUNTIME_PROGRESS_EVENT: &str = "openspec://runtime-progress";
+
+/// One progress step of an OpenSpec install or update. `phase` is `started`,
+/// `output` (one npm output line), or `finished`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenSpecRuntimeProgress {
+    pub action: String,
+    pub phase: String,
+    pub message: String,
 }
