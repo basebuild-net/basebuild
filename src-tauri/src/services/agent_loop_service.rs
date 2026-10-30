@@ -437,6 +437,7 @@ pub fn run_agent_turn(
     effort_level: &str,
     api_key: Option<String>,
     base_url: Option<String>,
+    account_id: Option<String>,
     system: String,
     messages: Vec<ChatMsg>,
     app: AppHandle,
@@ -446,9 +447,15 @@ pub fn run_agent_turn(
     let handle = Arc::new(RunHandle {
         token: CancellationToken::new(),
     });
-    // Register for cancellation.
+    // Register for cancellation. A subagent registers only while its parent run
+    // is live. The check and the insert share the `ACTIVE_RUNS` lock that
+    // `cancel_run` holds while it cancels, so a cancel either refuses the child
+    // here or finds the child registered and cancels it.
     {
         let mut active = ACTIVE_RUNS.lock();
+        if scope == ToolScope::Subagent && !subagent_admitted(session_id, &active) {
+            return cancelled_run();
+        }
         active.insert(session_id.to_string(), handle.clone());
     }
     // The lifecycle authority owns chat/run/plan coherence. Subagent children
@@ -466,6 +473,7 @@ pub fn run_agent_turn(
         effort_level,
         api_key,
         base_url,
+        account_id,
         &system,
         messages,
         &app,
@@ -501,6 +509,32 @@ pub fn run_agent_turn(
     result
 }
 
+/// A run that never started: nothing is registered and no provider call is made.
+fn cancelled_run() -> RunResult {
+    RunResult {
+        content: String::new(),
+        reasoning: None,
+        segments: Vec::new(),
+        completed: false,
+        cancelled: true,
+        hit_cap: false,
+        truncated: false,
+        tool_events: Vec::new(),
+        usage: RunUsage::default(),
+    }
+}
+
+/// Whether a subagent may register its run: its parent must have a live,
+/// uncancelled run. Called with the `ACTIVE_RUNS` lock held.
+fn subagent_admitted(
+    session_id: &str,
+    active: &std::collections::HashMap<String, Arc<RunHandle>>,
+) -> bool {
+    subagent_service::parent_of(session_id)
+        .and_then(|parent| active.get(&parent))
+        .is_some_and(|handle| !handle.token.is_cancelled())
+}
+
 /// Cancel a running agent loop for a session. Returns true if a run was found.
 pub fn cancel_run(session_id: &str) -> bool {
     let found = {
@@ -525,6 +559,8 @@ pub fn cancel_run(session_id: &str) -> bool {
     for child_id in subagent_service::live_children(session_id) {
         cancel_run(&child_id);
     }
+    // Queued children sit in a permit wait. Wake them so they see the cancel.
+    subagent_service::wake_children(session_id);
     found
 }
 
@@ -649,6 +685,7 @@ fn run_loop_inner(
     effort_level: &str,
     api_key: Option<String>,
     base_url: Option<String>,
+    account_id: Option<String>,
     system: &str,
     mut messages: Vec<ChatMsg>,
     app: &AppHandle,
@@ -683,6 +720,7 @@ fn run_loop_inner(
         session_id: session_id.to_string(),
         api_key: api_key.clone(),
         base_url: base_url.clone(),
+        account_id: account_id.clone(),
         system: system.to_string(),
         gate: Arc::new(tokio::sync::Semaphore::new(max as usize)),
         app: app.clone(),
@@ -2370,6 +2408,31 @@ mod tests {
     fn clear_test_run(session_id: &str) {
         ACTIVE_RUNS.lock().remove(session_id);
         PENDING_STEERS.lock().remove(session_id);
+    }
+
+    #[test]
+    fn subagent_is_admitted_only_while_its_parent_run_is_live() {
+        let parent = "admit-parent";
+        let child = "admit-child";
+        crate::services::subagent_service::register_child_for_test(child, parent);
+        let mut active: std::collections::HashMap<String, Arc<RunHandle>> =
+            std::collections::HashMap::new();
+        assert!(!subagent_admitted(child, &active), "no parent run registered");
+        let handle = Arc::new(RunHandle {
+            token: CancellationToken::new(),
+        });
+        active.insert(parent.to_string(), handle.clone());
+        assert!(subagent_admitted(child, &active), "a live parent admits its child");
+        handle.token.cancel();
+        assert!(
+            !subagent_admitted(child, &active),
+            "a cancelled parent must refuse new children"
+        );
+        assert!(
+            !subagent_admitted("admit-stranger", &active),
+            "unknown sessions are not children"
+        );
+        crate::services::subagent_service::forget_child_for_test(child);
     }
 
     #[test]

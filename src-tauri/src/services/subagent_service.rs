@@ -12,12 +12,12 @@
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
 use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use parking_lot::Mutex;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
-use tokio::sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError};
+use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore};
 
 use crate::models::native_chat::NativeChatSession;
 use crate::services::agent_loop_service::{self, CancellationToken, RunResult, ToolScope};
@@ -50,6 +50,8 @@ struct ChildInfo {
     tool_call_id: String,
     index: i64,
     name: String,
+    /// Wakes this child's permit wait when the parent is cancelled.
+    wake: Arc<Notify>,
 }
 
 /// Live children. A child is registered before its thread starts and removed
@@ -63,6 +65,8 @@ pub struct SubagentHost {
     pub session_id: String,
     pub api_key: Option<String>,
     pub base_url: Option<String>,
+    /// Provider account the parent turn runs on. Child metrics record it.
+    pub account_id: Option<String>,
     pub system: String,
     /// Caps this turn's children at once (`subagent_max_count`).
     pub gate: Arc<Semaphore>,
@@ -80,6 +84,7 @@ struct PendingChild {
     index: i64,
     name: String,
     assignment: String,
+    wake: Arc<Notify>,
 }
 
 struct ChildReport {
@@ -202,6 +207,7 @@ pub fn execute_task(host: &SubagentHost, call: &ToolCallRequest, token: &Cancell
             &entry.assignment,
         ) {
             Ok(session) => {
+                let wake = Arc::new(Notify::new());
                 CHILDREN.lock().insert(
                     session.id.clone(),
                     ChildInfo {
@@ -209,6 +215,7 @@ pub fn execute_task(host: &SubagentHost, call: &ToolCallRequest, token: &Cancell
                         tool_call_id: call.id.clone(),
                         index,
                         name: entry.name.clone(),
+                        wake: wake.clone(),
                     },
                 );
                 emit_child(&host.app, &session.id, "queued", json!({}));
@@ -217,6 +224,7 @@ pub fn execute_task(host: &SubagentHost, call: &ToolCallRequest, token: &Cancell
                     index,
                     name: entry.name,
                     assignment: entry.assignment,
+                    wake,
                 });
             }
             Err(error) => {
@@ -256,14 +264,26 @@ pub fn execute_task(host: &SubagentHost, call: &ToolCallRequest, token: &Cancell
 
 fn run_child(host: &SubagentHost, parent_token: &CancellationToken, pending: &PendingChild) -> ChildReport {
     let child = &pending.session;
-    let Some((_gate, _provider)) = acquire_run_permits(host, child, parent_token) else {
+    let finished = |status: &'static str, report: String| ChildReport {
+        index: pending.index,
+        name: pending.name.clone(),
+        status,
+        report,
+    };
+    let runtime = match tokio::runtime::Builder::new_current_thread().build() {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            finish_child(&host.app, &child.id, "failed", None);
+            return finished("failed", format!("The subagent could not start: {error}"));
+        }
+    };
+    // Both permits stay held until this function returns, so the child counts
+    // against the caps for its whole run.
+    let Some((_gate, _provider)) =
+        acquire_run_permits(host, child, parent_token, &runtime, &pending.wake)
+    else {
         finish_child(&host.app, &child.id, "cancelled", None);
-        return ChildReport {
-            index: pending.index,
-            name: pending.name.clone(),
-            status: "cancelled",
-            report: String::new(),
-        };
+        return finished("cancelled", String::new());
     };
 
     let started_at = now_millis();
@@ -272,6 +292,9 @@ fn run_child(host: &SubagentHost, parent_token: &CancellationToken, pending: &Pe
     emit_child(&host.app, &child.id, "running", json!({}));
 
     let system = format!("{}\n\n{SUBAGENT_NOTICE}", host.system);
+    // The loop persists this child's assistant rows and tool events under the
+    // child session as it streams, so the final text is already in the
+    // transcript and is not written again here.
     let run = agent_loop_service::run_agent_turn(
         &child.id,
         &child.project_path,
@@ -280,6 +303,7 @@ fn run_child(host: &SubagentHost, parent_token: &CancellationToken, pending: &Pe
         &child.effort_level,
         host.api_key.clone(),
         host.base_url.clone(),
+        host.account_id.clone(),
         system,
         vec![ChatMsg::text("user", pending.assignment.as_str())],
         host.app.clone(),
@@ -287,36 +311,27 @@ fn run_child(host: &SubagentHost, parent_token: &CancellationToken, pending: &Pe
         None,
     );
     let (status, text) = classify(&run);
-    if !text.is_empty() {
-        let _ = NativeChatService::insert_message(
-            &child.id,
-            "assistant",
-            &text,
-            run.reasoning.as_deref(),
-            Some(&child.provider_id),
-            Some(&child.model_id),
-            Some(&child.effort_level),
-        );
-    }
     let outcome = match status {
         "completed" => "success",
         "cancelled" => "cancelled",
         _ => "error",
     };
     let duration_ms = clock.elapsed().as_millis() as i64;
-    let _ = NativeChatService::record_child_metric(child, started_at, duration_ms, &run.usage, outcome);
+    let _ = NativeChatService::record_child_metric(
+        child,
+        started_at,
+        duration_ms,
+        &run.usage,
+        outcome,
+        host.account_id.as_deref(),
+    );
     finish_child(
         &host.app,
         &child.id,
         status,
         (!text.is_empty()).then_some(text.as_str()),
     );
-    ChildReport {
-        index: pending.index,
-        name: pending.name.clone(),
-        status,
-        report: text,
-    }
+    finished(status, text)
 }
 
 /// Map a finished child run to a terminal status and the report text the
@@ -364,23 +379,34 @@ fn format_reports(reports: &[ChildReport]) -> String {
     out.to_string()
 }
 
-/// Wait for a permit, polling so a cancelled parent never leaves a child
-/// queued. Returns `None` if the parent was cancelled first or the semaphore
-/// was closed.
+/// Wait for a permit without polling. `cancel_run` wakes `wake` when the parent
+/// is cancelled, so a queued child is released promptly. Returns `None` when the
+/// parent was cancelled first or the semaphore was closed.
 fn acquire_permit(
     semaphore: &Arc<Semaphore>,
     parent_token: &CancellationToken,
+    runtime: &tokio::runtime::Runtime,
+    wake: &Notify,
 ) -> Option<OwnedSemaphorePermit> {
-    loop {
-        if parent_token.is_cancelled() {
-            return None;
-        }
-        match semaphore.clone().try_acquire_owned() {
-            Ok(permit) => return Some(permit),
-            Err(TryAcquireError::Closed) => return None,
-            Err(TryAcquireError::NoPermits) => thread::sleep(Duration::from_millis(200)),
-        }
+    if parent_token.is_cancelled() {
+        return None;
     }
+    runtime.block_on(async {
+        loop {
+            tokio::select! {
+                permit = semaphore.clone().acquire_owned() => {
+                    // A permit granted after cancellation is dropped here, which
+                    // returns it to the semaphore at once.
+                    return permit.ok().filter(|_| !parent_token.is_cancelled());
+                }
+                _ = wake.notified() => {
+                    if parent_token.is_cancelled() {
+                        return None;
+                    }
+                }
+            }
+        }
+    })
 }
 
 /// Wait for the parent turn's gate, then the provider's concurrency permit.
@@ -390,10 +416,30 @@ fn acquire_run_permits(
     host: &SubagentHost,
     session: &NativeChatSession,
     parent_token: &CancellationToken,
+    runtime: &tokio::runtime::Runtime,
+    wake: &Notify,
 ) -> Option<(OwnedSemaphorePermit, OwnedSemaphorePermit)> {
-    let gate = acquire_permit(&host.gate, parent_token)?;
+    let gate = acquire_permit(&host.gate, parent_token, runtime, wake)?;
     let provider = PlanRunnerService::provider_semaphore(&session.project_path, &session.provider_id);
-    Some((gate, acquire_permit(&provider, parent_token)?))
+    Some((gate, acquire_permit(&provider, parent_token, runtime, wake)?))
+}
+
+/// Parent chat session of a live child. `None` for any other session id.
+pub fn parent_of(session_id: &str) -> Option<String> {
+    CHILDREN
+        .lock()
+        .get(session_id)
+        .map(|info| info.parent_session_id.clone())
+}
+
+/// Wake the queued children of `parent_session_id` so each re-checks whether
+/// its parent was cancelled.
+pub fn wake_children(parent_session_id: &str) {
+    for info in CHILDREN.lock().values() {
+        if info.parent_session_id == parent_session_id {
+            info.wake.notify_one();
+        }
+    }
 }
 
 /// Persist a terminal state, tell the UI, and drop the child from the live set.
@@ -498,6 +544,27 @@ fn now_millis() -> i64 {
         .unwrap_or(0)
 }
 
+/// Test hook: register a live child under `parent_session_id` without
+/// spawning its thread, so admission rules can be exercised directly.
+#[cfg(test)]
+pub(crate) fn register_child_for_test(child_id: &str, parent_session_id: &str) {
+    CHILDREN.lock().insert(
+        child_id.to_string(),
+        ChildInfo {
+            parent_session_id: parent_session_id.to_string(),
+            tool_call_id: "call-test".to_string(),
+            index: 0,
+            name: "test".to_string(),
+            wake: Arc::new(Notify::new()),
+        },
+    );
+}
+
+#[cfg(test)]
+pub(crate) fn forget_child_for_test(child_id: &str) {
+    CHILDREN.lock().remove(child_id);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -513,6 +580,58 @@ mod tests {
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].name, "Auth");
         assert_eq!(entries[1].assignment, "List the failing tests.");
+    }
+
+    #[test]
+    fn permit_wait_returns_when_a_slot_is_free() {
+        let semaphore = Arc::new(Semaphore::new(1));
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let permit = acquire_permit(
+            &semaphore,
+            &CancellationToken::new(),
+            &runtime,
+            &Notify::new(),
+        );
+        assert!(permit.is_some());
+        assert_eq!(semaphore.available_permits(), 0);
+    }
+
+    #[test]
+    fn cancelled_parent_takes_no_permit() {
+        let semaphore = Arc::new(Semaphore::new(1));
+        let parent = CancellationToken::new();
+        parent.cancel();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let permit = acquire_permit(&semaphore, &parent, &runtime, &Notify::new());
+        assert!(permit.is_none(), "a cancelled parent must not start a child");
+        assert_eq!(semaphore.available_permits(), 1, "no permit may leak");
+    }
+
+    #[test]
+    fn queued_child_is_released_when_its_parent_is_cancelled() {
+        let semaphore = Arc::new(Semaphore::new(0));
+        let parent = Arc::new(CancellationToken::new());
+        let wake = Arc::new(Notify::new());
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (waiter_semaphore, waiter_parent, waiter_wake) =
+            (semaphore.clone(), parent.clone(), wake.clone());
+        std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .build()
+                .unwrap();
+            let permit = acquire_permit(&waiter_semaphore, &waiter_parent, &runtime, &waiter_wake);
+            let _ = tx.send(permit.is_some());
+        });
+        parent.cancel();
+        wake.notify_one();
+        let got = rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("queued child must return once its parent is cancelled");
+        assert!(!got, "a cancelled queued child must not receive a permit");
     }
 
     #[test]

@@ -1532,6 +1532,7 @@ impl NativeChatService {
                     &effort_level,
                     account.map(|c| c.api_key.clone()),
                     account.and_then(|c| c.base_url.clone()),
+                    account.map(|c| c.id.clone()),
                     system.clone(),
                     messages.clone(),
                     app.clone(),
@@ -2223,6 +2224,7 @@ impl NativeChatService {
             &effort_level,
             Some(credential.api_key),
             credential.base_url,
+            Some(credential.id.clone()),
             system,
             messages,
             app.clone(),
@@ -2997,6 +2999,7 @@ impl NativeChatService {
         duration_ms: i64,
         usage: &crate::services::agent_loop_service::RunUsage,
         outcome: &str,
+        account_id: Option<&str>,
     ) -> DbResult<()> {
         let subscription = Self::resolve_subscription(&child.provider_id);
         let metric = NativeRequestMetric {
@@ -3029,7 +3032,7 @@ impl NativeChatService {
             subscription_source: subscription.1,
             plan_name: subscription.2,
             created_at: now_seconds(),
-            account_id: None,
+            account_id: account_id.map(str::to_string),
             provider_request_id: None,
         };
         Self::insert_metric(&metric)
@@ -4122,6 +4125,41 @@ mod tests {
             !creds.iter().any(|c| c.provider_id == "umans"),
             "blocked provider should not appear in list_credentials"
         );
+    }
+
+    #[test]
+    fn list_sessions_hides_subagent_child_rows() {
+        let _home = crate::test_util::test::isolated_home();
+        let conn = StorageService::connect().unwrap();
+        conn.execute(
+            "INSERT INTO native_chat_sessions (id, project_path, title, profile_id, provider_id, model_id, effort_level, status, run_state, created_at, updated_at)
+             VALUES ('nchat-parent', '/test/subagent-list', 'Chat', 'basebuild-native', 'anthropic', 'claude', 'high', 'ready', 'idle', 0, 0)",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+        let parent = NativeChatService::get_session("nchat-parent")
+            .unwrap()
+            .unwrap();
+        let child = NativeChatService::create_subagent_session(
+            &parent,
+            "call-1",
+            0,
+            "Auth",
+            "Read the login flow.",
+        )
+        .unwrap();
+        let listed: Vec<String> = NativeChatService::list_sessions("/test/subagent-list")
+            .unwrap()
+            .into_iter()
+            .map(|s| s.id)
+            .collect();
+        assert!(listed.contains(&"nchat-parent".to_string()));
+        assert!(
+            !listed.contains(&child.id),
+            "child rows must stay out of chat lists: {listed:?}"
+        );
+        assert!(NativeChatService::get_session(&child.id).unwrap().is_some());
     }
 
     #[test]

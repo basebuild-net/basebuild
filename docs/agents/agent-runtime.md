@@ -660,6 +660,14 @@ is not offered.
   `awaiting_approval`, `completed`, `failed`, `cancelled`.
 - Cancelling the parent cancels its children and drops their approvals. An
   interrupted child is marked `failed` by `sweep_interrupted_runs` on restart.
+- A queued child waits on a per-child wake signal, not a poll. Cancelling the
+  parent wakes every queued child, and each ends `cancelled` without taking a
+  permit.
+- A child is admitted only while its parent run is live and uncancelled.
+  `cancel_run` takes the same `ACTIVE_RUNS` lock as admission, so a child is
+  either refused or registered before the cancel and cancelled by it.
+- Child sessions carry the parent's provider `account_id`, so child metrics are
+  attributed to the same account.
 
 ### Context files
 
