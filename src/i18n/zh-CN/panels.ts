@@ -110,7 +110,6 @@ export const panelsZhCN = {
   "chatPanel.chatInputTheAgentIs": "聊天输入：代理正在工作，按 Enter 可在回合中途引导它",
   "chatPanel.chatInputTypeAMessage": "聊天输入：输入消息并按 Enter 发送",
   "chatPanel.thisChatRoutesThroughThe": "此聊天通过 Oh My Pi (OMP) RPC 桥接器路由，部分 Basebuild 工具可能不可用。",
-  "chatPanel.thisChatUsesBasebuildS": "此聊天使用 Basebuild 原生传输（第一方），完整支持工具。",
   "chatPanel.oMP": "OMP",
   "chatPanel.localGenerationStatsFromThe": "上一个已完成回合的本地生成统计",
   "chatPanel.local": "本地",

@@ -110,7 +110,6 @@ export const panelsEn = {
   "chatPanel.chatInputTheAgentIs": "Chat input: the agent is working, press Enter to steer it mid-turn",
   "chatPanel.chatInputTypeAMessage": "Chat input: type a message and press Enter to send",
   "chatPanel.thisChatRoutesThroughThe": "This chat routes through the Oh My Pi (OMP) RPC bridge. Some Basebuild tools may be unavailable.",
-  "chatPanel.thisChatUsesBasebuildS": "This chat uses Basebuild's native transport (first-party) with full tool support.",
   "chatPanel.oMP": "OMP",
   "chatPanel.localGenerationStatsFromThe": "Local generation stats from the last completed turn",
   "chatPanel.local": "Local",

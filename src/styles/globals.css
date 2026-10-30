@@ -2640,7 +2640,9 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .first-run-tagline { margin: 0; font-size: 12px; line-height: 1.5; color: var(--bb-muted); }
 .first-run-field { display: flex; flex-direction: column; gap: var(--bb-space-2); }
 .first-run-label { font-size: 11px; font-weight: 600; color: var(--bb-muted); text-transform: uppercase; letter-spacing: 0.04em; }
-.first-run-theme-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--bb-space-2); }
+.first-run-theme-options { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: var(--bb-space-2); }
+.first-run-field .option-list { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); width: 100%; }
+.first-run-field .option-list-btn { padding: 5px 6px; text-align: center; overflow: hidden; text-overflow: ellipsis; }
 .first-run-theme { display: flex; align-items: center; justify-content: center; gap: var(--bb-space-2); height: 36px; padding: 0 var(--bb-space-2); border: 1px solid var(--bb-border); border-radius: var(--bb-radius-md); background: var(--bb-surface); color: var(--bb-text); font-size: 12px; font-family: var(--bb-font); cursor: pointer; }
 .first-run-theme:hover { background: var(--bb-surface-hover); }
 .first-run-theme.is-selected { border-color: var(--bb-cta); box-shadow: inset 0 0 0 1px var(--bb-cta); }

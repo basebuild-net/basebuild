@@ -62,7 +62,7 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
   const startupSupported = startupStatus?.platformSupported === true;
 
   function pickTheme(next: AppTheme) {
-    addLog("debug", "First run: theme picked", { theme: next });
+    addLog("debug", "First run: theme picked", next);
     setTheme(next);
   }
 
@@ -74,7 +74,7 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
   async function getStarted() {
     if (saving) return;
     setSaving(true);
-    addLog("debug", "First run: get started", { uploadEnabled: usageDraft.uploadEnabled, launchAtSignin });
+    addLog("debug", "First run: get started", `uploadEnabled=${usageDraft.uploadEnabled} launchAtSignin=${launchAtSignin}`);
     const finalized: AnalyticsConsent = {
       ...usageDraft,
       consentVersion: USAGE_CONSENT_VERSION,
@@ -158,7 +158,7 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
                     title={t("firstRunModal.launchAtWindowsSignIn")}
                     checked={launchAtSignin}
                     onChange={(e) => {
-                      addLog("debug", "First run: launch at sign-in toggled", { enabled: e.target.checked });
+                      addLog("debug", "First run: launch at sign-in toggled", `enabled=${e.target.checked}`);
                       setLaunchAtSignin(e.target.checked);
                     }}
                   />
@@ -175,7 +175,7 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
                   title={t("firstRunModal.shareAnonymousAggregateUsage")}
                   checked={usageDraft.uploadEnabled}
                   onChange={(e) => {
-                    addLog("debug", "First run: usage sharing toggled", { enabled: e.target.checked });
+                    addLog("debug", "First run: usage sharing toggled", `enabled=${e.target.checked}`);
                     setConsent({ ...usageDraft, uploadEnabled: e.target.checked });
                   }}
                 />
