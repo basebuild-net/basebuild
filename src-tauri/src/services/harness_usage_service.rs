@@ -1381,6 +1381,13 @@ mod tests {
         let _guard = crate::test_util::test::lock_db(&dir);
         let root = dir.path().join("claude-projects");
         std::fs::create_dir_all(&root).unwrap();
+        // Stay inside the upload window: a fixed date ages out of
+        // MAX_WINDOW_AGE_SECS and the batch silently comes back empty.
+        let recent = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64
+            - 3600;
         std::fs::write(
             root.join("session.jsonl"),
             json!({
@@ -1397,7 +1404,7 @@ mod tests {
                     },
                     "content": "private response body"
                 },
-                "timestamp": "2026-07-27T00:00:00Z"
+                "timestamp": crate::test_util::test::iso_utc(recent)
             })
             .to_string(),
         )

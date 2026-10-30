@@ -2821,7 +2821,7 @@ mod tests {
         let stamp = |offset: i64| {
             // Claude Code writes ISO-8601; keep it inside the retention window.
             let secs = now - offset;
-            chrono_like_iso(secs)
+            crate::test_util::test::iso_utc(secs)
         };
         std::fs::write(
             projects.join("session.jsonl"),
@@ -2909,29 +2909,6 @@ mod tests {
                 None => std::env::remove_var("HOME"),
             }
         }
-    }
-
-    /// Minimal UTC ISO-8601 formatter — the harness reader's parser only
-    /// needs `YYYY-MM-DDTHH:MM:SSZ`, and the crate has no chrono dependency.
-    fn chrono_like_iso(epoch_secs: i64) -> String {
-        let days = epoch_secs.div_euclid(86_400);
-        let rem = epoch_secs.rem_euclid(86_400);
-        // Civil-from-days (Howard Hinnant), the inverse of the reader's.
-        let z = days + 719_468;
-        let era = z.div_euclid(146_097);
-        let doe = z - era * 146_097;
-        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
-        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-        let mp = (5 * doy + 2) / 153;
-        let day = doy - (153 * mp + 2) / 5 + 1;
-        let month = if mp < 10 { mp + 3 } else { mp - 9 };
-        let year = era * 400 + yoe + i64::from(month <= 2);
-        format!(
-            "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
-            rem / 3600,
-            (rem % 3600) / 60,
-            rem % 60
-        )
     }
 
     /// The panel said "no new usage yet" for a device that had been syncing
