@@ -32,6 +32,7 @@ import { useLogs } from "../../state/log";
 import { SkeletonRows } from "./Loading";
 import { t } from "../../i18n";
 import { formatRelativeTime, formatDateTime } from "../../i18n/format";
+import { isImeComposing } from "../../lib/keyboard";
 
 function ProjectMonogram({ name, active, color }: { name: string; active: boolean; color?: ProjectColor }) {
   const letter = name.charAt(0).toUpperCase() || "?";
@@ -425,6 +426,7 @@ export function ProjectSidebar({
                               setEditingSession(null);
                             }}
                             onKeyDown={(e) => {
+                              if (isImeComposing(e)) return;
                               if (e.key === "Enter") {
                                 if (editValue.trim()) onRenameSession(s.id, editValue.trim());
                                 setEditingSession(null);

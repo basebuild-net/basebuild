@@ -19,6 +19,7 @@ import type { GitBranch as GitBranchInfo } from "../../lib/git";
 import { ActionMenu, type ActionMenuItem } from "../ActionMenu";
 import { t } from "../../i18n";
 import { formatNumber } from "../../i18n/format";
+import { isImeComposing } from "../../lib/keyboard";
 /** Per-chat column header (`chat-header-context`).
  *
  * Renders above the conversation, never scrolls out of view. Every
@@ -134,6 +135,7 @@ export function ChatTitleBar(props: {
           title={t("chatHeader.renameChatEnterToSave")}
           onChange={(e) => setDraftTitle(e.target.value)}
           onKeyDown={(e) => {
+            if (isImeComposing(e)) return;
             if (e.key === "Enter") { e.preventDefault(); commitRename(); }
             if (e.key === "Escape") { e.preventDefault(); cancelRename(); }
           }}
@@ -380,6 +382,7 @@ export function BranchDropdown(props: {
               value={props.newBranchName}
               onChange={(event) => props.setNewBranchName(event.target.value)}
               onKeyDown={(event) => {
+                if (isImeComposing(event)) return;
                 if (event.key === "Enter") { event.preventDefault(); props.onCreateBranch(); }
                 if (event.key === "Escape") { event.preventDefault(); props.onCancelCreate(); }
               }}
