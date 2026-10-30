@@ -7,6 +7,7 @@ import type { IdeaStatus } from "../../lib/ideas";
 import { OptionList, type OptionListOption } from "../layout/OptionList";
 import { SkeletonRows, SkeletonText } from "../layout/Loading";
 import { t } from "../../i18n";
+import { isImeComposing } from "../../lib/keyboard";
 function STATUS_LABELS(): Record<IdeaStatus, string> {
   return {
     concept: t("ideasPanel.concept"),
@@ -149,7 +150,7 @@ export function IdeasPanel({ sessionId }: IdeasPanelProps) {
             placeholder={t("ideasPanel.categoryName")}
             value={newCategoryName}
             onChange={(e) => setNewCategoryName(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") void handleCreateCategory(); }}
+            onKeyDown={(e) => { if (e.key === "Enter" && !isImeComposing(e)) void handleCreateCategory(); }}
             autoFocus
           />
           <button className="btn btn-primary" title={t("ideasPanel.addCategory")} onClick={() => void handleCreateCategory()} type="button">{t("ideasPanel.add")}</button>
@@ -167,7 +168,7 @@ export function IdeasPanel({ sessionId }: IdeasPanelProps) {
           placeholder={t("ideasPanel.addAQuickIdea")}
           value={newIdeaTitle}
           onChange={(e) => setNewIdeaTitle(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") void handleCreateIdea(); }}
+          onKeyDown={(e) => { if (e.key === "Enter" && !isImeComposing(e)) void handleCreateIdea(); }}
         />
         <button className="btn btn-primary" title={t("ideasPanel.addIdea")} disabled={!newIdeaTitle.trim()} onClick={() => void handleCreateIdea()} type="button">
           <Plus size={12} /> {t("ideasPanel.add")}

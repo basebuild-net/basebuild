@@ -38,6 +38,7 @@ import {
 import { nativeChatModelDefault, nativeChatSend, nativeChatStart, nativeProviderCatalog } from "../../lib/native-chat";
 import { getRuntimeDefaults } from "../../lib/settings";
 import { t } from "../../i18n";
+import { isImeComposing } from "../../lib/keyboard";
 
 // ponytail: cap staged diff; add chunking only when real commits need more context.
 const COMMIT_DIFF_LIMIT = 12_000;
@@ -451,7 +452,7 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
               value={commitMessage}
               onChange={(e) => setCommitMessage(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !isImeComposing(e)) {
                   e.preventDefault();
                   void commit();
                 }
