@@ -305,7 +305,7 @@ export function ChatPanel({
   const [debugEvents, setDebugEvents] = useState<Array<{ ts: number; channel: string; data: unknown }>>([]);
   const [debugExpanded, setDebugExpanded] = useState(false);
   const [setupRequired, setSetupRequired] = useState<NativeSetupRequired | null>(null);
-  const [approvalMode, setApprovalMode] = useState<ApprovalMode>("auto");
+  const [approvalMode, setApprovalMode] = useState<ApprovalMode>("balanced");
   // Plan mode gates the agent to read-only tools until the user approves the plan.
   const [planMode, setPlanMode] = useState(false);
   // Set when a turn stopped at the agent's iteration cap; the composer offers Continue.

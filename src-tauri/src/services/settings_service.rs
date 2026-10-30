@@ -416,7 +416,7 @@ impl SettingsService {
 
     // ─── Approval Gateway ───
 
-    /// Get the per-project approval mode (default: Auto — run everything).
+    /// Get the per-project approval mode (default: Balanced).
     pub fn get_approval_mode(project_path: &str) -> DbResult<ApprovalMode> {
         let conn = StorageService::connect()?;
         let value: Option<String> = conn
@@ -531,7 +531,9 @@ impl SettingsService {
     }
 
     /// Resolve a tool call through the approval gateway.
-    /// Checks: plan mode → mode → session rules → persistent rules → default by mode.
+    /// Checks: plan mode → session rules → persistent rules → default by mode.
+    /// Rules win over the mode default in every mode, so an explicit deny still
+    /// blocks a tool in Auto; plan mode wins over everything.
     /// Returns `ask` when a UI prompt is needed.
     pub fn resolve_tool_call(
         project_path: &str,
@@ -554,16 +556,6 @@ impl SettingsService {
         }
 
         let mode = Self::get_approval_mode(project_path).unwrap_or_default();
-
-        // Auto mode: allow everything (workspace scoping still enforced by tools).
-        if mode == ApprovalMode::Auto {
-            return GatewayDecision {
-                decision: PermissionDecision::Allow,
-                requires_prompt: false,
-                reason: "Auto mode: all tools auto-allowed.".to_string(),
-                rule_source: Some("mode:auto".to_string()),
-            };
-        }
 
         // Check session rules first (highest priority).
         for rule in session_rules {
@@ -632,7 +624,12 @@ impl SettingsService {
                     }
                 }
             }
-            ApprovalMode::Auto => unreachable!(),
+            ApprovalMode::Auto => GatewayDecision {
+                decision: PermissionDecision::Allow,
+                requires_prompt: false,
+                reason: "Auto mode: all tools auto-allowed.".to_string(),
+                rule_source: Some("mode:auto".to_string()),
+            },
         }
     }
 

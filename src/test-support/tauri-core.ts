@@ -2538,7 +2538,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       s.autoSyncEnabled = args.enabled as boolean;
       return undefined as T;
     case "get_approval_mode":
-      return "auto" as T;
+      return "balanced" as T;
     case "set_approval_mode":
       return undefined as T;
     case "list_approval_rules":

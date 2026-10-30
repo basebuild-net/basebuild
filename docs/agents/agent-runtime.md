@@ -764,13 +764,15 @@ The approval gateway controls which tool calls require user confirmation.
 |------|----------|
 | `safe` | Every tool call prompts for approval |
 | `balanced` | Read-only tools auto-allow; mutating tools prompt (default) |
-| `auto` | All tools auto-allow |
+| `auto` | All tools auto-allow unless a rule says otherwise |
 
 ### Custom rules
 
 Per-project rules can override the mode for specific tools or command prefixes.
 Each rule specifies: tool name, optional command prefix, and decision
-(`ask`, `allow`, `deny`).
+(`ask`, `allow`, `deny`). Resolution order is session rules, then persistent
+rules, then the mode default, in every mode: a deny rule blocks its tool even
+in `auto`. A project with no stored mode resolves to `balanced`.
 
 ### Audit trail
 
