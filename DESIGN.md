@@ -545,6 +545,10 @@ One static CSS pseudo-element supplies a subtle Basebuild brand texture:
   statuses.
 - Uppercase + letter-spacing on section labels and micro-caps for the
   engineered feel.
+- **Simplified Chinese (zh-CN)**: the `--bb-font` stack falls back to PingFang SC,
+  Hiragino Sans GB, Microsoft YaHei, and Noto Sans CJK SC, so CJK text uses the
+  same size baselines below. Uppercase and letter-spacing treatments apply to
+  Latin labels only; CJK text has no case.
 
 Baselines:
 

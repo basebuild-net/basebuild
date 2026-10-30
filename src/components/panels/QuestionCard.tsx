@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ChevronRight, HelpCircle } from "lucide-react";
 import type { PendingInteraction } from "../../lib/interactions";
 import { formatInteractionAnswer, InteractionWorkbench } from "./InteractionWorkbench";
+import { t } from "../../i18n";
 
 type QuestionCardProps = {
   interaction: PendingInteraction;
@@ -36,7 +37,7 @@ export function QuestionCard({ interaction, onResolved, onCancelled }: QuestionC
   }
 
   const answered = interaction.status === "answered";
-  const title = interaction.title ?? interaction.questions[0]?.prompt ?? "Agent questionnaire";
+  const title = interaction.title ?? interaction.questions[0]?.prompt ?? t("questionCard.agentQuestionnaire");
   const firstAnswer = interaction.questions[0]
     ? formatInteractionAnswer(interaction.questions[0], interaction.answers)
     : "—";
@@ -44,16 +45,16 @@ export function QuestionCard({ interaction, onResolved, onCancelled }: QuestionC
     <button
       className={`chat-question-preview question-card question-card-${answered ? "success" : "muted"}`}
       type="button"
-      title={`Reopen ${answered ? "answered" : "cancelled"} questionnaire`}
+      title={t((answered ? "questionCard.reopenQuestionnaire.answered" : "questionCard.reopenQuestionnaire.cancelled"))}
       onClick={() => setExpanded(true)}
     >
       <HelpCircle size={14} className="chat-question-preview-icon" />
       <span className="chat-question-preview-text">
         <strong>{title}</strong>
-        <span>{answered ? firstAnswer : "Cancelled"}</span>
+        <span>{answered ? firstAnswer : t("questionCard.cancelled")}</span>
       </span>
       <span className="chat-question-preview-action">
-        {answered ? "Answered" : "Cancelled"} <ChevronRight size={13} />
+        {answered ? t("questionCard.answered") : t("questionCard.cancelled")} <ChevronRight size={13} />
       </span>
     </button>
   );

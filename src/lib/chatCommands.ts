@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 /**
  * Chat command palette metadata, filtering, ranking, and argument helpers.
  *
@@ -64,7 +65,7 @@ export type ChatCommand = {
 export const BUILTIN_COMMANDS: ChatCommand[] = [
   {
     name: "clear",
-    description: "Clear the current chat transcript. Confirms before deleting persisted messages.",
+    get description() { return t("chatCommands.clearTheCurrentChatTranscriptConfirms"); },
     usage: "/clear",
     arguments: [],
     examples: ["/clear"],
@@ -75,7 +76,7 @@ export const BUILTIN_COMMANDS: ChatCommand[] = [
   },
   {
     name: "new",
-    description: "Clear all messages in the current chat (keeps the session and model selection).",
+    get description() { return t("chatCommands.clearAllMessagesInTheCurrent"); },
     usage: "/new",
     arguments: [],
     examples: ["/new"],
@@ -86,10 +87,10 @@ export const BUILTIN_COMMANDS: ChatCommand[] = [
   },
   {
     name: "model",
-    description: "Open the model picker to switch the active chat model. Optional filter narrows the list.",
+    get description() { return t("chatCommands.openTheModelPickerToSwitch"); },
     usage: "/model [query]",
     arguments: [
-      { name: "query", required: false, description: "Filter models by provider, id, or label", placeholder: "sonnet" },
+      { name: "query", required: false, get description() { return t("chatCommands.filterModelsByProviderIdOr"); }, placeholder: "sonnet" },
     ],
     examples: ["/model", "/model sonnet", "/model claude"],
     source: "builtin",
@@ -99,10 +100,10 @@ export const BUILTIN_COMMANDS: ChatCommand[] = [
   },
   {
     name: "provider",
-    description: "Open the provider picker to switch the active chat provider. Optional filter narrows the list.",
+    get description() { return t("chatCommands.openTheProviderPickerToSwitch"); },
     usage: "/provider [query]",
     arguments: [
-      { name: "query", required: false, description: "Filter providers by id or label", placeholder: "openai" },
+      { name: "query", required: false, get description() { return t("chatCommands.filterProvidersByIdOrLabel"); }, placeholder: "openai" },
     ],
     examples: ["/provider", "/provider openai", "/provider anthropic"],
     source: "builtin",
@@ -111,8 +112,8 @@ export const BUILTIN_COMMANDS: ChatCommand[] = [
     expandsToPrompt: false,
   },
   {
-    name: "models refresh",
-    description: "Force a refresh of the model catalog from connected providers.",
+    name: "models refresh" /* i18n-exempt: command id */,
+    get description() { return t("chatCommands.forceARefreshOfTheModel"); },
     usage: "/models refresh",
     arguments: [],
     examples: ["/models refresh"],
@@ -123,7 +124,7 @@ export const BUILTIN_COMMANDS: ChatCommand[] = [
   },
   {
     name: "commands",
-    description: "Show the complete command reference with names, descriptions, usage, categories, and sources.",
+    get description() { return t("chatCommands.showTheCompleteCommandReferenceWith"); },
     usage: "/commands",
     arguments: [],
     examples: ["/commands"],
@@ -134,7 +135,7 @@ export const BUILTIN_COMMANDS: ChatCommand[] = [
   },
   {
     name: "help",
-    description: "Show the command reference plus a keyboard guide for the command palette.",
+    get description() { return t("chatCommands.showTheCommandReferencePlusA"); },
     usage: "/help",
     arguments: [],
     examples: ["/help"],
@@ -145,7 +146,7 @@ export const BUILTIN_COMMANDS: ChatCommand[] = [
   },
   {
     name: "stop",
-    description: "Cancel the current running chat request. Reports idle if nothing is running.",
+    get description() { return t("chatCommands.cancelTheCurrentRunningChatRequest"); },
     usage: "/stop",
     arguments: [],
     examples: ["/stop"],
@@ -156,10 +157,10 @@ export const BUILTIN_COMMANDS: ChatCommand[] = [
   },
   {
     name: "login",
-    description: "Open the provider connection UI to sign in with a provider.",
+    get description() { return t("chatCommands.openTheProviderConnectionUITo"); },
     usage: "/login [provider]",
     arguments: [
-      { name: "provider", required: false, description: "Provider id or label to preselect", placeholder: "anthropic" },
+      { name: "provider", required: false, get description() { return t("chatCommands.providerIdOrLabelToPreselect"); }, placeholder: "anthropic" },
     ],
     examples: ["/login", "/login anthropic"],
     source: "builtin",
@@ -169,7 +170,7 @@ export const BUILTIN_COMMANDS: ChatCommand[] = [
   },
   {
     name: "mcp",
-    description: "Manage MCP servers. Opens Settings to the MCP servers section.",
+    get description() { return t("chatCommands.manageMCPServersOpensSettingsTo"); },
     usage: "/mcp",
     arguments: [],
     examples: ["/mcp"],
@@ -180,10 +181,10 @@ export const BUILTIN_COMMANDS: ChatCommand[] = [
   },
   {
     name: "plan",
-    description: "Plan mode: the agent reads and plans but cannot edit files or run commands until you approve. Toggles without arguments.",
+    get description() { return t("chatCommands.planModeTheAgentReadsAnd"); },
     usage: "/plan [on|off]",
     arguments: [
-      { name: "state", required: false, description: "on | off", placeholder: "on" },
+      { name: "state", required: false, get description() { return t("chatCommands.onOff"); }, placeholder: "on" },
     ],
     examples: ["/plan", "/plan off"],
     source: "builtin",
@@ -193,7 +194,7 @@ export const BUILTIN_COMMANDS: ChatCommand[] = [
   },
   {
     name: "compact",
-    description: "Summarize older messages with the model so long chats fit the context window. Keeps the latest turns verbatim.",
+    get description() { return t("chatCommands.summarizeOlderMessagesWithTheModel"); },
     usage: "/compact",
     arguments: [],
     examples: ["/compact"],
@@ -204,10 +205,10 @@ export const BUILTIN_COMMANDS: ChatCommand[] = [
   },
   {
     name: "idea",
-    description: "Idea commands: generate, promote. Generate injects the planning skill into chat.",
+    get description() { return t("chatCommands.ideaCommandsGeneratePromoteGenerateInjects"); },
     usage: "/idea [subcommand]",
     arguments: [
-      { name: "subcommand", required: false, description: "generate | promote", placeholder: "generate" },
+      { name: "subcommand", required: false, get description() { return t("chatCommands.generatePromote"); }, placeholder: "generate" },
     ],
     examples: ["/idea generate"],
     source: "builtin",
@@ -217,10 +218,10 @@ export const BUILTIN_COMMANDS: ChatCommand[] = [
   },
   {
     name: "openspec",
-    description: "OpenSpec commands: generate <ref>, progress <ref>. Executes OpenSpec UI actions.",
+    get description() { return t("chatCommands.openSpecCommandsGenerateRefProgressRef"); },
     usage: "/openspec [subcommand]",
     arguments: [
-      { name: "subcommand", required: false, description: "generate <ref> | progress <ref>", placeholder: "generate" },
+      { name: "subcommand", required: false, get description() { return t("chatCommands.generateRefProgressRef"); }, placeholder: "generate" },
     ],
     examples: ["/openspec generate my-change"],
     source: "builtin",
@@ -230,10 +231,10 @@ export const BUILTIN_COMMANDS: ChatCommand[] = [
   },
   {
     name: "schematic",
-    description: "Start the project schematic wizard in chat. Injects the schematic skill — the agent interviews you section by section to create or update .basebuild/project-schematic.md.",
+    get description() { return t("chatCommands.startTheProjectSchematicWizardIn"); },
     usage: "/schematic [wizard|view|inspect]",
     arguments: [
-      { name: "subcommand", required: false, description: "wizard (default) | view | inspect", placeholder: "wizard" },
+      { name: "subcommand", required: false, get description() { return t("chatCommands.wizardDefaultViewInspect"); }, placeholder: "wizard" },
     ],
     examples: ["/schematic", "/schematic wizard", "/schematic view", "/schematic inspect"],
     source: "builtin",
@@ -243,13 +244,13 @@ export const BUILTIN_COMMANDS: ChatCommand[] = [
   },
   {
     name: "skill:",
-    description: "Inject a skill's content into the conversation. Type /skill: followed by the skill name.",
+    get description() { return t("chatCommands.injectASkillSContentInto"); },
     usage: "/skill:<name> [args]",
     arguments: [
-      { name: "name", required: true, description: "Skill name", placeholder: "basebuild-session-title" },
-      { name: "args", required: false, description: "Optional arguments for the skill" },
+      { name: "name", required: true, get description() { return t("chatCommands.skillName"); }, placeholder: "basebuild-session-title" },
+      { name: "args", required: false, get description() { return t("chatCommands.optionalArgumentsForTheSkill"); } },
     ],
-    examples: ["/skill:basebuild-session-title retitle this"],
+    examples: ["/skill:basebuild-session-title retitle this" /* i18n-exempt: model prompt */],
     source: "skill",
     category: "in-chat",
     localOnly: false,
@@ -458,7 +459,7 @@ export function buildCommandHelper(
     const skillCmd = commands.find((c) => c.name === "skill:");
     if (skillCmd) {
       const validationError = !skillName
-        ? "Skill name is required after /skill:"
+        ? t("chatCommands.skillNameIsRequiredAfterSkill")
         : null;
       return {
         command: skillCmd,
@@ -489,7 +490,7 @@ export function buildCommandHelper(
       requiredArgs: [],
       optionalArgs: [],
       examples: [],
-      validationError: `Unknown command: /${firstToken}. Type /commands to see all available commands.`,
+      validationError: t("chatCommands.unknownCommandTypeCommandsToSee", { firstToken }),
       localOnly: false,
       recognized: false,
     };
@@ -498,7 +499,7 @@ export function buildCommandHelper(
   // Validate required arguments.
   const requiredArgs = matched.arguments.filter((a) => a.required);
   const validationError = requiredArgs.length > 0 && !rest
-    ? `Missing required argument: ${requiredArgs.map((a) => a.name).join(", ")}`
+    ? t("chatCommands.missingRequiredArgument", { names: requiredArgs.map((a) => a.name).join(", ") })
     : null;
 
   return {
@@ -555,28 +556,30 @@ export function formatCommandReference(commands: ChatCommand[] = BUILTIN_COMMAND
 /** Human-readable source badge label. */
 export function sourceLabel(source: CommandSource): string {
   switch (source) {
-    case "builtin": return "Built-in";
-    case "omp-project": return "OMP Project";
-    case "omp-user": return "OMP User";
-    case "claude": return "Claude";
-    case "codex": return "Codex";
-    case "skill": return "Skill";
+    case "builtin": return t("chatCommands.builtIn");
+    case "omp-project": return t("chatCommands.ompProject");
+    case "omp-user": return t("chatCommands.ompUser");
+    case "claude": return t("chatCommands.claude");
+    case "codex": return t("chatCommands.codex");
+    case "skill": return t("chatCommands.skill");
     case "mcp": return "MCP";
   }
 }
 
 /** Human-readable category badge label. */
 export function categoryLabel(category: "in-chat" | "ui"): string {
-  return category === "in-chat" ? "In-Chat" : "UI";
+  return category === "in-chat" ? t("chatCommands.inChat") : "UI";
 }
 
 /** Keyboard guide text for /help. */
-export const KEYBOARD_GUIDE: string[] = [
-  "Keyboard guide:",
-  "  Type / to open the command palette.",
-  "  Arrow Up/Down — move selection through the list.",
-  "  Tab — complete the selected command into the composer.",
-  "  Enter — submit or accept the active command.",
-  "  Escape — close the palette without changing the draft.",
-  "  Click the Commands button to open the palette without typing /.",
-];
+export function keyboardGuide(): string[] {
+  return [
+    t("chatCommands.keyboardGuide"),
+    t("chatCommands.keyboardTypeSlashToOpen"),
+    t("chatCommands.keyboardArrowUpDown"),
+    t("chatCommands.keyboardTab"),
+    t("chatCommands.keyboardEnter"),
+    t("chatCommands.keyboardEscape"),
+    t("chatCommands.keyboardClickCommands"),
+  ];
+}

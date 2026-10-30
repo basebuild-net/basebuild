@@ -22,19 +22,22 @@ import type { Plan } from "../../lib/plans";
 import { useLogs } from "../../state/log";
 import { nativeChatList, type NativeChatSession } from "../../lib/native-chat";
 import { SkeletonRows, SkeletonText } from "./Loading";
+import { t } from "../../i18n";
 
-const KIND_LABELS: Record<string, string> = {
-  generate_categories: "Generating categories",
-  generate_ideas: "Generating ideas",
-  enhance_idea: "Enhancing idea",
-  generate_openspec: "Turning plan into OpenSpec",
-};
+function KIND_LABELS(): Record<string, string> {
+  return {
+    generate_categories: t("backgroundAgents.generatingCategories"),
+    generate_ideas: t("backgroundAgents.generatingIdeas"),
+    enhance_idea: t("backgroundAgents.enhancingIdea"),
+    generate_openspec: t("backgroundAgents.turningPlanIntoOpenspec"),
+  };
+}
 
 /** How many finished runs to keep visible under the active list. */
 const RECENT_LIMIT = 6;
 
 function kindLabel(kind: string): string {
-  return KIND_LABELS[kind] ?? kind.replace(/_/g, " ");
+  return KIND_LABELS()[kind] ?? kind.replace(/_/g, " ");
 }
 
 /** Format a duration between two unix-second timestamps as "3s" / "1m 12s". */
@@ -192,7 +195,7 @@ export function BackgroundAgents({
       handleOpenChat(run.chatSessionId, run.id);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      setActionError(`Could not resume: ${message}`);
+      setActionError(t("backgroundAgents.couldNotResume", { message }));
       addLog("error", "Background plan resume failed", message);
     }
   }, [addLog, handleOpenChat, onOpenPlanning, refresh]);
@@ -204,7 +207,7 @@ export function BackgroundAgents({
       await refresh();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      setActionError(`Could not complete review: ${message}`);
+      setActionError(t("backgroundAgents.couldNotCompleteReview", { message }));
       addLog("error", "Background plan review failed", message);
     }
   }, [addLog, refresh]);
@@ -246,11 +249,11 @@ export function BackgroundAgents({
         aria-haspopup="dialog"
         title={
           activeCount > 0
-            ? `${activeCount} background agent${activeCount === 1 ? "" : "s"} active`
-            : "Background agents"
+            ? t((activeCount === 1 ? "backgroundAgents.backgroundAgentActive.none" : "backgroundAgents.backgroundAgentActive.s"), { activeCount: activeCount })
+            : t("backgroundAgents.backgroundAgents")
         }
         onClick={() => {
-          addLog("debug", open ? "Background agents closed" : "Background agents opened", `active=${activeCount}`);
+          addLog("debug", open ? t("backgroundAgents.backgroundAgentsClosed") : t("backgroundAgents.backgroundAgentsOpened"), `active=${activeCount}`);
           setOpen((v) => !v);
           if (!open) void refresh();
         }}
@@ -259,40 +262,39 @@ export function BackgroundAgents({
         {activeCount > 0 ? (
           <>
             <span className="bg-agents-badge">{activeCount}</span>
-            {maxConcurrent > 0 ? <span className="bg-agents-counter" title={`${activeCount} of ${maxConcurrent} concurrent slots in use`}>{activeCount}/{maxConcurrent}</span> : null}
+            {maxConcurrent > 0 ? <span className="bg-agents-counter" title={t("backgroundAgents.ofConcurrentSlotsInUse", { activeCount: activeCount, maxConcurrent: maxConcurrent })}>{activeCount}/{maxConcurrent}</span> : null}
           </>
         ) : null}
       </button>
       {open ? (
         <>
           <div className="bg-agents-overlay" onClick={() => setOpen(false)} />
-          <section className="bg-agents-panel" aria-label="Background agents">
+          <section className="bg-agents-panel" aria-label={t("backgroundAgents.backgroundAgents")}>
             <div className="bg-agents-header">
               <Bot size={13} className="bg-agents-header-icon" />
               <div className="bg-agents-heading">
-                <span className="bg-agents-title">Background agents</span>
+                <span className="bg-agents-title">{t("backgroundAgents.backgroundAgents")}</span>
                 <span className="bg-agents-summary">
                   {!hasLoaded ? (
                     <SkeletonText width={12} />
                   ) : activeCount > 0 ? (
-                    `${activeCount} active`
+                    t("backgroundAgents.active", { activeCount: activeCount })
                   ) : (
-                    "Nothing running"
+                    t("backgroundAgents.nothingRunning")
                   )}
                 </span>
               </div>
-              <button className="btn-icon" type="button" title="Close" onClick={() => setOpen(false)}>
+              <button className="btn-icon" type="button" title={t("backgroundAgents.close")} onClick={() => setOpen(false)}>
                 <X size={12} />
               </button>
             </div>
             <div className="bg-agents-list">
               {actionError ? <div className="bg-agents-action-error" role="alert">{actionError}</div> : null}
               {!hasLoaded ? (
-                <SkeletonRows rows={3} label="Loading background agents…" />
+                <SkeletonRows rows={3} label={t("backgroundAgents.loadingBackgroundAgents")} />
               ) : activeCount === 0 && recent.length === 0 && recentPlanRuns.length === 0 ? (
                 <div className="bg-agents-empty">
-                  No background agents yet. Generating ideas, preparing an
-                  OpenSpec plan, or running an assigned plan shows up here.
+                  {t("backgroundAgents.noBackgroundAgentsYetGenerating")}
                 </div>
               ) : null}
               {activePlanRuns.map((run) => {
@@ -317,10 +319,10 @@ export function BackgroundAgents({
                         className="bg-agents-item-open"
                         type="button"
                         title={needsInput
-                          ? "Open the pending question or approval"
+                          ? t("backgroundAgents.openThePendingQuestionOr")
                           : queued
-                            ? "Open the chat reserved for this queued plan"
-                            : "Open the chat where this agent is working"}
+                            ? t("backgroundAgents.openTheChatReservedFor")
+                            : t("backgroundAgents.openTheChatWhereThis")}
                         onClick={() => handleOpenChat(run.chatSessionId!, run.id)}
                       >
                         <ActivityIcon
@@ -335,7 +337,7 @@ export function BackgroundAgents({
                             </span>
                           ) : null}
                           <span className="bg-agents-item-meta">
-                            <span className="bg-agents-model" title={`Runner: ${run.runnerKind}`}>{run.runnerKind}</span>
+                            <span className="bg-agents-model" title={t("backgroundAgents.runner", { runnerKind: run.runnerKind })}>{run.runnerKind}</span>
                             <span className="bg-agents-elapsed">
                               {formatDuration(run.startedAt ?? Math.floor(run.createdAt), now)}
                             </span>
@@ -362,7 +364,7 @@ export function BackgroundAgents({
                     <button
                       className="btn-icon btn-icon-sm bg-agents-cancel"
                       type="button"
-                      title="Cancel this plan run"
+                      title={t("backgroundAgents.cancelThisPlanRun")}
                       onClick={() => void handleCancelPlanRun(run.id)}
                     >
                       <X size={11} />
@@ -385,14 +387,14 @@ export function BackgroundAgents({
                     <button
                       className="bg-agents-item-open"
                       type="button"
-                      title={run.status === "pending" ? "Open the chat reserved for this queued agent" : "Open the chat where this agent is working"}
+                      title={run.status === "pending" ? t("backgroundAgents.openTheChatReservedFor2") : t("backgroundAgents.openTheChatWhereThis")}
                       onClick={() => handleOpenChat(run.sessionChatId!, run.id)}
                     >
                       {run.status === "pending"
                         ? <Play size={12} className="bg-agents-item-icon" />
                         : <Loader2 size={12} className="bg-agents-item-icon is-spinning" />}
                       <span className="bg-agents-item-body">
-                        <span className="bg-agents-item-kind">{run.status === "pending" ? `${kindLabel(run.kind)} queued` : kindLabel(run.kind)}</span>
+                        <span className="bg-agents-item-kind">{run.status === "pending" ? t("backgroundAgents.queued", { kind: kindLabel(run.kind) }) : kindLabel(run.kind)}</span>
                         {targetTitle(run) ? (
                           <span className="bg-agents-item-target" title={targetTitle(run)}>
                             {targetTitle(run)}
@@ -400,7 +402,7 @@ export function BackgroundAgents({
                         ) : null}
                         <span className="bg-agents-item-meta">
                           {run.modelId ? (
-                            <span className="bg-agents-model" title={`Provider: ${run.providerId ?? "unknown"}`}>
+                            <span className="bg-agents-model" title={t("backgroundAgents.provider", { providerId: run.providerId ?? "unknown" })}>
                               {run.modelId}
                             </span>
                           ) : null}
@@ -417,7 +419,7 @@ export function BackgroundAgents({
                         ? <Play size={12} className="bg-agents-item-icon" />
                         : <Loader2 size={12} className="bg-agents-item-icon is-spinning" />}
                       <div className="bg-agents-item-body">
-                        <span className="bg-agents-item-kind">{run.status === "pending" ? `${kindLabel(run.kind)} queued` : kindLabel(run.kind)}</span>
+                        <span className="bg-agents-item-kind">{run.status === "pending" ? t("backgroundAgents.queued2", { kind: kindLabel(run.kind) }) : kindLabel(run.kind)}</span>
                         {targetTitle(run) ? (
                           <span className="bg-agents-item-target" title={targetTitle(run)}>
                             {targetTitle(run)}
@@ -429,7 +431,7 @@ export function BackgroundAgents({
                   <button
                     className="btn-icon btn-icon-sm bg-agents-cancel"
                     type="button"
-                    title="Cancel this background agent"
+                    title={t("backgroundAgents.cancelThisBackgroundAgent")}
                     onClick={() => void handleCancel(run.id)}
                   >
                     <X size={11} />
@@ -437,18 +439,18 @@ export function BackgroundAgents({
                 </div>
               ))}
               {recent.length > 0 || recentPlanRuns.length > 0 ? (
-                <div className="bg-agents-section-label">Recent</div>
+                <div className="bg-agents-section-label">{t("backgroundAgents.recent")}</div>
               ) : null}
               {recentPlanRuns.map((run) => {
                 const chat = chatSessions.find((candidate) => candidate.id === run.chatSessionId);
                 const view = derivePlanRunViewState(run, chat?.runState);
                 const plan = plans.find((candidate) => candidate.id === run.planId);
                 const archiveReason = !plan
-                  ? "Cannot archive: linked plan is unavailable."
+                  ? t("backgroundAgents.cannotArchiveLinkedPlanIsUnavailable")
                   : plan.status !== "finished"
-                    ? `Cannot archive: linked plan is ${plan.status}; finish it first.`
+                    ? t("backgroundAgents.cannotArchiveLinkedPlanIsFinish", { status: plan.status })
                     : !plan.changeName
-                      ? "Cannot archive: plan has no linked OpenSpec change."
+                      ? t("backgroundAgents.cannotArchivePlanHasNoLinked")
                       : null;
                 const StatusIcon = view.state === "complete"
                   ? Check
@@ -463,7 +465,7 @@ export function BackgroundAgents({
                       <button
                         className="bg-agents-item-open"
                         type="button"
-                        title="Open this plan run's retained chat"
+                        title={t("backgroundAgents.openThisPlanRunS")}
                         onClick={() => handleOpenChat(run.chatSessionId!, run.id)}
                       >
                         <StatusIcon size={12} className="bg-agents-item-icon" />
@@ -489,22 +491,22 @@ export function BackgroundAgents({
                     <div className="bg-agents-item-actions">
                       {view.state === "awaiting-review" || view.state === "interrupted" ? (
                         <>
-                          <button className="btn btn-sm" type="button" title={run.chatSessionId ? "Resume this plan in its retained chat" : "Open Runs to choose a new execution owner"} onClick={() => void handleResumePlanRun(run)}>
-                            <Play size={10} /> Resume
+                          <button className="btn btn-sm" type="button" title={run.chatSessionId ? t("backgroundAgents.resumeThisPlanInIts") : t("backgroundAgents.openRunsToChooseA")} onClick={() => void handleResumePlanRun(run)}>
+                            <Play size={10} /> {t("backgroundAgents.resume")}
                           </button>
-                          <button className="btn btn-sm" type="button" title="Review the retained artifacts and mark this run complete" onClick={() => void handleReviewPlanRun(run)}>
-                            <ClipboardCheck size={10} /> Review
+                          <button className="btn btn-sm" type="button" title={t("backgroundAgents.reviewTheRetainedArtifactsAnd")} onClick={() => void handleReviewPlanRun(run)}>
+                            <ClipboardCheck size={10} /> {t("backgroundAgents.review")}
                           </button>
                         </>
                       ) : null}
                       {view.state === "failed" ? (
-                        <button className="btn btn-sm" type="button" title={run.chatSessionId ? "Retry this plan in its retained chat" : "Open Runs to choose a new execution owner"} onClick={() => void handleResumePlanRun(run)}>
-                          <RotateCcw size={10} /> Retry
+                        <button className="btn btn-sm" type="button" title={run.chatSessionId ? t("backgroundAgents.retryThisPlanInIts") : t("backgroundAgents.openRunsToChooseA")} onClick={() => void handleResumePlanRun(run)}>
+                          <RotateCcw size={10} /> {t("backgroundAgents.retry")}
                         </button>
                       ) : null}
                       {view.state === "complete" ? (
-                        <button className="btn btn-sm" type="button" title={archiveReason ?? "Open the linked change and archive it"} disabled={archiveReason !== null} onClick={handleArchivePlan}>
-                          <Archive size={10} /> Archive
+                        <button className="btn btn-sm" type="button" title={archiveReason ?? t("backgroundAgents.openTheLinkedChangeAnd")} disabled={archiveReason !== null} onClick={handleArchivePlan}>
+                          <Archive size={10} /> {t("backgroundAgents.archive")}
                         </button>
                       ) : null}
                     </div>
@@ -517,7 +519,7 @@ export function BackgroundAgents({
                     <button
                       className="bg-agents-item-open"
                       type="button"
-                      title="Open the chat where this agent worked"
+                      title={t("backgroundAgents.openTheChatWhereThis2")}
                       onClick={() => handleOpenChat(run.sessionChatId!, run.id)}
                     >
                       {run.status === "succeeded" ? (

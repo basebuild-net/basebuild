@@ -20,7 +20,6 @@ import {
 import type { Plan, PlanStatus } from "../../lib/plans";
 import type { PlanRun } from "../../lib/planRuns";
 import { PLAN_STATUS_DISPLAY_ORDER, PLAN_STATUSES, PLAN_STATUS_LABEL, isTerminalStatus } from "../../lib/plans";
-import { formatRelativeTime } from "../../lib/timing";
 import type { Idea } from "../../lib/ideas";
 import { Disclosure } from "../Disclosure";
 import { ActionMenu } from "../ActionMenu";
@@ -52,6 +51,8 @@ import {
   nativeChatSetProjectModelDefault,
   type NativeProviderCatalog,
 } from "../../lib/native-chat";
+import { t } from "../../i18n";
+import { formatDateTime, formatRelativeTime } from "../../i18n/format";
 /** Epoch seconds (Rust) or milliseconds (JS) → milliseconds. */
 const toMs = (ts: number) => (ts < 1_000_000_000_000 ? ts * 1000 : ts);
 
@@ -172,11 +173,11 @@ export function PlanPanel({
 
   if (collapsed) {
     return (
-      <aside className="plan-panel plan-panel-collapsed" aria-label="Plans">
+      <aside className="plan-panel plan-panel-collapsed" aria-label={t("planPanel.plans")}>
         <button
           className="btn-icon"
-          title="Expand plans"
-          aria-label="Expand plans"
+          title={t("planPanel.expandPlans")}
+          aria-label={t("planPanel.expandPlans")}
           type="button"
           onClick={onToggleCollapse}
         >
@@ -188,14 +189,14 @@ export function PlanPanel({
   }
 
   return (
-    <aside className="plan-panel" aria-label="Plans">
+    <aside className="plan-panel" aria-label={t("planPanel.plans")}>
       {showHeader ? (
       <div className="plan-panel-header">
-        <span className="plan-panel-title">Plans</span>
+        <span className="plan-panel-title">{t("planPanel.plans")}</span>
         <button
           className="btn-icon"
-          title="Collapse plans"
-          aria-label="Collapse plans"
+          title={t("planPanel.collapsePlans")}
+          aria-label={t("planPanel.collapsePlans")}
           type="button"
           onClick={onToggleCollapse}
         >
@@ -206,8 +207,8 @@ export function PlanPanel({
         <div className="plan-panel-header-compact">
           <button
             className="btn-icon"
-            title="Import plans from openspec/changes/"
-            aria-label="Import plans"
+            title={t("planPanel.importPlansFromOpenspecChanges")}
+            aria-label={t("planPanel.importPlans")}
             type="button"
             onClick={() => setShowImport(true)}
           >
@@ -218,13 +219,13 @@ export function PlanPanel({
 
       <div className="plan-panel-list">
         {!sessionId ? (
-          <p className="text-muted text-sm pad">Open a project to manage plans.</p>
+          <p className="text-muted text-sm pad">{t("planPanel.openAProjectToManage")}</p>
         ) : loading ? (
-          <SkeletonRows rows={4} label="Loading plans…" />
+          <SkeletonRows rows={4} label={t("planPanel.loadingPlans")} />
         ) : plans.length === 0 ? (
           <div className="plan-empty plan-empty-ai">
-            <p className="text-muted text-sm">No plans yet.</p>
-            <p className="text-muted text-sm">Generate ideas with AI, then promote the ones worth building.</p>
+            <p className="text-muted text-sm">{t("planPanel.noPlansYet")}</p>
+            <p className="text-muted text-sm">{t("planPanel.generateIdeasWithAiThen")}</p>
           </div>
         ) : (
           PLAN_STATUS_DISPLAY_ORDER.map((status) => {
@@ -241,7 +242,7 @@ export function PlanPanel({
                     onClick={() => setExpandedFinished((v) => !v)}
                   >
                     <span>{expandedFinished ? "▼" : "▶"}</span>
-                    <span className="plan-lane-label">Finished / Cancelled</span>
+                    <span className="plan-lane-label">{t("planPanel.finishedCancelled")}</span>
                     <span className="plan-lane-count">{finishedCount}</span>
                   </button>
                   {expandedFinished ? (
@@ -276,7 +277,7 @@ export function PlanPanel({
             return (
               <div key={status} className="plan-lane" data-status={status}>
                 <div className="plan-lane-header">
-                  <span className="plan-lane-label">{PLAN_STATUS_LABEL[status]}</span>
+                  <span className="plan-lane-label">{PLAN_STATUS_LABEL()[status]}</span>
                   <span className="plan-lane-count">{list.length}</span>
                 </div>
                 <div className="plan-lane-cards">
@@ -390,18 +391,18 @@ function PlanCard({
   }), [projectPath, defaults]);
 
   const archiveBlockedReason = !projectPath
-    ? "Cannot archive: no project is open."
+    ? t("planPanel.cannotArchiveNoProjectIsOpen")
     : !plan.changeName
-      ? "Cannot archive: plan has no linked OpenSpec change."
+      ? t("planPanel.cannotArchivePlanHasNoLinked")
       : taskProgress === null
-        ? "Cannot archive: task progress is unavailable."
+        ? t("planPanel.cannotArchiveTaskProgressIsUnavailable")
         : taskProgress.total === 0
-          ? "Cannot archive: no required tasks were found."
+          ? t("planPanel.cannotArchiveNoRequiredTasksWere")
           : taskProgress.completed < taskProgress.total
-            ? `Cannot archive: ${taskProgress.completed}/${taskProgress.total} required tasks are complete.`
+            ? t("planPanel.cannotArchiveRequiredTasksAreComplete", { completed: taskProgress.completed, total: taskProgress.total })
             : null;
   const resumeBlockedReason = !run?.chatSessionId
-    ? "Cannot resume: this run has no retained chat owner."
+    ? t("planPanel.cannotResumeThisRunHasNo")
     : null;
 
   return (
@@ -410,36 +411,35 @@ function PlanCard({
         className="plan-card-main"
         type="button"
         onClick={() => onFocus(plan)}
-        title={plan.description ? `${plan.title} — ${plan.description}` : plan.title}
+        title={plan.description ? t("planPanel.text", { title: plan.title, description: plan.description }) : plan.title}
       >
         <span className="plan-card-title-row">
           <span className="plan-card-title">{plan.title}</span>
           {validation ? (
             <span
               className={`plan-readiness-badge ${validation.errors.length > 0 ? "is-error" : validation.warnings.length > 0 ? "is-warn" : "is-valid"}`}
-              title={validation.errors.concat(validation.warnings).join("\n") || "Ready to promote"}
+              title={validation.errors.concat(validation.warnings).join("\n") || t("planPanel.readyToPromote")}
             >
               {validation.errors.length > 0 ? <AlertCircle size={10} /> : validation.warnings.length > 0 ? <AlertCircle size={10} /> : <CheckCircle size={10} />}
-              {validation.errors.length > 0 ? "Blocked" : validation.warnings.length > 0 ? "Warnings" : "Valid"}
+              {validation.errors.length > 0 ? t("planPanel.blocked") : validation.warnings.length > 0 ? t("planPanel.warnings") : t("planPanel.valid")}
             </span>
           ) : null}
           {plan.aiEnhanced ? <span className="plan-card-ai" /> : null}
           {taskProgress && taskProgress.total > 0 ? (
-            <span className="plan-card-progress" title={`${taskProgress.completed}/${taskProgress.total} tasks`}>
+            <span className="plan-card-progress" title={t("planPanel.tasks", { completed: taskProgress.completed, total: taskProgress.total })}>
               {taskProgress.completed}/{taskProgress.total}
             </span>
           ) : null}
         </span>
         {plan.description ? <span className="plan-card-desc">{plan.description}</span> : null}
         <span className="plan-card-meta">
-          <span className="plan-card-ref" title={`Plan reference ${plan.referenceId}`}>{plan.referenceId}</span>
-          <span className="plan-card-date" title={`Plan created ${new Date(toMs(plan.createdAt)).toLocaleString()}`}>
+          <span className="plan-card-ref" title={t("planPanel.planReference", { referenceId: plan.referenceId })}>{plan.referenceId}</span>
+          <span className="plan-card-date" title={t("planPanel.planCreated", { toLocaleString: formatDateTime(new Date(toMs(plan.createdAt))) })}>
             {formatRelativeTime(plan.createdAt)}
           </span>
           {ideaCreatedAt ? (
-            <span className="plan-card-date" title={`Promoted from an idea captured ${new Date(toMs(ideaCreatedAt)).toLocaleString()}`}>
-              · idea {formatRelativeTime(ideaCreatedAt)}
-            </span>
+            <span className="plan-card-date" title={t("planPanel.promotedFromAnIdeaCaptured", { toLocaleString: formatDateTime(new Date(toMs(ideaCreatedAt))) })}>
+              {t("planPanel.idea", { ideaCreatedAt: formatRelativeTime(ideaCreatedAt) })}</span>
           ) : null}
         </span>
       </button>
@@ -448,60 +448,60 @@ function PlanCard({
           <button
             className="btn btn-sm"
             type="button"
-            title={resumeBlockedReason ?? "Resume this plan in its retained chat"}
+            title={resumeBlockedReason ?? t("planPanel.resumeThisPlanInIts")}
             disabled={resumeBlockedReason !== null}
             onClick={(event) => {
               event.stopPropagation();
               void onResumeRun(run);
             }}
           >
-            <Play size={10} /> Resume
+            <Play size={10} /> {t("planPanel.resume")}
           </button>
         ) : null}
         {run?.status === "awaiting_review" && onReviewRun ? (
           <button
             className="btn btn-sm"
             type="button"
-            title="Review the linked OpenSpec tasks and retained artifacts"
+            title={t("planPanel.reviewTheLinkedOpenspecTasks")}
             onClick={(event) => {
               event.stopPropagation();
               onReviewRun(run);
             }}
           >
-            <ClipboardCheck size={10} /> Review
+            <ClipboardCheck size={10} /> {t("planPanel.review")}
           </button>
         ) : null}
         {(run?.status === "failed" || run?.status === "cancelled") && onResumeRun ? (
           <button
             className="btn btn-sm"
             type="button"
-            title={resumeBlockedReason ?? "Retry this plan in its retained chat"}
+            title={resumeBlockedReason ?? t("planPanel.retryThisPlanInIts")}
             disabled={resumeBlockedReason !== null}
             onClick={(event) => {
               event.stopPropagation();
               void onResumeRun(run);
             }}
           >
-            <RefreshCw size={10} /> Retry
+            <RefreshCw size={10} /> {t("planPanel.retry")}
           </button>
         ) : null}
         {isReady && !run && onAssignPlan ? (
           <button
             className="btn btn-sm btn-primary plan-assign-btn"
-            title="Assign this ready plan to a chat session"
+            title={t("planPanel.assignThisReadyPlanTo")}
             type="button"
             onClick={(e) => {
               e.stopPropagation();
               onAssignPlan(plan, profileForAssign);
             }}
           >
-            <Send size={10} /> Assign to chat
+            <Send size={10} /> {t("planPanel.assignToChat")}
           </button>
         ) : null}
         {isFinished && onArchive ? (
           <button
             className="btn btn-sm plan-archive-btn"
-            title={archiveBlockedReason ?? "Open the finished change to archive it"}
+            title={archiveBlockedReason ?? t("planPanel.openTheFinishedChangeTo")}
             type="button"
             disabled={archiveBlockedReason !== null}
             onClick={(event) => {
@@ -509,37 +509,37 @@ function PlanCard({
               onArchive(plan);
             }}
           >
-            <Archive size={10} /> Archive
+            <Archive size={10} /> {t("planPanel.archive")}
           </button>
         ) : null}
         <ActionMenu
-          triggerTitle="More plan actions"
+          triggerTitle={t("planPanel.morePlanActions")}
           items={[
             {
               key: "edit",
-              label: "Edit",
-              title: "Edit title, description, and details",
+              label: t("planPanel.edit"),
+              title: t("planPanel.editTitleDescriptionAndDetails"),
               icon: <Pencil size={12} />,
               onSelect: () => onEdit(plan),
             },
             ...(!isFinished ? [{
               key: "terminal",
-              label: "Open in terminal",
-              title: "Open this plan in a terminal",
+              label: t("planPanel.openInTerminal"),
+              title: t("planPanel.openThisPlanInATerminal"),
               icon: <TerminalSquare size={12} />,
               onSelect: () => onOpenInTerminal(plan),
             }] : []),
             {
               key: "copy",
-              label: "Copy reference",
-              title: "Copy the plan reference id",
+              label: t("planPanel.copyReference"),
+              title: t("planPanel.copyThePlanReferenceId"),
               icon: <Copy size={12} />,
               onSelect: () => onCopyReference(plan.referenceId),
             },
             {
               key: "delete",
-              label: "Delete",
-              title: "Delete this plan permanently",
+              label: t("planPanel.delete"),
+              title: t("planPanel.deleteThisPlanPermanently"),
               icon: <Trash2 size={12} />,
               danger: true,
               onSelect: () => onDeletePlan(plan.id),
@@ -575,18 +575,18 @@ type PlanPromotionFormProps = {
   onValidationChange?: (result: ValidationResult | null) => void;
 };
 
-const EFFORT_OPTION_ITEMS: OptionListOption<EffortLevel>[] = [
-  { id: "low", label: "low", title: "Low effort — smaller, faster runs" },
-  { id: "medium", label: "medium", title: "Medium effort — balanced depth and speed" },
-  { id: "high", label: "high", title: "High effort — deeper, more thorough runs" },
+const EFFORT_OPTION_ITEMS = (): OptionListOption<EffortLevel>[] => [
+  { id: "low", label: "low", title: t("planPanel.lowEffortSmallerFasterRuns") },
+  { id: "medium", label: "medium", title: t("planPanel.mediumEffortBalancedDepthAndSpeed") },
+  { id: "high", label: "high", title: t("planPanel.highEffortDeeperMoreThoroughRuns") },
 ];
-const WORKSPACE_OPTION_ITEMS: OptionListOption<WorkspacePolicy>[] = [
-  { id: "isolated_worktrees", label: "isolated worktrees", title: "Each run uses its own isolated worktree" },
-  { id: "sequential_primary", label: "sequential primary", title: "Run sequentially in the primary worktree" },
+const WORKSPACE_OPTION_ITEMS = (): OptionListOption<WorkspacePolicy>[] => [
+  { id: "isolated_worktrees", label: t("planPanel.isolatedWorktrees4"), title: t("planPanel.eachRunUsesItsOwnIsolated") },
+  { id: "sequential_primary", label: t("planPanel.sequentialPrimary2"), title: t("planPanel.runSequentiallyInThePrimaryWorktree") },
 ];
-const SCHEDULING_OPTION_ITEMS: OptionListOption<SchedulingMode>[] = [
-  { id: "safe", label: "safe", title: "Safe scheduling — conservative dependency ordering" },
-  { id: "yolo", label: "yolo", title: "Eager scheduling — run as soon as possible" },
+const SCHEDULING_OPTION_ITEMS = (): OptionListOption<SchedulingMode>[] => [
+  { id: "safe", label: "safe", title: t("planPanel.safeSchedulingConservativeDependencyOrdering") },
+  { id: "yolo", label: "yolo", title: t("planPanel.eagerSchedulingRunAsSoonAs") },
 ];
 
 function PlanPromotionForm({
@@ -736,7 +736,7 @@ function PlanPromotionForm({
 
   const handleGenerateOpenSpec = useCallback(async () => {
     if (!projectPath || !plannerProviderId || !plannerModelId) {
-      setReviseMessage("Choose a planner provider and model first.");
+      setReviseMessage(t("planPanel.chooseAPlannerProviderAndModel"));
       return;
     }
     setLoading(true);
@@ -749,11 +749,11 @@ function PlanPromotionForm({
       });
       await persistExecutionProfile();
       await onSetStatus(plan.id, "openspec");
-      onShowToast?.("OpenSpec plan generated", `${plan.referenceId} ${plan.title}`, "success");
+      onShowToast?.(t("planPanel.openspecPlanGenerated"), `${plan.referenceId} ${plan.title}`, "success");
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       setReviseMessage(message);
-      onShowToast?.("OpenSpec generation failed", message, "error");
+      onShowToast?.(t("planPanel.openspecGenerationFailed"), message, "error");
     } finally {
       setLoading(false);
     }
@@ -775,11 +775,11 @@ function PlanPromotionForm({
     try {
       await persistExecutionProfile();
       await onSetStatus(plan.id, "ready");
-      onShowToast?.("Plan approved and ready", `${plan.referenceId} ${plan.title}`, "success");
+      onShowToast?.(t("planPanel.planApprovedAndReady"), `${plan.referenceId} ${plan.title}`, "success");
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       setReviseMessage(message);
-      onShowToast?.("Failed to approve plan", message, "error");
+      onShowToast?.(t("planPanel.failedToApprovePlan"), message, "error");
     }
   }, [plan, onSetStatus, onShowToast, runValidation, persistExecutionProfile]);
 
@@ -791,7 +791,7 @@ function PlanPromotionForm({
     if (plan.changeName) {
       onOpenInTerminal(plan);
     } else {
-      setReviseMessage("Generate artifacts first");
+      setReviseMessage(t("planPanel.generateArtifactsFirst"));
     }
   }, [plan, onOpenInTerminal]);
 
@@ -802,16 +802,16 @@ function PlanPromotionForm({
     <div className="plan-promotion-form stack-sm">
       <Disclosure
         className="plan-promotion-disclosure"
-        label={<><Rocket size={11} /> OpenSpec launch profile</>}
-        summary={`${plannerModelId || "planner unset"} · ${form.modelId || "coder unset"} · ${form.workerCount} worker${form.workerCount === 1 ? "" : "s"}`}
-        title="Planner and coding models, effort, skill, workers, workspace, and scheduling for this plan"
+        label={<><Rocket size={11} /> {t("planPanel.openSpecLaunchProfile")}</>}
+        summary={`${plannerModelId || t("planPanel.plannerUnset")} · ${form.modelId || t("planPanel.coderUnset")} · ${form.workerCount === 1 ? t("flowTab.workerCountOne") : t("flowTab.workerCountOther", { count: form.workerCount })}`}
+        title={t("planPanel.plannerAndCodingModelsEffort")}
       >
         <div className="plan-promotion-fields">
-        <label className="plan-promotion-field" title="Provider used to generate and revise OpenSpec artifacts">
-          <span className="plan-promotion-label">Planner provider</span>
+        <label className="plan-promotion-field" title={t("planPanel.providerUsedToGenerateAnd")}>
+          <span className="plan-promotion-label">{t("planPanel.plannerProvider")}</span>
           <select
             className="input plan-promotion-input"
-            title="Planner provider"
+            title={t("planPanel.plannerProvider")}
             value={plannerProviderId}
             disabled={configuredProviders.length === 0}
             onChange={(event) => {
@@ -826,11 +826,11 @@ function PlanPromotionForm({
             ))}
           </select>
         </label>
-        <label className="plan-promotion-field" title="Model used to generate and revise OpenSpec artifacts">
-          <span className="plan-promotion-label">Planner model</span>
+        <label className="plan-promotion-field" title={t("planPanel.modelUsedToGenerateAnd")}>
+          <span className="plan-promotion-label">{t("planPanel.plannerModel")}</span>
           <select
             className="input plan-promotion-input"
-            title="Planner model"
+            title={t("planPanel.plannerModel")}
             value={plannerModelId}
             disabled={plannerModels.length === 0}
             onChange={(event) => setPlannerModelId(event.target.value)}
@@ -840,20 +840,20 @@ function PlanPromotionForm({
             ))}
           </select>
         </label>
-        <label className="plan-promotion-field" title="Reasoning effort used while planning">
-          <span className="plan-promotion-label">Planner effort</span>
+        <label className="plan-promotion-field" title={t("planPanel.reasoningEffortUsedWhilePlanning")}>
+          <span className="plan-promotion-label">{t("planPanel.plannerEffort")}</span>
           <OptionList
             value={plannerEffortLevel}
-            options={EFFORT_OPTION_ITEMS}
+            options={EFFORT_OPTION_ITEMS()}
             onChange={setPlannerEffortLevel}
-            label="Planner effort"
+            label={t("planPanel.plannerEffort")}
           />
         </label>
-        <label className="plan-promotion-field" title="Provider used to implement the approved plan">
-          <span className="plan-promotion-label">Coding provider</span>
+        <label className="plan-promotion-field" title={t("planPanel.providerUsedToImplementThe")}>
+          <span className="plan-promotion-label">{t("planPanel.codingProvider")}</span>
           <select
             className="input plan-promotion-input"
-            title="Coding provider"
+            title={t("planPanel.codingProvider")}
             value={form.providerId}
             disabled={configuredProviders.length === 0}
             onChange={(event) => {
@@ -867,11 +867,11 @@ function PlanPromotionForm({
             ))}
           </select>
         </label>
-        <label className="plan-promotion-field" title="Model used to implement the approved plan">
-          <span className="plan-promotion-label">Coding model</span>
+        <label className="plan-promotion-field" title={t("planPanel.modelUsedToImplementThe")}>
+          <span className="plan-promotion-label">{t("planPanel.codingModel")}</span>
           <select
             className="input plan-promotion-input"
-            title="Coding model"
+            title={t("planPanel.codingModel")}
             value={form.modelId}
             disabled={codingModels.length === 0}
             onChange={(event) => setForm((current) => ({ ...current, modelId: event.target.value }))}
@@ -881,23 +881,23 @@ function PlanPromotionForm({
             ))}
           </select>
         </label>
-        <label className="plan-promotion-field" title="Reasoning effort used while coding">
-          <span className="plan-promotion-label">Coding effort</span>
+        <label className="plan-promotion-field" title={t("planPanel.reasoningEffortUsedWhileCoding")}>
+          <span className="plan-promotion-label">{t("planPanel.codingEffort")}</span>
           <OptionList
             value={form.effortLevel}
-            options={EFFORT_OPTION_ITEMS}
+            options={EFFORT_OPTION_ITEMS()}
             onChange={(id) => setForm((prev) => ({ ...prev, effortLevel: id }))}
-            label="Coding effort"
+            label={t("planPanel.codingEffort")}
           />
         </label>
-        <label className="plan-promotion-field" title="Skill">
-          <span className="plan-promotion-label">Skill</span>
+        <label className="plan-promotion-field" title={t("planPanel.skill")}>
+          <span className="plan-promotion-label">{t("planPanel.skill")}</span>
           {skillsFailed ? (
             <input
               className="input plan-promotion-input"
               type="text"
-              title="Skill"
-              placeholder="Skill"
+              title={t("planPanel.skill")}
+              placeholder={t("planPanel.skill")}
               value={form.skillId}
               onChange={(e) => setForm((prev) => ({ ...prev, skillId: e.target.value }))}
             />
@@ -906,23 +906,23 @@ function PlanPromotionForm({
               <button
                 className="skill-picker-trigger"
                 type="button"
-                title={form.skillId ? `Selected skill: ${form.skillId}` : "No skill selected"}
+                title={form.skillId ? t("planPanel.selectedSkill", { skillId: form.skillId }) : t("planPanel.noSkillSelected")}
                 onClick={() => setSkillMenuOpen((v) => !v)}
               >
-                {form.skillId || "No skill"}
+                {form.skillId || t("planPanel.noSkill")}
               </button>
               {skillMenuOpen ? (
                 <div className="skill-picker-menu">
                   <button
                     className={`skill-picker-item${form.skillId === "" ? " is-active" : ""}`}
                     type="button"
-                    title="No skill"
+                    title={t("planPanel.noSkill")}
                     onClick={() => {
                       setForm((prev) => ({ ...prev, skillId: "" }));
                       setSkillMenuOpen(false);
                     }}
                   >
-                    No skill
+                    {t("planPanel.noSkill")}
                   </button>
                   {resolvedSkills.map((skill) => (
                     <button
@@ -943,34 +943,34 @@ function PlanPromotionForm({
             </div>
           )}
         </label>
-        <label className="plan-promotion-field" title="Workers">
-          <span className="plan-promotion-label">Workers</span>
+        <label className="plan-promotion-field" title={t("planPanel.workers")}>
+          <span className="plan-promotion-label">{t("planPanel.workers")}</span>
           <input
             className="input plan-promotion-input"
             type="number"
-            title="Workers"
+            title={t("planPanel.workers")}
             min={1}
             max={32}
             value={form.workerCount}
             onChange={(e) => setForm((prev) => ({ ...prev, workerCount: Math.max(1, parseInt(e.target.value, 10) || 1) }))}
           />
         </label>
-        <label className="plan-promotion-field" title="Workspace policy">
-          <span className="plan-promotion-label">Workspace</span>
+        <label className="plan-promotion-field" title={t("planPanel.workspacePolicy")}>
+          <span className="plan-promotion-label">{t("planPanel.workspace")}</span>
           <OptionList
             value={form.workspacePolicy}
-            options={WORKSPACE_OPTION_ITEMS}
+            options={WORKSPACE_OPTION_ITEMS()}
             onChange={(id) => setForm((prev) => ({ ...prev, workspacePolicy: id }))}
-            label="Workspace policy"
+            label={t("planPanel.workspacePolicy")}
           />
         </label>
-        <label className="plan-promotion-field" title="Scheduling mode">
-          <span className="plan-promotion-label">Scheduling</span>
+        <label className="plan-promotion-field" title={t("planPanel.schedulingMode")}>
+          <span className="plan-promotion-label">{t("planPanel.scheduling")}</span>
           <OptionList
             value={form.schedulingMode}
-            options={SCHEDULING_OPTION_ITEMS}
+            options={SCHEDULING_OPTION_ITEMS()}
             onChange={(id) => setForm((prev) => ({ ...prev, schedulingMode: id }))}
-            label="Scheduling mode"
+            label={t("planPanel.schedulingMode")}
           />
         </label>
         </div>
@@ -996,11 +996,10 @@ function PlanPromotionForm({
       {reviseMessage ? <p className="text-sm text-muted">{reviseMessage}</p> : null}
       <div className="plan-promotion-actions">
         {runtimeReady ? null : (
-          <div className="plan-runtime-blocked" title="OpenSpec runtime not ready">
+          <div className="plan-runtime-blocked" title={t("planPanel.openSpecRuntimeNotReady")}>
             <AlertCircle size={12} />
             <span className="text-sm">
-              OpenSpec runtime is {runtime.status?.state ?? "missing"}.{" "}
-              Configure it in Settings → OpenSpec before generating or approving.
+              {t("planPanel.openSpecRuntimeBlocked", { state: runtime.status?.state ?? t("planPanel.missing") })}
             </span>
           </div>
         )}
@@ -1008,44 +1007,44 @@ function PlanPromotionForm({
           <button
             className="btn btn-sm btn-primary"
             type="button"
-            title={runtimeReady ? "Generate proposal, specs, design, and tasks with the planner model" : "OpenSpec runtime not configured"}
+            title={runtimeReady ? t("planPanel.generateProposalSpecsDesignAnd") : t("planPanel.openSpecRuntimeNotConfigured")}
             disabled={loading || !runtimeReady || !plannerProviderId || !plannerModelId}
             onClick={() => void handleGenerateOpenSpec()}
           >
             {loading ? <RefreshCw size={11} className="is-spinning" /> : <Rocket size={11} />}
-            {loading ? "Generating OpenSpec..." : "Generate OpenSpec"}
+            {loading ? t("planPanel.generatingOpenspec") : t("planPanel.generateOpenspec")}
           </button>
         ) : (
           <button
             className="btn btn-sm btn-primary"
             type="button"
-            title={runtimeReady ? "Validate the generated artifacts and approve this plan for the queue" : "OpenSpec runtime not configured"}
+            title={runtimeReady ? t("planPanel.validateTheGeneratedArtifactsAnd") : t("planPanel.openSpecRuntimeNotConfigured")}
             disabled={loading || hasErrors || !runtimeReady}
             onClick={() => void handlePromote()}
           >
             {loading ? <RefreshCw size={11} className="is-spinning" /> : <CheckCircle size={11} />}
-            {loading ? "Validating..." : "Approve plan"}
+            {loading ? t("planPanel.validating") : t("planPanel.approvePlan")}
           </button>
         )}
         {plan.status === "openspec" && validation ? (
           <button
             className="btn btn-sm"
             type="button"
-            title="Re-validate the generated OpenSpec artifacts"
+            title={t("planPanel.reValidateTheGeneratedOpenspec")}
             disabled={loading}
             onClick={() => void handleRevalidate()}
           >
-            <RefreshCw size={11} /> Re-validate
+            <RefreshCw size={11} /> {t("planPanel.reValidate")}
           </button>
         ) : null}
         {hasErrors ? (
           <button
             className="btn btn-sm"
             type="button"
-            title="Open the linked change directory in a terminal"
+            title={t("planPanel.openTheLinkedChangeDirectory")}
             onClick={handleRevise}
           >
-            <Wrench size={11} /> Revise artifacts
+            <Wrench size={11} /> {t("planPanel.reviseArtifacts")}
           </button>
         ) : null}
       </div>

@@ -7,29 +7,30 @@ import {
   type NotificationSettings as NotificationSettingsType,
   type NotificationDelivery,
 } from "../../../lib/notifications";
+import { t } from "../../../i18n";
 
-const NOTIFICATION_KIND_LABELS: { kind: string; label: string; defaultDelivery: NotificationDelivery }[] = [
-  { kind: "run_finished", label: "Run finished", defaultDelivery: "toast_and_center" },
-  { kind: "run_failed", label: "Run failed", defaultDelivery: "toast_and_center" },
-  { kind: "run_started", label: "Run started", defaultDelivery: "toast_and_center" },
-  { kind: "plan_created", label: "Plan created", defaultDelivery: "toast_and_center" },
-  { kind: "plan_status_changed", label: "Plan status changed", defaultDelivery: "toast_and_center" },
-  { kind: "pending_question", label: "Pending question", defaultDelivery: "toast_and_center" },
-  { kind: "integration_action", label: "Integration results", defaultDelivery: "toast_and_center" },
-  { kind: "schematic_drift_suspected", label: "Schematic drift", defaultDelivery: "toast_and_center" },
-  { kind: "stage_succeeded", label: "Stage succeeded", defaultDelivery: "toast_and_center" },
-  { kind: "stage_failed", label: "Stage failed", defaultDelivery: "toast_and_center" },
-  { kind: "idea_status_changed", label: "Idea status changed", defaultDelivery: "center_only" },
-  { kind: "category_created", label: "Category created", defaultDelivery: "center_only" },
-  { kind: "schematic_updated", label: "Schematic updated", defaultDelivery: "center_only" },
-  { kind: "stage_started", label: "Stage started", defaultDelivery: "center_only" },
-  { kind: "stage_cancelled", label: "Stage cancelled", defaultDelivery: "center_only" },
+const NOTIFICATION_KIND_LABELS = (): { kind: string; label: string; defaultDelivery: NotificationDelivery }[] => [
+  { kind: "run_finished", label: t("notificationsTab.runFinished"), defaultDelivery: "toast_and_center" },
+  { kind: "run_failed", label: t("notificationsTab.runFailed"), defaultDelivery: "toast_and_center" },
+  { kind: "run_started", label: t("notificationsTab.runStarted"), defaultDelivery: "toast_and_center" },
+  { kind: "plan_created", label: t("notificationsTab.planCreated"), defaultDelivery: "toast_and_center" },
+  { kind: "plan_status_changed", label: t("notificationsTab.planStatusChanged"), defaultDelivery: "toast_and_center" },
+  { kind: "pending_question", label: t("notificationsTab.pendingQuestion"), defaultDelivery: "toast_and_center" },
+  { kind: "integration_action", label: t("notificationsTab.integrationResults"), defaultDelivery: "toast_and_center" },
+  { kind: "schematic_drift_suspected", label: t("notificationsTab.schematicDrift"), defaultDelivery: "toast_and_center" },
+  { kind: "stage_succeeded", label: t("notificationsTab.stageSucceeded"), defaultDelivery: "toast_and_center" },
+  { kind: "stage_failed", label: t("notificationsTab.stageFailed"), defaultDelivery: "toast_and_center" },
+  { kind: "idea_status_changed", label: t("notificationsTab.ideaStatusChanged"), defaultDelivery: "center_only" },
+  { kind: "category_created", label: t("notificationsTab.categoryCreated"), defaultDelivery: "center_only" },
+  { kind: "schematic_updated", label: t("notificationsTab.schematicUpdated"), defaultDelivery: "center_only" },
+  { kind: "stage_started", label: t("notificationsTab.stageStarted"), defaultDelivery: "center_only" },
+  { kind: "stage_cancelled", label: t("notificationsTab.stageCancelled"), defaultDelivery: "center_only" },
 ];
 
-const DELIVERY_LABELS: { id: NotificationDelivery; label: string; title: string }[] = [
-  { id: "toast_and_center", label: "Toast + Center", title: "Toast + Center" },
-  { id: "center_only", label: "Center only", title: "Center only" },
-  { id: "off", label: "Off", title: "Off" },
+const DELIVERY_LABELS = (): { id: NotificationDelivery; label: string; title: string }[] => [
+  { id: "toast_and_center", label: t("notificationsTab.toastCenter"), title: t("notificationsTab.toastCenter") },
+  { id: "center_only", label: t("notificationsTab.centerOnly"), title: t("notificationsTab.centerOnly") },
+  { id: "off", label: t("notificationsTab.off"), title: t("notificationsTab.off") },
 ];
 
 export function NotificationsTab() {
@@ -70,25 +71,25 @@ export function NotificationsTab() {
 
   return (
     <div className="settings-section">
-      <h3 className="settings-section-title">Notification delivery</h3>
-      <p className="text-muted text-sm" title="Per-kind delivery: toast + center, center only, or off. Changes apply immediately.">
-        Control where each event type surfaces. Defaults are conservative (high-signal events toast + center; idea/category events center only).
+      <h3 className="settings-section-title">{t("notificationsTab.notificationDelivery")}</h3>
+      <p className="text-muted text-sm" title={t("notificationsTab.perKindDeliveryToastCenter")}>
+        {t("notificationsTab.controlWhereEachEventType")}
       </p>
       <div className="settings-list">
         {error ? (
           <p className="text-danger text-sm">{error}</p>
         ) : loading ? (
-          <SkeletonRows rows={6} label="Loading notification settings…" />
-        ) : NOTIFICATION_KIND_LABELS.map(({ kind, label, defaultDelivery }) => (
+          <SkeletonRows rows={6} label={t("notificationsTab.loadingNotificationSettings")} />
+        ) : NOTIFICATION_KIND_LABELS().map(({ kind, label, defaultDelivery }) => (
           <div key={kind} className="settings-row">
-            <span className="settings-label" title={`Default: ${defaultDelivery}`}>{label}</span>
+            <span className="settings-label" title={t("notificationsTab.default", { defaultDelivery: defaultDelivery })}>{label}</span>
             <OptionList
-              label={`Delivery for ${label}`}
+              label={t("notificationsTab.deliveryFor", { label: label })}
               value={effective(kind, defaultDelivery)}
               compact
               disabled={saving === kind}
               onChange={(v) => void save(kind, v, defaultDelivery)}
-              options={DELIVERY_LABELS}
+              options={DELIVERY_LABELS()}
             />
           </div>
         ))}

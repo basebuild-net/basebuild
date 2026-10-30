@@ -3,6 +3,7 @@ import { Lightbulb, Send, Sparkles, Trash2 } from "lucide-react";
 
 import type { Idea, IdeaStatus } from "../../lib/ideas";
 import { SkeletonRows } from "../layout/Loading";
+import { t } from "../../i18n";
 
 type IdeaBrowserProps = {
   ideas: Idea[];
@@ -18,12 +19,12 @@ type IdeaBrowserProps = {
   onDelete: (ideaId: string) => void;
 };
 
-const STATUS_FILTERS: { value: IdeaStatus | "all"; label: string }[] = [
-  { value: "all", label: "All" },
-  { value: "concept", label: "Concept" },
-  { value: "picked", label: "Picked" },
-  { value: "rejected", label: "Rejected" },
-  { value: "archived", label: "Archived" },
+const STATUS_FILTERS = (): { value: IdeaStatus | "all"; label: string }[] => [
+  { value: "all", label: t("ideaBrowser.all") },
+  { value: "concept", label: t("ideaBrowser.concept") },
+  { value: "picked", label: t("ideaBrowser.picked") },
+  { value: "rejected", label: t("ideaBrowser.rejected") },
+  { value: "archived", label: t("ideaBrowser.archived") },
 ];
 
 export function IdeaBrowser({
@@ -62,26 +63,26 @@ export function IdeaBrowser({
     <div className="idea-browser">
       <div className="idea-browser-header">
         <span className="idea-browser-title">
-          <Lightbulb size={12} /> Ideas ({ideas.length})
+          <Lightbulb size={12} /> {t("ideaBrowser.ideas", { ideasCount: ideas.length })}
         </span>
         <button
           type="button"
           className="btn btn-sm btn-primary"
-          title="Quick freeform idea generation"
+          title={t("ideaBrowser.quickFreeformIdeaGeneration")}
           onClick={onGenerate}
         >
-          <Sparkles size={11} /> Generate
+          <Sparkles size={11} /> {t("ideaBrowser.generate")}
         </button>
       </div>
 
       <div className="idea-browser-filters">
         <div className="idea-browser-filter-group">
-          {STATUS_FILTERS.map((f) => (
+          {STATUS_FILTERS().map((f) => (
             <button
               key={f.value}
               type="button"
               className={`idea-browser-filter${statusFilter === f.value ? " is-active" : ""}`}
-              title={`Filter: ${f.label}`}
+              title={t("ideaBrowser.filter", { label: f.label })}
               onClick={() => setStatusFilter(f.value)}
             >
               {f.label}
@@ -91,11 +92,11 @@ export function IdeaBrowser({
         {categories.length > 0 ? (
           <select
             className="idea-browser-category-select"
-            title="Filter by category"
+            title={t("ideaBrowser.filterByCategory")}
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
           >
-            <option value="all">All categories</option>
+            <option value="all">{t("ideaBrowser.allCategories")}</option>
             {categories.map((cat) => (
               <option key={cat.id} value={cat.id}>{cat.name}</option>
             ))}
@@ -110,7 +111,7 @@ export function IdeaBrowser({
               key={cat.id}
               type="button"
               className="btn btn-sm"
-              title={`Generate ideas for ${cat.name}`}
+              title={t("ideaBrowser.generateIdeasFor", { name: cat.name })}
               onClick={() => onGenerateForCategory(cat.id)}
             >
               {cat.name}
@@ -119,26 +120,26 @@ export function IdeaBrowser({
           <button
             type="button"
             className="btn btn-sm"
-            title="Freeform generation (no category)"
+            title={t("ideaBrowser.freeformGenerationNoCategory")}
             onClick={() => onGenerateForCategory(undefined)}
           >
-            Freeform
+            {t("ideaBrowser.freeform")}
           </button>
         </div>
       ) : null}
 
       {loading ? (
-        <SkeletonRows rows={4} label="Loading ideas…" />
+        <SkeletonRows rows={4} label={t("ideaBrowser.loadingIdeas")} />
       ) : filteredIdeas.length === 0 ? (
         <div className="idea-browser-empty">
           <Lightbulb size={20} />
-          <p>No ideas {statusFilter === "all" ? "yet" : `in ${statusFilter}`}. Generate some to get started.</p>
+          <p>{statusFilter === "all" ? t("ideaBrowser.noIdeasYetGenerate") : t("ideaBrowser.noIdeasInGenerate", { statusFilter: statusFilter })}</p>
         </div>
       ) : (
         <ul className="idea-browser-list">
           {Array.from(groupedByCategory.entries()).map(([catKey, groupIdeas]) => {
             const cat = categories.find((c) => c.id === catKey);
-            const catName = cat?.name ?? (catKey === "uncategorized" ? "Uncategorized" : catKey);
+            const catName = cat?.name ?? (catKey === "uncategorized" ? t("ideaBrowser.uncategorized") : catKey);
             return (
               <li key={catKey} className="idea-browser-group">
                 <div className="idea-browser-group-name">{catName}</div>
@@ -151,16 +152,16 @@ export function IdeaBrowser({
                           <button
                             type="button"
                             className="btn btn-sm"
-                            title="Promote to plan"
+                            title={t("ideaBrowser.promoteToPlan")}
                             onClick={() => onPromote(idea.id)}
                           >
-                            Promote
+                            {t("ideaBrowser.promote")}
                           </button>
                         ) : null}
                         <button
                           type="button"
                           className="btn-icon btn-icon-sm"
-                          title="Send to chat"
+                          title={t("ideaBrowser.sendToChat")}
                           onClick={() => onSendToChat(idea)}
                         >
                           <Send size={10} />
@@ -169,7 +170,7 @@ export function IdeaBrowser({
                           <button
                             type="button"
                             className="btn-icon btn-icon-sm"
-                            title="Archive"
+                            title={t("ideaBrowser.archive")}
                             onClick={() => onSetStatus(idea.id, "archived")}
                           >
                             <Trash2 size={10} />

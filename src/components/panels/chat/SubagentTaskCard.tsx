@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { t } from "../../../i18n";
 import {
   resolveToolApproval,
   type NativeToolEvent,
@@ -40,8 +41,10 @@ export function SubagentTaskCard({ event }: { event: NativeToolEvent }) {
         : "running";
   const summary =
     runs.length === 0
-      ? "Starting subagents"
-      : `${doneCount}/${runs.length} done${waitingCount > 0 ? `, ${waitingCount} awaiting approval` : ""}`;
+      ? t("subagentTaskCard.startingSubagents")
+      : waitingCount > 0
+        ? t("subagentTaskCard.summaryAwaitingApproval", { done: doneCount, total: runs.length, waiting: waitingCount })
+        : t("subagentTaskCard.summary", { done: doneCount, total: runs.length });
 
   const toggle = () => {
     addLog("debug", "Subagent card toggled", `${event.id}: ${expanded ? "collapsed" : "expanded"}`);
@@ -67,17 +70,17 @@ export function SubagentTaskCard({ event }: { event: NativeToolEvent }) {
       <button
         className="tool-card-header subagent-task-toggle"
         type="button"
-        title={expanded ? "Collapse subagents" : "Expand subagents"}
+        title={expanded ? t("subagentTaskCard.collapse") : t("subagentTaskCard.expand")}
         onClick={toggle}
       >
-        <span className="tool-card-name">task</span>
+        <span className="tool-card-name">{t("subagentTaskCard.task")}</span>
         <span className="tool-card-summary-inline">{summary}</span>
         <span className={`tool-card-status tool-card-status-${cardTone}`}>{event.status}</span>
       </button>
       {expanded ? (
         <div className="tool-card-body">
           {runs.length === 0 ? (
-            <div className="chat-loading">Starting subagents...</div>
+            <div className="chat-loading">{t("subagentTaskCard.startingSubagentsLoading")}</div>
           ) : (
             <ol className="subagent-list">
               {runs.map((run) => (
@@ -94,7 +97,7 @@ export function SubagentTaskCard({ event }: { event: NativeToolEvent }) {
                     </span>
                   </div>
                   {run.activity ? (
-                    <div className="subagent-activity" title="Latest step">
+                    <div className="subagent-activity" title={t("subagentTaskCard.latestStep")}>
                       {run.activity}
                     </div>
                   ) : null}
@@ -102,39 +105,39 @@ export function SubagentTaskCard({ event }: { event: NativeToolEvent }) {
                     <div className="tool-card-actions tool-card-approval-actions subagent-approval">
                       <code
                         className="subagent-approval-call"
-                        title={`Tool call: ${run.pendingApproval.toolName}`}
+                        title={t("subagentTaskCard.toolCall", { tool: run.pendingApproval.toolName })}
                       >
                         {run.pendingApproval.toolName}: {describeApproval(run.pendingApproval)}
                       </code>
                       <button
                         className="btn btn-sm btn-primary"
                         type="button"
-                        title="Allow this tool call once"
+                        title={t("subagentTaskCard.allowOnceTitle")}
                         onClick={() => void answer(run, "allow")}
                       >
-                        Allow Once
+                        {t("subagentTaskCard.allowOnce")}
                       </button>
                       <button
                         className="btn btn-sm"
                         type="button"
-                        title="Allow all calls to this tool for this session"
+                        title={t("subagentTaskCard.allowSessionTitle")}
                         onClick={() => void answer(run, "allow_session")}
                       >
-                        Allow Session
+                        {t("subagentTaskCard.allowSession")}
                       </button>
                       <button
                         className="btn btn-sm"
                         type="button"
-                        title="Deny this tool call"
+                        title={t("subagentTaskCard.denyTitle")}
                         onClick={() => void answer(run, "deny")}
                       >
-                        Deny
+                        {t("subagentTaskCard.deny")}
                       </button>
                     </div>
                   ) : null}
                   {run.result ? (
-                    <details className="subagent-report" title="Final report from this subagent">
-                      <summary title="Show the final report">Report</summary>
+                    <details className="subagent-report" title={t("subagentTaskCard.reportTitle")}>
+                      <summary title={t("subagentTaskCard.showReportTitle")}>{t("subagentTaskCard.report")}</summary>
                       <pre className="tool-card-summary">{run.result}</pre>
                     </details>
                   ) : null}

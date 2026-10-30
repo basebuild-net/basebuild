@@ -21,6 +21,7 @@ import {
   openspecUnlinkPlanFromChange,
 } from "../../lib/openspec";
 import { SkeletonRows } from "../layout/Loading";
+import { t } from "../../i18n";
 
 type ChangesPanelProps = {
   projectPath: string | null;
@@ -162,9 +163,9 @@ export function ChangesPanel({ projectPath, onFocusPlan, linkablePlans }: Change
     (changeName: string) => {
       if (!projectPath) return;
       setConfirm({
-        title: "Archive change",
-        message: `Archive change "${changeName}"? This moves it to openspec/changes/archive/.`,
-        confirmLabel: "Archive",
+        title: t("changesPanel.archiveChange"),
+        message: t("changesPanel.archiveChangeThisMovesItTo", { changeName }),
+        confirmLabel: t("changesPanel.archive2"),
         destructive: true,
         onConfirm: async () => {
           setConfirm(null);
@@ -197,9 +198,9 @@ export function ChangesPanel({ projectPath, onFocusPlan, linkablePlans }: Change
   const handleUnlink = useCallback(
     (planId: string, changeName: string) => {
       setConfirm({
-        title: "Unlink plan",
-        message: `Unlink plan from change "${changeName}"?`,
-        confirmLabel: "Unlink",
+        title: t("changesPanel.unlinkPlan2"),
+        message: t("changesPanel.unlinkPlanFromChange", { changeName }),
+        confirmLabel: t("changesPanel.unlink"),
         destructive: true,
         onConfirm: async () => {
           setConfirm(null);
@@ -235,30 +236,30 @@ export function ChangesPanel({ projectPath, onFocusPlan, linkablePlans }: Change
       (plan) => plan.referenceId === entry.linkedPlanReferenceId,
     );
     if (!linkedPlan || linkedPlan.status === "cancelled") {
-      return { blocked: false, primary: false, title: "Archive change" };
+      return { blocked: false, primary: false, title: t("changesPanel.archiveChange") };
     }
     if (linkedPlan.status !== "finished") {
       return {
         blocked: true,
         primary: false,
-        title: `Cannot archive: linked plan is ${linkedPlan.status}; finish or cancel it first.`,
+        title: t("changesPanel.cannotArchiveLinkedPlanIsFinish", { status: linkedPlan.status }),
       };
     }
     if (entry.total === 0 || entry.completed !== entry.total) {
       return {
         blocked: true,
         primary: false,
-        title: `Cannot archive: ${entry.completed}/${entry.total} required tasks are complete.`,
+        title: t("changesPanel.cannotArchiveRequiredTasksAreComplete", { completed: entry.completed, total: entry.total }),
       };
     }
-    return { blocked: false, primary: true, title: "Archive finished change" };
+    return { blocked: false, primary: true, title: t("changesPanel.archiveFinishedChange") };
   }, [linkablePlans]);
 
   if (!projectPath) {
     return (
       <div className="changes-panel-empty">
         <FolderTree size={20} />
-        <p>Open a project to view OpenSpec changes.</p>
+        <p>{t("changesPanel.openAProjectToView")}</p>
       </div>
     );
   }
@@ -267,21 +268,21 @@ export function ChangesPanel({ projectPath, onFocusPlan, linkablePlans }: Change
     <>
     <div className="changes-panel">
       <div className="changes-panel-header">
-        <span className="changes-panel-title">OpenSpec Changes</span>
+        <span className="changes-panel-title">{t("changesPanel.openSpecChanges")}</span>
         <div className="changes-panel-filter-group">
           {(["active", "archived", "all"] as ArchivedFilter[]).map((filter) => {
             const label =
               filter === "active"
-                ? `Active (${changes.length - archivedCount})`
+                ? t("changesPanel.active3", { v1: changes.length - archivedCount })
                 : filter === "archived"
-                  ? `Archived (${archivedCount})`
-                  : "All";
+                  ? t("changesPanel.archived2", { archivedCount })
+                  : t("changesPanel.all");
             return (
               <button
                 key={filter}
                 type="button"
                 className={`changes-panel-filter${archivedFilter === filter ? " is-active" : ""}`}
-                title={`Filter: ${filter}`}
+                title={t("changesPanel.filter", { filter: filter })}
                 onClick={() => setArchivedFilter(filter)}
               >
                 {label}
@@ -292,7 +293,7 @@ export function ChangesPanel({ projectPath, onFocusPlan, linkablePlans }: Change
         <button
           type="button"
           className="changes-panel-refresh"
-          title="Refresh changes"
+          title={t("changesPanel.refreshChanges")}
           onClick={() => void refresh()}
           disabled={loading}
         >
@@ -303,13 +304,13 @@ export function ChangesPanel({ projectPath, onFocusPlan, linkablePlans }: Change
       {error && <div className="changes-panel-error">{error}</div>}
 
       {loading && filteredChanges.length === 0 && (
-        <SkeletonRows rows={4} label="Loading OpenSpec changes…" />
+        <SkeletonRows rows={4} label={t("changesPanel.loadingOpenspecChanges")} />
       )}
 
       {filteredChanges.length === 0 && !loading && (
         <div className="changes-panel-empty">
           <FolderTree size={20} />
-          <p>No {archivedFilter === "archived" ? "archived" : ""} changes found.</p>
+          <p>{archivedFilter === "archived" ? t("changesPanel.noArchivedChangesFound") : t("changesPanel.noChangesFound")}</p>
         </div>
       )}
 
@@ -320,7 +321,7 @@ export function ChangesPanel({ projectPath, onFocusPlan, linkablePlans }: Change
               <button
                 type="button"
                 className="changes-panel-expand"
-                title={entry.hasTasks ? "Show tasks" : "No tasks.md"}
+                title={entry.hasTasks ? t("changesPanel.showTasks") : t("changesPanel.noTasksMd")}
                 onClick={() => entry.hasTasks && handleExpand(entry.name)}
                 disabled={!entry.hasTasks}
               >
@@ -334,15 +335,15 @@ export function ChangesPanel({ projectPath, onFocusPlan, linkablePlans }: Change
                 {entry.name}
               </span>
               <div className="changes-panel-chips">
-                {entry.hasProposal && <span className="changes-panel-chip" title="Has proposal.md">P</span>}
-                {entry.hasDesign && <span className="changes-panel-chip" title="Has design.md">D</span>}
-                {entry.hasTasks && <span className="changes-panel-chip" title="Has tasks.md">T</span>}
-                {entry.hasSpecs && <span className="changes-panel-chip" title="Has specs/">S</span>}
+                {entry.hasProposal && <span className="changes-panel-chip" title={t("changesPanel.hasProposalMd")}>{t("changesPanel.p")}</span>}
+                {entry.hasDesign && <span className="changes-panel-chip" title={t("changesPanel.hasDesignMd")}>{t("changesPanel.d")}</span>}
+                {entry.hasTasks && <span className="changes-panel-chip" title={t("changesPanel.hasTasksMd")}>{t("changesPanel.t")}</span>}
+                {entry.hasSpecs && <span className="changes-panel-chip" title={t("changesPanel.hasSpecs")}>{t("changesPanel.s")}</span>}
               </div>
               {entry.hasTasks && (
                 <div
                   className="changes-panel-progress-bar"
-                  title={`${entry.completed}/${entry.total} tasks completed`}
+                  title={t("changesPanel.tasksCompleted", { completed: entry.completed, total: entry.total })}
                 >
                   <div
                     className="changes-panel-progress-fill"
@@ -357,7 +358,7 @@ export function ChangesPanel({ projectPath, onFocusPlan, linkablePlans }: Change
                 <button
                   type="button"
                   className="changes-panel-item-link"
-                  title={`Focus linked plan ${entry.linkedPlanReferenceId}`}
+                  title={t("changesPanel.focusLinkedPlan", { linkedPlanReferenceId: entry.linkedPlanReferenceId })}
                   onClick={() => onFocusPlan(entry.linkedPlanReferenceId!)}
                 >
                   {entry.linkedPlanReferenceId}
@@ -367,7 +368,7 @@ export function ChangesPanel({ projectPath, onFocusPlan, linkablePlans }: Change
                 <button
                   type="button"
                   className="changes-panel-item-link-action"
-                  title="Link to plan"
+                  title={t("changesPanel.linkToPlan")}
                   onClick={() => setLinkingChange(linkingChange === entry.name ? null : entry.name)}
                 >
                   <Link2 size={12} />
@@ -377,7 +378,7 @@ export function ChangesPanel({ projectPath, onFocusPlan, linkablePlans }: Change
                 <button
                   type="button"
                   className="changes-panel-item-unlink-action"
-                  title="Unlink plan"
+                  title={t("changesPanel.unlinkPlan")}
                   onClick={() => {
                     const plan = linkablePlans.find((p) => p.referenceId === entry.linkedPlanReferenceId);
                     if (plan) void handleUnlink(plan.id, entry.name);
@@ -395,7 +396,7 @@ export function ChangesPanel({ projectPath, onFocusPlan, linkablePlans }: Change
                   onClick={() => void handleArchive(entry.name)}
                 >
                   <Archive size={12} />
-                  {archiveAvailability(entry).primary ? <span>Archive</span> : null}
+                  {archiveAvailability(entry).primary ? <span>{t("changesPanel.archive")}</span> : null}
                 </button>
               )}
             </div>
@@ -407,7 +408,7 @@ export function ChangesPanel({ projectPath, onFocusPlan, linkablePlans }: Change
                     key={plan.id}
                     type="button"
                     className="changes-panel-link-option"
-                    title={`Link ${plan.referenceId} — ${plan.title}`}
+                    title={t("changesPanel.link", { referenceId: plan.referenceId, title: plan.title })}
                     onClick={() => void handleLink(entry.name, plan.id)}
                   >
                     {plan.referenceId} — {plan.title}
@@ -452,13 +453,13 @@ type ChangeTasksProps = {
 
 function ChangeTasks({ tasks, loading, error, onToggle }: ChangeTasksProps) {
   if (loading) {
-    return <div className="changes-panel-tasks-loading">Loading tasks…</div>;
+    return <div className="changes-panel-tasks-loading">{t("changesPanel.loadingTasks")}</div>;
   }
   if (error) {
     return <div className="changes-panel-tasks-error">{error}</div>;
   }
   if (!tasks || tasks.phases.length === 0) {
-    return <div className="changes-panel-tasks-empty">No tasks.</div>;
+    return <div className="changes-panel-tasks-empty">{t("changesPanel.noTasks")}</div>;
   }
 
   return (

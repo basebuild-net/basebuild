@@ -19,6 +19,8 @@ import {
   resolveAssistantLabel,
   type LegacyChatMessage,
 } from "./chatFormat";
+import { t } from "../../../i18n";
+import { formatDateTime, formatAgo } from "../../../i18n/format";
 
 type ChatTranscriptProps = {
   scrollRef: RefObject<HTMLDivElement | null>;
@@ -115,11 +117,11 @@ export function ChatTranscript({
       <div className="chat-messages" ref={scrollRef}>
         {hydrating ? (
           chatTimeline.length === 0 && renderMessages.length === 0 ? (
-            <SkeletonRows rows={3} label="Loading conversation…" />
+            <SkeletonRows rows={3} label={t("chatTranscript.loadingConversation")} />
           ) : (
-            <div className="chat-loading-row" title="Loading conversation history">
+            <div className="chat-loading-row" title={t("chatTranscript.loadingConversationHistory")}>
               <Loader2 size={12} className="is-spinning" />
-              <span className="text-sm text-muted">Loading conversation…</span>
+              <span className="text-sm text-muted">{t("chatTranscript.loadingConversation")}</span>
             </div>
           )
         ) : null}
@@ -208,11 +210,11 @@ export function ChatTranscript({
                       key={`compaction-${ev.id}`}
                       className="chat-compaction-row"
                       role="separator"
-                      title="Older messages are summarized for later requests. They stay visible in the transcript."
+                      title={t("chatTranscript.olderMessagesAreSummarizedForLater")}
                     >
                       <span>
-                        Conversation compacted{ev.compactedMessages != null ? `: ${ev.compactedMessages} earlier messages` : ""}
-                        {ev.tokensBefore != null && ev.tokensAfter != null ? ` (about ${ev.tokensBefore} tokens down to ${ev.tokensAfter})` : ""}
+                        {t("chatTranscript.conversationCompacted")}{ev.compactedMessages != null ? t("chatTranscript.earlierMessages", { count: ev.compactedMessages }) : ""}
+                        {ev.tokensBefore != null && ev.tokensAfter != null ? t("chatTranscript.aboutTokensDownTo", { tokensBefore: ev.tokensBefore, tokensAfter: ev.tokensAfter }) : ""}
                       </span>
                     </div>,
                   );
@@ -222,9 +224,9 @@ export function ChatTranscript({
                 // the message content, so thinking splits around tool calls.
                 const isOfflineTurn = ev.kind === "assistant" && ev.providerId === LOCAL_PROVIDER_ID;
                 const timeStr = ev.createdAt != null
-                  ? new Date(ev.createdAt * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+                  ? formatDateTime(new Date(ev.createdAt * 1000), { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
                   : null;
-                const fullDate = ev.createdAt != null ? new Date(ev.createdAt * 1000).toLocaleString() : null;
+                const fullDate = ev.createdAt != null ? formatDateTime(new Date(ev.createdAt * 1000)) : null;
                 // Thinking block as its own row (split around interruptions).
                 if (ev.reasoning && ev.reasoning.trim()) {
                   rendered.push(
@@ -235,10 +237,10 @@ export function ChatTranscript({
                 // the thinking block — skip the empty message bubble.
                 if (ev.kind === "assistant" && !ev.content.trim()) continue;
                 rendered.push(
-                  <div key={ev.id} className={`chat-message chat-message-${ev.kind}`} aria-label={`${ev.kind === "user" ? "You" : ev.kind === "assistant" ? "Assistant" : "System"}: ${ev.content.slice(0, 100)}`}>
+                  <div key={ev.id} className={`chat-message chat-message-${ev.kind}`} aria-label={t((ev.kind === "user" ? "chatTranscript.text.you" : ev.kind === "assistant" ? "chatTranscript.text.assistant" : "chatTranscript.text.system"), { value2: ev.content.slice(0, 100) })}>
                     <span className="chat-message-role">
-                      {ev.kind === "user" ? "You" : ev.kind === "assistant" ? resolveAssistantLabel(catalog, selectedModel, ev.modelId ?? modelId, ev.providerId) : "System"}
-                      {isOfflineTurn ? <span className="chat-offline-tag" title="No external model was contacted">Offline</span> : null}
+                      {ev.kind === "user" ? t("chatTranscript.you") : ev.kind === "assistant" ? resolveAssistantLabel(catalog, selectedModel, ev.modelId ?? modelId, ev.providerId) : t("chatTranscript.system")}
+                      {isOfflineTurn ? <span className="chat-offline-tag" title={t("chatTranscript.noExternalModelWasContacted")}>{t("chatTranscript.offline")}</span> : null}
                       {timeStr ? <span className="chat-message-time" title={fullDate ?? ""}>{timeStr}</span> : null}
                     </span>
                     {ev.kind === "assistant"
@@ -251,7 +253,7 @@ export function ChatTranscript({
                         <button
                           type="button"
                           className="btn btn-ghost btn-icon-sm chat-message-action-copy"
-                          title="Copy message source text to clipboard"
+                          title={t("chatTranscript.copyMessageSourceTextTo")}
                           onClick={() => void handleCopyMessage(ev.content)}
                         >
                           <Copy size={11} />
@@ -260,7 +262,7 @@ export function ChatTranscript({
                           <button
                             type="button"
                             className="btn btn-ghost btn-icon-sm chat-message-action-retry"
-                            title="Retry — re-send the last user message as a new turn"
+                            title={t("chatTranscript.retryReSendTheLast")}
                             onClick={() => void handleRetryMessage()}
                           >
                             <RefreshCw size={11} />
@@ -270,7 +272,7 @@ export function ChatTranscript({
                           <button
                             type="button"
                             className="btn btn-ghost btn-icon-sm chat-message-action-edit"
-                            title="Edit and resend — load this message into the composer"
+                            title={t("chatTranscript.editAndResendLoadThis")}
                             onClick={() => handleEditAndResend()}
                           >
                             <Edit2 size={11} />
@@ -286,9 +288,9 @@ export function ChatTranscript({
               // Loading row for queued state.
               if (loading && !streaming) {
                 rendered.push(
-                  <div key="loading-queued" className="chat-loading-row" title="Request in progress">
+                  <div key="loading-queued" className="chat-loading-row" title={t("chatTranscript.requestInProgress")}>
                     <Loader2 size={12} className="is-spinning" />
-                    <span className="text-sm text-muted">Working…</span>
+                    <span className="text-sm text-muted">{t("chatTranscript.working")}</span>
                   </div>,
                 );
               }
@@ -300,7 +302,7 @@ export function ChatTranscript({
               return (
                 <div key={key} className={`chat-message chat-message-${msg.role}`}>
                   <span className="chat-message-role">
-                    {msg.role === "user" ? "You" : msg.role === "assistant" ? resolveAssistantLabel(catalog, selectedModel, modelId, providerId) : "System"}
+                    {msg.role === "user" ? t("chatTranscript.you") : msg.role === "assistant" ? resolveAssistantLabel(catalog, selectedModel, modelId, providerId) : t("chatTranscript.system")}
                   </span>
                   {msg.role === "user"
                     ? <UserMessageContent content={msg.content} onViewPayload={(name, payload) => setCommandPayloadModal({ name, content: payload })} />
@@ -311,10 +313,10 @@ export function ChatTranscript({
 
         {/* Thinking block — visible while streaming and after stop */}
         {reasoningText ? (
-          <div className="chat-message chat-message-assistant chat-message-reasoning" title="Live chain-of-thought from the model. Final answer follows.">
+          <div className="chat-message chat-message-assistant chat-message-reasoning" title={t("chatTranscript.liveChainOfThoughtFrom")}>
             <span className="chat-message-role">
-              Thinking{streaming ? "…" : " (stopped)"}
-              {streaming ? <span className="chat-elapsed-badge" title={`Thinking for ${formatElapsed(phaseElapsed)}`}>{formatElapsed(phaseElapsed)}</span> : null}
+              {t("chatTranscript.thinking")}{streaming ? "…" : t("chatTranscript.stopped")}
+              {streaming ? <span className="chat-elapsed-badge" title={t("chatTranscript.thinkingFor", { phaseElapsed: formatElapsed(phaseElapsed) })}>{formatElapsed(phaseElapsed)}</span> : null}
             </span>
             <pre className="chat-message-content chat-reasoning-live">{reasoningText}{streaming ? <span className="chat-cursor" /> : null}</pre>
           </div>
@@ -325,7 +327,7 @@ export function ChatTranscript({
           <div className="chat-message chat-message-assistant">
             <span className="chat-message-role">
               {selectedModel?.label ?? modelId}
-              {streaming ? <span className="chat-elapsed-badge" title={`Elapsed: ${formatElapsed(elapsed)}`}>{formatElapsed(elapsed)}</span> : null}
+              {streaming ? <span className="chat-elapsed-badge" title={t("chatTranscript.elapsed", { elapsed: formatElapsed(elapsed) })}>{formatElapsed(elapsed)}</span> : null}
             </span>
             <div className="chat-message-content"><MarkdownView text={streamText} />{streaming ? <span className="chat-cursor" /> : null}</div>
           </div>
@@ -335,40 +337,40 @@ export function ChatTranscript({
         {streaming && streamPhase !== "tools" && toolCallChars > 0 ? (
           <div
             className="chat-loading chat-loading-active"
-            title={`The model is writing a ${pendingToolName ? pendingToolName.replace(/_/g, " ") : "tool"} call (${(toolCallChars / 1024).toFixed(1)} KB streamed). It appears as a tool card when complete.`}
+            title={t("chatTranscript.theModelIsWritingACall", { value: pendingToolName ? pendingToolName.replace(/_/g, " ") : "tool", value2: (toolCallChars / 1024).toFixed(1) })}
           >
             <LogoPulse size={14} className="chat-loading-spinner" />
             <span className="chat-loading-label">
-              Writing {pendingToolName ? pendingToolName.replace(/_/g, " ") : "tool call"}…
+              {t("chatTranscript.writingTool", { toolName: pendingToolName ? pendingToolName.replace(/_/g, " ") : t("chatTranscript.toolCall") })}
             </span>
-            <span className="chat-loading-count" title={`${(toolCallChars / 1024).toFixed(1)} KB of tool arguments streamed`}>
-              {(toolCallChars / 1024).toFixed(1)} KB
+            <span className="chat-loading-count" title={t("chatTranscript.kBOfToolArgumentsStreamed", { value: (toolCallChars / 1024).toFixed(1) })}>
+              {t("chatTranscript.kB", { value: (toolCallChars / 1024).toFixed(1) })}
             </span>
-            <span className="chat-elapsed-badge" title={`Phase: ${formatElapsed(phaseElapsed)}`}>{formatElapsed(phaseElapsed)}</span>
+            <span className="chat-elapsed-badge" title={t("chatTranscript.phase", { phaseElapsed: formatElapsed(phaseElapsed) })}>{formatElapsed(phaseElapsed)}</span>
           </div>
         ) : null}
 
         {/* Quiet-provider hint: streaming but nothing arrived for 30s+. */}
         {streaming && streamPhase !== "tools" && quietSeconds >= 30 ? (
-          <div className="chat-loading" title={`No streamed output for ${quietSeconds}s. The provider may be slow; keep waiting or stop the turn.`}>
-            <span className="chat-loading-label">Still waiting — no output for {quietSeconds}s…</span>
+          <div className="chat-loading" title={t("chatTranscript.noStreamedOutputForSThe", { quietSeconds: quietSeconds })}>
+            <span className="chat-loading-label">{t("chatTranscript.stillWaitingNoOutputFor", { quietSeconds: quietSeconds })}</span>
             <button
               className="chat-tool-stalled-cancel"
               type="button"
-              title="Stop the current turn"
+              title={t("chatTranscript.stopTheCurrentTurn")}
               onClick={() => void handleStopNative()}
             >
-              Stop
+              {t("chatTranscript.stop")}
             </button>
           </div>
         ) : null}
 
         {/* Waiting for first token with elapsed timer */}
         {streaming && streamPhase === "thinking" && !streamText && !reasoningText && toolCallChars === 0 ? (
-          <div className="chat-message chat-thinking-indicator" title={`Waiting for the model to start responding (${formatElapsed(phaseElapsed)})`}>
+          <div className="chat-message chat-thinking-indicator" title={t("chatTranscript.waitingForTheModelToStart", { phaseElapsed: formatElapsed(phaseElapsed) })}>
             <span className="chat-message-role">
               {selectedModel?.label ?? modelId}
-              <span className="chat-elapsed-badge" title={`Thinking for ${formatElapsed(phaseElapsed)}`}>{formatElapsed(phaseElapsed)}</span>
+              <span className="chat-elapsed-badge" title={t("chatTranscript.thinkingFor2", { phaseElapsed: formatElapsed(phaseElapsed) })}>{formatElapsed(phaseElapsed)}</span>
             </span>
             <div className="chat-thinking-dots">
               <span className="chat-thinking-dot" />
@@ -407,62 +409,60 @@ export function ChatTranscript({
             } catch { /* ignore malformed JSON */ }
             return null;
           })();
-          // "Xs ago" elapsed since the last tool event.
+          // Elapsed since the last tool event, e.g. "24s ago" or "2m ago".
           const toolAgoText = toolAgoSeconds > 0
             ? toolAgoSeconds < 60
-              ? `${toolAgoSeconds}s ago`
-              : `${Math.floor(toolAgoSeconds / 60)}m ${toolAgoSeconds % 60}s ago`
+              ? formatAgo(toolAgoSeconds, "second")
+              : formatAgo(Math.floor(toolAgoSeconds / 60), "minute")
             : null;
           return (
             <div
               className={`chat-loading chat-loading-active chat-loading-tools${isWaitingApproval ? " chat-loading-approval" : ""}`}
               title={
                 isWaitingApproval
-                  ? `Waiting for approval: ${pendingTools.map((e) => e.kind.replace(/_/g, " ")).join(", ")}. Click the approval card to allow or deny. Waiting for ${formatElapsed(phaseElapsed)}.`
-                  : `Executing: ${toolNames} (${activeTools.length} running, ${completedTools.length} done). Running for ${formatElapsed(phaseElapsed)}.`
+                  ? t("chatTranscript.waitingForApprovalClickTheApproval", { value: pendingTools.map((e) => e.kind.replace(/_/g, " ")).join(", "), phaseElapsed: formatElapsed(phaseElapsed) })
+                  : t("chatTranscript.executingRunningDoneRunningFor", { toolNames: toolNames, activeToolsCount: activeTools.length, completedToolsCount: completedTools.length, phaseElapsed: formatElapsed(phaseElapsed) })
               }
             >
               <LogoPulse size={14} className="chat-loading-spinner" />
               <span className="chat-loading-label">
                 {isWaitingApproval
-                  ? `Waiting for approval: ${pendingTools.map((e) => e.kind.replace(/_/g, " ")).join(", ")}…`
+                  ? t("chatTranscript.waitingForApproval", { value: pendingTools.map((e) => e.kind.replace(/_/g, " ")).join(", ") })
                   : activeTools.length > 0
-                    ? `${toolNames}…`
-                    : "Running tools…"}
+                    ? t("chatTranscript.text2", { toolNames: toolNames })
+                    : t("chatTranscript.runningTools")}
               </span>
               {stalled ? (
-                <span className="chat-tool-stalled" title={`Stalled: no tool events for ${toolAgoSeconds}s. Last tool: ${lastToolKind.replace(/_/g, " ")}. Click Cancel to stop.`}>
-                  Stalled · {lastToolKind.replace(/_/g, " ")}
-                  <button
+                <span className="chat-tool-stalled" title={t("chatTranscript.stalledNoToolEventsForS", { toolAgoSeconds: toolAgoSeconds, value: lastToolKind.replace(/_/g, " ") })}>
+                  {t("chatTranscript.stalled", { value: lastToolKind.replace(/_/g, " ") })}<button
                     className="chat-tool-stalled-cancel"
                     type="button"
-                    title="Cancel the stalled agent run"
+                    title={t("chatTranscript.cancelTheStalledAgentRun")}
                     onClick={() => void handleStopNative()}
                   >
-                    Cancel
+                    {t("chatTranscript.cancel")}
                   </button>
                 </span>
               ) : null}
               {searchScope ? (
-                <span className="chat-tool-scope" title={`Searching: ${searchScope}`}>
-                  Searching: {searchScope}
-                </span>
+                <span className="chat-tool-scope" title={t("chatTranscript.searching2", { searchScope: searchScope })}>
+                  {t("chatTranscript.searching", { searchScope: searchScope })}</span>
               ) : null}
               {toolAgoText ? (
-                <span className="chat-tool-elapsed" title={`Last tool event ${toolAgoText}`}>
+                <span className="chat-tool-elapsed" title={t("chatTranscript.lastToolEvent", { toolAgoText: toolAgoText })}>
                   {toolAgoText}
                 </span>
               ) : null}
               {activeTools.length > 0 || completedTools.length > 0 ? (
-                <span className="chat-loading-count" title={`${pendingTools.length} pending, ${runningTools.length} running, ${completedTools.length} completed`}>
-                  {pendingTools.length > 0 ? `${pendingTools.length} pending` : ""}
+                <span className="chat-loading-count" title={t("chatTranscript.pendingRunningCompleted", { pendingToolsCount: pendingTools.length, runningToolsCount: runningTools.length, completedToolsCount: completedTools.length })}>
+                  {pendingTools.length > 0 ? t("chatTranscript.pending", { pendingToolsCount: pendingTools.length }) : ""}
                   {pendingTools.length > 0 && runningTools.length > 0 ? " · " : ""}
-                  {runningTools.length > 0 ? `${runningTools.length} running` : ""}
+                  {runningTools.length > 0 ? t("chatTranscript.running", { runningToolsCount: runningTools.length }) : ""}
                   {(pendingTools.length > 0 || runningTools.length > 0) && completedTools.length > 0 ? " · " : ""}
-                  {completedTools.length > 0 ? `${completedTools.length} done` : ""}
+                  {completedTools.length > 0 ? t("chatTranscript.done", { completedToolsCount: completedTools.length }) : ""}
                 </span>
               ) : null}
-              <span className="chat-elapsed-badge" title={`Tool phase: ${formatElapsed(phaseElapsed)}`}>{formatElapsed(phaseElapsed)}</span>
+              <span className="chat-elapsed-badge" title={t("chatTranscript.toolPhase", { phaseElapsed: formatElapsed(phaseElapsed) })}>{formatElapsed(phaseElapsed)}</span>
             </div>
           );
         })() : null}
@@ -470,34 +470,34 @@ export function ChatTranscript({
         {/* Native mode already pushes a spinner row into the timeline above,
             so this covers only the legacy agent path. */}
         {loading && !streaming && !nativeMode ? (
-          <div className="chat-loading chat-loading-active" title="Waiting for the agent to respond">
+          <div className="chat-loading chat-loading-active" title={t("chatTranscript.waitingForTheAgentTo")}>
             <Loader2 size={12} className="is-spinning" />
-            <span className="chat-loading-label">Agent is typing…</span>
+            <span className="chat-loading-label">{t("chatTranscript.agentIsTyping")}</span>
           </div>
         ) : null}
         {interruptedRun && !streaming ? (
           <div className="chat-stuck-bar chat-recovery-bar" role="status">
             <AlertCircle size={12} />
-            <span className="text-sm">Previous run was interrupted. Saved messages, thinking, and tool progress are shown above.</span>
+            <span className="text-sm">{t("chatTranscript.previousRunWasInterruptedSaved")}</span>
             <button
               className="btn btn-sm"
               type="button"
-              title="Prepare a safe continuation message without automatically repeating tools"
+              title={t("chatTranscript.prepareASafeContinuationMessage")}
               onClick={() => {
-                setInput("Continue from the saved checkpoint. Review what completed before retrying any tool.");
+                setInput(t("chatTranscript.continueFromTheSavedCheckpointReview"));
                 window.requestAnimationFrame(() => chatInputRef.current?.focus());
               }}
             >
-              Continue
+              {t("chatTranscript.continue")}
             </button>
           </div>
         ) : null}
         {stuck ? (
           <div className="chat-stuck-bar">
             <AlertCircle size={12} />
-            <span className="text-sm">Agent frozen. No response after {SEND_TIMEOUT_MS / 1000}s.</span>
-            <button className="btn btn-sm" type="button" title="Stop and restart the agent" onClick={() => void handleStopAgent()}>
-              <RefreshCw size={12} /> Restart
+            <span className="text-sm">{t("chatTranscript.agentFrozenNoResponseAfter", { value: SEND_TIMEOUT_MS / 1000 })}</span>
+            <button className="btn btn-sm" type="button" title={t("chatTranscript.stopAndRestartTheAgent")} onClick={() => void handleStopAgent()}>
+              <RefreshCw size={12} /> {t("chatTranscript.restart")}
             </button>
           </div>
         ) : null}
@@ -512,13 +512,13 @@ export function ChatTranscript({
           const chips = detectProseQuickReplies(lastAssistantContent);
           if (chips.length < 2) return null;
           return (
-            <div className="chat-quick-replies" title="Quick-reply options detected from the last message">
+            <div className="chat-quick-replies" title={t("chatTranscript.quickReplyOptionsDetectedFrom")}>
               {chips.map((chip) => (
                 <button
                   key={chip}
                   type="button"
                   className="chat-quick-reply-chip"
-                  title={`Send: ${chip}`}
+                  title={t("chatTranscript.send", { chip: chip })}
                   onClick={() => void sendMessage(chip)}
                 >
                   {chip}

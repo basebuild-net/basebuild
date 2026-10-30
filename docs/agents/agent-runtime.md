@@ -985,6 +985,21 @@ never as chat prose alone:
 - Stray think-tag markers are stripped from content and routed to the
   reasoning store via `strip_think_tags`.
 
+
+## UI language and model replies
+
+`SettingsService::get_ui_locale()` returns the persisted `preference`
+(`system`, `en`, or `zh-CN`) and the `effective` locale (`en` or `zh-CN`) that
+the frontend resolved it to. Rust reads `effective` for the native tray labels
+(`tray_label` in `lib.rs`) and for model-facing prompts.
+
+`PlanningPromptService::get_localized` appends `ZH_CN_DIRECTIVE` when the
+effective locale is `zh-CN`. The model then replies in Simplified Chinese unless
+the user writes in another language, and code, identifiers, commands, paths, and
+file contents keep their original language. The prompt text itself stays
+English. Chat, category, idea, and plan generation all call `get_localized`; any
+new model-facing prompt must do the same. `get` returns the prompt unchanged.
+
 ## Planning prompts
 
 System prompts for chat, idea generation, plan generation, and category

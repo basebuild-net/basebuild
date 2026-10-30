@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from "react";
+import { t } from "../../i18n";
 
 /** Minimum panel size in pixels (both width and height) — legacy fallback
  *  when type-specific minimums are not available. */
@@ -189,8 +190,8 @@ export function PanelSplitter({ orientation, onDelta, onEqualize, value, min, ma
       onDoubleClick={onDoubleClick}
       onKeyDown={onKeyDown}
       title={isVertical
-        ? "Drag to resize columns (double-click to equalize, arrow keys to resize)"
-        : "Drag to resize rows (double-click to equalize, arrow keys to resize)"}
+        ? t("panelSplitter.dragToResizeColumnsDouble")
+        : t("panelSplitter.dragToResizeRowsDouble")}
       role="separator"
       aria-orientation={isVertical ? "vertical" : "horizontal"}
       aria-valuenow={valuenow}

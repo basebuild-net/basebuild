@@ -3,6 +3,7 @@ import { Check, GitBranch, Trash2, ExternalLink } from "lucide-react";
 import { integrationList, integrationCleanup, type IntegrationEntry } from "../../lib/integration";
 import { ConfirmDialog } from "../layout/ConfirmDialog";
 import { SkeletonRows } from "../layout/Loading";
+import { t } from "../../i18n";
 
 type IntegrationQueueProps = {
   sessionId: string | null;
@@ -59,25 +60,25 @@ export function IntegrationQueue({ sessionId, projectPath }: IntegrationQueuePro
   }
 
   if (error) return <p className="text-error text-sm">{error}</p>;
-  if (loading) return <SkeletonRows rows={3} label="Loading integration queue…" />;
+  if (loading) return <SkeletonRows rows={3} label={t("integrationQueue.loadingIntegrationQueue")} />;
   if (entries.length === 0) {
-    return <p className="text-muted text-sm">No finished runs to integrate.</p>;
+    return <p className="text-muted text-sm">{t("integrationQueue.noFinishedRunsToIntegrate")}</p>;
   }
 
   return (
     <>
     <div className="integration-queue">
       {entries.map((entry) => (
-        <div key={entry.runId} className="integration-entry" title={`Run ${entry.runId}`}>
+        <div key={entry.runId} className="integration-entry" title={t("integrationQueue.run", { runId: entry.runId })}>
           <div className="integration-entry-header">
             <span className="integration-entry-title">{entry.planTitle}</span>
             {entry.merged ? (
-              <span className="integration-badge integration-badge-merged" title="Branch is merged">
-                <Check size={10} /> Merged
+              <span className="integration-badge integration-badge-merged" title={t("integrationQueue.branchIsMerged")}>
+                <Check size={10} /> {t("integrationQueue.merged")}
               </span>
             ) : (
-              <span className="integration-badge integration-badge-unmerged" title="Branch is not merged">
-                Unmerged
+              <span className="integration-badge integration-badge-unmerged" title={t("integrationQueue.branchIsNotMerged")}>
+                {t("integrationQueue.unmerged")}
               </span>
             )}
           </div>
@@ -88,14 +89,13 @@ export function IntegrationQueue({ sessionId, projectPath }: IntegrationQueuePro
               </span>
             ) : null}
             {entry.aheadBehind ? (
-              <span className="text-muted text-sm" title="Ahead/behind vs default branch">
+              <span className="text-muted text-sm" title={t("integrationQueue.aheadBehindVsDefaultBranch")}>
                 ↑↓ {entry.aheadBehind}
               </span>
             ) : null}
             {entry.prState ? (
               <span className={`integration-pr-state integration-pr-${entry.prState}`}>
-                PR: {entry.prState}
-              </span>
+                {t("integrationQueue.pR", { prState: entry.prState })}</span>
             ) : null}
             {entry.prUrl ? (
               <a
@@ -103,7 +103,7 @@ export function IntegrationQueue({ sessionId, projectPath }: IntegrationQueuePro
                 target="_blank"
                 rel="noopener noreferrer"
                 className="integration-pr-link"
-                title="Open PR in browser"
+                title={t("integrationQueue.openPrInBrowser")}
               >
                 <ExternalLink size={10} />
               </a>
@@ -113,10 +113,10 @@ export function IntegrationQueue({ sessionId, projectPath }: IntegrationQueuePro
             <button
               className="btn btn-sm"
               type="button"
-              title={entry.merged ? "Remove worktree + delete merged branch" : "Force-remove worktree + delete branch (not merged)"}
+              title={entry.merged ? t("integrationQueue.removeWorktreeDeleteMergedBranch") : t("integrationQueue.forceRemoveWorktreeDeleteBranch")}
               onClick={() => void handleCleanup(entry.runId, entry.merged)}
             >
-              <Trash2 size={10} /> Cleanup
+              <Trash2 size={10} /> {t("integrationQueue.cleanup")}
             </button>
           </div>
         </div>
@@ -124,11 +124,11 @@ export function IntegrationQueue({ sessionId, projectPath }: IntegrationQueuePro
     </div>
     <ConfirmDialog
       open={confirm !== null}
-      title={confirm?.force ? "Force delete?" : "Clean up?"}
+      title={confirm?.force ? t("integrationQueue.forceDelete") : t("integrationQueue.cleanUp")}
       message={confirm?.force
-        ? "This branch is NOT merged. Force-delete the worktree and branch anyway?"
-        : "Clean up this merged worktree and delete its branch?"}
-      confirmLabel={confirm?.force ? "Force delete" : "Clean up"}
+        ? t("integrationQueue.thisBranchIsNotMergedForce")
+        : t("integrationQueue.cleanUpThisMergedWorktreeAnd")}
+      confirmLabel={confirm?.force ? t("integrationQueue.forceDelete2") : t("integrationQueue.cleanUp2")}
       destructive={confirm?.force ?? false}
       onConfirm={() => {
         const c = confirm;

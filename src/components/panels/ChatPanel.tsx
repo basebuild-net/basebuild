@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback, type CSSProperties } from "react";
 import { usePromptDelivery } from "../../lib/promptDelivery";
 import { useEscapeKey } from "../../lib/useEscapeKey";
-import { markStart, markEnd, formatRelativeTime } from "../../lib/timing";
+import { markStart, markEnd } from "../../lib/timing";
 import { usePanelStatusPublisher, type PanelStatus } from "./PanelStatusContext";
 import { LogoPulse } from "../layout/LogoPulse";
 import { ModalPortal } from "../ModalPortal";
@@ -11,7 +11,7 @@ import {
   buildCommandHelper,
   filterAndRank,
   formatCommandReference,
-  KEYBOARD_GUIDE,
+  keyboardGuide,
   parseCommandPayload,
   readCommandRecency,
   recordCommandUse,
@@ -144,10 +144,7 @@ import {
   NATIVE_PROFILE_ID,
   LOCAL_PROVIDER_ID,
   waitForProviderLoginPoll,
-  CONNECTED_VIA_LABELS,
   modelDetection,
-  ACCOUNT_AUTH_LABELS,
-  ACCOUNT_HEALTH_LABELS,
   formatTokens,
   formatRequestRate,
   formatTokenRate,
@@ -160,6 +157,7 @@ import {
   resolveAssistantLabel,
   type ManageTab,
   type LegacyChatMessage,
+  effortDisplayLabel,
 } from "./chat/chatFormat";
 import { ThinkingBlock, UserMessageContent } from "./chat/ChatMessageParts";
 import { ToolEventCard } from "./chat/ToolEventCard";
@@ -167,6 +165,8 @@ import { ChatTranscript } from "./chat/ChatTranscript";
 import { ChatTodoChecklist } from "./chat/ChatTodoChecklist";
 import { ProviderManageModal } from "./chat/ProviderManageModal";
 import { ProviderCatalogModal } from "./chat/ProviderCatalogModal";
+import { t } from "../../i18n";
+import { formatDateTime, formatRelativeTime } from "../../i18n/format";
 type ChatPanelProps = {
   projectPath: string;
   chatSessionId?: string | null;
@@ -726,13 +726,13 @@ export function ChatPanel({
         const session = await Promise.race([
           nativeChatStart({
             projectPath,
-            title: "New Chat",
+            title: t("chatPanel.newChat"),
             providerId,
             modelId,
             effortLevel,
           }),
           new Promise<never>((_, reject) => {
-            timer = window.setTimeout(() => reject(new Error("Chat session creation timed out after 15s")), 15_000);
+            timer = window.setTimeout(() => reject(new Error(t("chatPanel.chatSessionCreationTimedOutAfter"))), 15_000);
           }),
         ]);
         markStart("first-activity-event");
@@ -1017,9 +1017,9 @@ export function ChatPanel({
         summary = `${toolName}: ${cmd}`;
       } else if (args) {
         const truncated = args.length > 200 ? args.slice(0, 200) + "…" : args;
-        summary = `${toolName} — ${truncated}`;
+        summary = `${toolName}: ${truncated}`;
       } else {
-        summary = `${toolName} approval required`;
+        summary = t("chatPanel.approvalRequired2", { toolName });
       }
       const liveSeq = ++liveOrderRef.current;
       setToolEvents((prev) => {
@@ -1164,12 +1164,12 @@ export function ChatPanel({
     try {
       await setApprovalModeBackend(projectPath, mode);
       setApprovalMode(mode);
-      const label = mode === "auto" ? "Auto — all tools allowed" : mode === "safe" ? "Safe — always ask" : "Balanced — read-only auto, mutating asks";
-      onShowToast?.("Permission mode changed", label, "info");
+      const label = mode === "auto" ? t("chatPanel.autoAllToolsAllowed") : mode === "safe" ? t("chatPanel.safeAlwaysAsk") : t("chatPanel.balancedReadOnlyAutoMutatingAsks");
+      onShowToast?.(t("chatPanel.permissionModeChanged"), label, "info");
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       addLog("error", "Failed to set approval mode", msg);
-      onShowToast?.("Failed to change permission mode", msg, "error");
+      onShowToast?.(t("chatPanel.failedToChangePermissionMode"), msg, "error");
     }
   }, [projectPath, addLog, onShowToast]);
   // Handle approval resolution from the UI
@@ -1178,23 +1178,23 @@ export function ChatPanel({
       await resolveToolApproval(toolCallId, decision);
       setToolEvents((prev) => prev.map((e) => e.id === toolCallId ? { ...e, status: decision === "deny" ? "denied" : "approved" } : e));
       if (decision === "deny") {
-        onShowToast?.("Tool call denied", "The agent will be notified.", "warning");
+        onShowToast?.(t("chatPanel.toolCallDenied"), t("chatPanel.theAgentWillBeNotified"), "warning");
       } else if (decision === "allow_session") {
-        onShowToast?.("Tool allowed for session", "All calls to this tool are approved.", "info");
+        onShowToast?.(t("chatPanel.toolAllowedForSession"), t("chatPanel.allCallsToThisToolAre"), "info");
       } else {
-        onShowToast?.("Tool allowed", "The tool call will proceed.", "success");
+        onShowToast?.(t("chatPanel.toolAllowed"), t("chatPanel.theToolCallWillProceed"), "success");
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       addLog("error", "Failed to resolve approval", msg);
-      onShowToast?.("Failed to resolve approval", msg, "error");
+      onShowToast?.(t("chatPanel.failedToResolveApproval"), msg, "error");
     }
   }, [addLog, onShowToast]);
 
   // Plan mode: the agent reads and plans, and cannot change files until the plan is approved.
   const handleSetPlanMode = useCallback(async (enabled: boolean): Promise<boolean> => {
     if (!nativeSessionId) {
-      onShowToast?.("Plan mode", "Start a chat before turning on plan mode.", "warning");
+      onShowToast?.(t("chatPanel.planMode"), t("chatPanel.startAChatBeforeTurningOn"), "warning");
       return false;
     }
     addLog("debug", "Plan mode changed", `session=${nativeSessionId}; enabled=${enabled}`);
@@ -1202,15 +1202,15 @@ export function ChatPanel({
       await nativeChatSetPlanMode({ sessionId: nativeSessionId, enabled });
       setPlanMode(enabled);
       onShowToast?.(
-        enabled ? "Plan mode on" : "Plan mode off",
-        enabled ? "The agent reads and plans without changing files." : "The agent can change files again.",
+        enabled ? t("chatPanel.planModeOn") : t("chatPanel.planModeOff"),
+        enabled ? t("chatPanel.theAgentReadsAndPlansWithout") : t("chatPanel.theAgentCanChangeFilesAgain"),
         "info",
       );
       return true;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       addLog("error", "Failed to change plan mode", msg);
-      onShowToast?.("Failed to change plan mode", msg, "error");
+      onShowToast?.(t("chatPanel.failedToChangePlanMode"), msg, "error");
       return false;
     }
   }, [nativeSessionId, addLog, onShowToast]);
@@ -1221,7 +1221,7 @@ export function ChatPanel({
     if (!nativeSessionId) return;
     addLog("debug", "Chat compact requested", `session=${nativeSessionId}`);
     if (loading || streaming) {
-      setCommandNotice("Wait for the running turn to finish, then compact.");
+      setCommandNotice(t("chatPanel.waitForTheRunningTurnTo"));
       return;
     }
     try {
@@ -1233,11 +1233,11 @@ export function ChatPanel({
       setNativeMessages(msgs);
       setToolEvents(events);
       setContextUsedTokens(result.tokensAfter);
-      setCommandNotice(`Compacted ${result.compactedMessages} earlier messages: about ${result.tokensBefore} tokens down to ${result.tokensAfter}.`);
+      setCommandNotice(t("chatPanel.compactedEarlierMessagesAboutTokensDown", { compactedMessages: result.compactedMessages, tokensBefore: result.tokensBefore, tokensAfter: result.tokensAfter }));
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       addLog("error", "Failed to compact chat", msg);
-      setCommandNotice(`Compaction failed: ${msg}`);
+      setCommandNotice(t("chatPanel.compactionFailed", { msg }));
     }
   }, [nativeSessionId, loading, streaming, addLog]);
 
@@ -1255,12 +1255,12 @@ export function ChatPanel({
         startedId = id;
         setAgentId(id);
         setError(null);
-        setLegacyMessages([{ role: "system", content: "Agent session started. Type a message to begin." }]);
+        setLegacyMessages([{ role: "system", content: t("chatPanel.agentSessionStartedTypeAMessage") }]);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         addLog("error", "Failed to start agent", msg);
         setError(msg);
-        setLegacyMessages([{ role: "system", content: `Failed to start agent: ${msg}` }]);
+        setLegacyMessages([{ role: "system", content: t("chatPanel.failedToStartAgent", { msg }) }]);
       }
     }
     void start();
@@ -1277,7 +1277,7 @@ export function ChatPanel({
       if (agentId !== null && event.payload.id !== agentId) return;
       if (event.payload.kind === "close") {
         setLoading(false);
-        setLegacyMessages((prev) => [...prev, { role: "system", content: "Agent session ended." }]);
+        setLegacyMessages((prev) => [...prev, { role: "system", content: t("chatPanel.agentSessionEnded") }]);
         return;
       }
       const chunk = event.payload.data ?? "";
@@ -1307,7 +1307,7 @@ export function ChatPanel({
           setSetupRequired({
             providerId: selectedProvider.id,
             providerLabel: selectedProvider.label,
-            message: `Connect ${selectedProvider.label} to send this message. Your draft was kept.`,
+            message: t("chatPanel.connectToSendThisMessageYour", { label: selectedProvider.label }),
           });
           setManagedProviderId(selectedProvider.id);
           setShowLogin(true);
@@ -1469,7 +1469,7 @@ export function ChatPanel({
         setStuck(false);
         const msg = e instanceof Error ? e.message : String(e);
         addLog("error", "Failed to send message to agent", msg);
-        setLegacyMessages((prev) => [...prev, { role: "system", content: `Error: ${msg}` }]);
+        setLegacyMessages((prev) => [...prev, { role: "system", content: t("chatPanel.error6", { msg }) }]);
         setLoading(false);
       }
     },
@@ -1480,7 +1480,7 @@ export function ChatPanel({
   const handleApprovePlan = useCallback(async () => {
     addLog("debug", "Plan approved", `session=${nativeSessionId ?? "none"}`);
     if (!(await handleSetPlanMode(false))) return;
-    await sendMessage("The plan is approved. Carry it out now.");
+    await sendMessage("The plan is approved. Carry it out now." /* i18n-exempt: model prompt */);
   }, [nativeSessionId, addLog, handleSetPlanMode, sendMessage]);
 
   // Prompt delivery consumption — replaces the old draft-prompt props.
@@ -1574,7 +1574,7 @@ export function ChatPanel({
       acceptNode(node) {
         const parent = (node as Text).parentElement;
         if (!parent) return NodeFilter.FILTER_REJECT;
-        if (["SCRIPT", "STYLE", "TEXTAREA", "INPUT", "MARK"].includes(parent.tagName)) return NodeFilter.FILTER_REJECT;
+        if (["SCRIPT" /* i18n-exempt: DOM tag name */, "STYLE" /* i18n-exempt: DOM tag name */, "TEXTAREA" /* i18n-exempt: DOM tag name */, "INPUT" /* i18n-exempt: DOM tag name */, "MARK" /* i18n-exempt: DOM tag name */].includes(parent.tagName)) return NodeFilter.FILTER_REJECT;
         return NodeFilter.FILTER_ACCEPT;
       },
     });
@@ -1735,7 +1735,7 @@ export function ChatPanel({
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       addLog("error", "Failed to steer running chat", msg);
-      setError(`Could not steer the running agent: ${msg}`);
+      setError(t("chatPanel.couldNotSteerTheRunningAgent", { msg }));
       return false;
     }
   }, [nativeMode, nativeSessionId, addLog]);
@@ -1753,7 +1753,7 @@ export function ChatPanel({
       // plain stream with no agent loop to join. sendMessage drops sends while
       // `loading` is still settling, so name the outcome and keep the draft
       // instead of swallowing the turn.
-      setCommandNotice("The running turn did not take that message: it either just finished or cannot be steered. Press Enter again to send it as a new message.");
+      setCommandNotice(t("chatPanel.theRunningTurnDidNotTake"));
       return;
     }
     if (nativeMode && text.startsWith("/")) {
@@ -1783,13 +1783,13 @@ export function ChatPanel({
             setShowProviderPicker(true);
             setShowLogin(false);
           }
-          setCommandNotice(provider ? `Opening login for ${provider.label}…` : "Opening provider chooser…");
+          setCommandNotice(provider ? t("chatPanel.openingLoginFor", { label: provider.label }) : t("chatPanel.openingProviderChooser"));
         },
         model: () => {
           setModelFilter(rest);
           setShowModelPicker(true);
           setShowProviderPicker(false);
-          setCommandNotice(rest ? `Model picker filtered to "${rest}"` : "Model picker opened.");
+          setCommandNotice(rest ? t("chatPanel.modelPickerFilteredTo", { rest }) : t("chatPanel.modelPickerOpened"));
         },
         provider: () => {
           setModelFilter("");
@@ -1805,25 +1805,25 @@ export function ChatPanel({
               const currentIsValid = providerModels.some((m) => m.id === modelId);
               if (!currentIsValid && providerModels[0]) setModelId(providerModels[0].id);
               persistSelectionRef.current(match.id, modelId, effortLevel);
-              setCommandNotice(`Switched to ${match.label}.`);
+              setCommandNotice(t("chatPanel.switchedTo", { label: match.label }));
             } else {
-              setCommandNotice(`No provider matching "${rest}". Use /provider to browse all providers.`);
+              setCommandNotice(t("chatPanel.noProviderMatchingUseProviderTo", { rest }));
             }
           } else {
-            setCommandNotice("Provider picker opened.");
+            setCommandNotice(t("chatPanel.providerPickerOpened"));
           }
         },
         clear: () => {
           if (nativeMessages.length > 0 || toolEvents.length > 0) {
             setShowClearConfirm(true);
-            setCommandNotice("Confirm clearing this chat.");
+            setCommandNotice(t("chatPanel.confirmClearingThisChat"));
           } else {
             setNativeMessages([]);
             setToolEvents([]);
             setStreamText("");
             setReasoningText("");
             setStreamPhase("idle");
-            setCommandNotice("Chat is already empty.");
+            setCommandNotice(t("chatPanel.chatIsAlreadyEmpty"));
           }
         },
         new: () => {
@@ -1834,18 +1834,18 @@ export function ChatPanel({
         stop: () => {
           if (loading || streaming) {
             void stopNativeRef.current();
-            setCommandNotice("Stopped the current request.");
+            setCommandNotice(t("chatPanel.stoppedTheCurrentRequest"));
           } else {
-            setCommandNotice("Nothing is running.");
+            setCommandNotice(t("chatPanel.nothingIsRunning"));
           }
         },
         commands: () => {
           const ref = formatCommandReference(BUILTIN_COMMANDS);
           const inChat = ref.filter((r) => r.category === "in-chat");
           const ui = ref.filter((r) => r.category === "ui");
-          const fmt = (r: typeof ref[number]) => `/${r.name} — ${r.description} [${r.usage}]`;
+          const fmt = (r: typeof ref[number]) => t("chatPanel.commandReferenceItem", { name: r.name, description: r.description, usage: r.usage });
           setCommandNotice(
-            `In-Chat (${inChat.length}): ${inChat.map(fmt).join("  |  ")}  ||  UI (${ui.length}): ${ui.map(fmt).join("  |  ")}`,
+            t("chatPanel.commandsNotice", { inChatCount: inChat.length, inChat: inChat.map(fmt).join("  |  "), uiCount: ui.length, ui: ui.map(fmt).join("  |  ") }),
           );
         },
         help: () => {
@@ -1853,17 +1853,17 @@ export function ChatPanel({
           const inChat = ref.filter((r) => r.category === "in-chat");
           const ui = ref.filter((r) => r.category === "ui");
           setCommandNotice(
-            `In-Chat: ${inChat.map((r) => `/${r.name}`).join(", ")}  |  UI: ${ui.map((r) => `/${r.name}`).join(", ")}  —  ${KEYBOARD_GUIDE.join(" ")}`,
+            t("chatPanel.helpNotice", { inChat: inChat.map((r) => `/${r.name}`).join(", "), ui: ui.map((r) => `/${r.name}`).join(", "), guide: keyboardGuide().join(" ") }),
           );
         },
         mcp: () => {
           // MCP management is opened via Settings — show a notice.
-          setCommandNotice("MCP servers are managed in Settings.");
+          setCommandNotice(t("chatPanel.mcpServersAreManagedInSettings"));
         },
         plan: () => {
           const arg = rest.toLowerCase();
           if (arg && arg !== "on" && arg !== "off") {
-            setCommandNotice("Usage: /plan [on|off]. Plan mode reads and plans without changing files.");
+            setCommandNotice(t("chatPanel.usagePlanOnOffPlanMode"));
             return;
           }
           void handleSetPlanMode(arg ? arg === "on" : !planMode);
@@ -1874,11 +1874,11 @@ export function ChatPanel({
         idea: () => {
           if (rest === "generate") {
             void generateIdeasRef.current?.();
-            setCommandNotice("Generating ideas…");
+            setCommandNotice(t("chatPanel.generatingIdeas"));
           } else if (rest === "promote") {
-            setCommandNotice("Pick an idea in the Ideas panel to promote it to a plan.");
+            setCommandNotice(t("chatPanel.pickAnIdeaInTheIdeas"));
           } else {
-            setCommandNotice("Idea commands: generate, promote");
+            setCommandNotice(t("chatPanel.ideaCommandsGeneratePromote"));
           }
         },
         // schematic removed from builtinActions — all subcommands are
@@ -1902,14 +1902,14 @@ export function ChatPanel({
           const refreshed = await nativeProviderCatalogRefresh({ force: true });
           setCatalog(refreshed);
           setCatalogStatus("ready");
-          setCommandNotice("Model catalog refreshed.");
-          setCommandRecency(recordCommandUse("models refresh"));
+          setCommandNotice(t("chatPanel.modelCatalogRefreshed"));
+          setCommandRecency(recordCommandUse("models refresh" /* i18n-exempt: command id */));
           setInput("");
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
           setCatalogStatus(catalog ? "stale" : "error");
           setCatalogError(msg);
-          setCommandNotice(`Model refresh failed: ${msg}`);
+          setCommandNotice(t("chatPanel.modelRefreshFailed", { msg }));
           addLog("error", "Failed to refresh model catalog", msg);
         }
         return;
@@ -1927,7 +1927,7 @@ export function ChatPanel({
             setInput("");
             return;
           } catch {
-            setCommandNotice(`Skill '${skillName}' not found.`);
+            setCommandNotice(t("chatPanel.skillNotFound", { skillName }));
             return;
           }
         }
@@ -1949,14 +1949,14 @@ export function ChatPanel({
             return;
           } catch {
             addLog("error", "Schematic wizard failed", "Failed to load basebuild-project-schematic skill");
-            setCommandNotice("Failed to load the schematic skill. Check that the basebuild-project-schematic skill is installed.");
+            setCommandNotice(t("chatPanel.failedToLoadTheSchematicSkill"));
             return;
           }
         }
         // view — open the schematic tab (UI action).
         if (rest === "view") {
           onOpenSchematic?.();
-          setCommandNotice("Opening schematic tab…");
+          setCommandNotice(t("chatPanel.openingSchematicTab"));
           setCommandRecency(recordCommandUse("schematic"));
           setInput("");
           return;
@@ -1967,30 +1967,30 @@ export function ChatPanel({
             try {
               const report = await inspectProjectSchematic(projectPath);
               if (!report.exists) {
-                setCommandNotice("No schematic found. Use /schematic to start the wizard.");
+                setCommandNotice(t("chatPanel.noSchematicFoundUseSchematicTo"));
               } else {
                 const filled = report.sections.filter((s) => s.state === "filled").length;
                 const total = report.sections.length;
-                setCommandNotice(`Schematic health: ${report.health} (${filled}/${total} sections filled).`);
+                setCommandNotice(t("chatPanel.schematicHealthSectionsFilled", { health: report.health, filled, total }));
               }
             } catch {
-              setCommandNotice("Failed to inspect schematic.");
+              setCommandNotice(t("chatPanel.failedToInspectSchematic"));
             }
           } else {
-            setCommandNotice("Open a project to inspect its schematic.");
+            setCommandNotice(t("chatPanel.openAProjectToInspectIts"));
           }
           setCommandRecency(recordCommandUse("schematic"));
           setInput("");
           return;
         }
         // Unknown subcommand — show available options.
-        setCommandNotice(`Unknown /schematic subcommand: ${rest}. Use /schematic wizard, /schematic view, or /schematic inspect.`);
+        setCommandNotice(t("chatPanel.unknownSchematicSubcommandUseSchematicWi", { rest }));
         setInput("");
         return;
       }
 
       // Unknown command fallthrough: show notice + send-as-text action.
-      setCommandNotice(`Unknown slash command: /${command}. Send as text or use /commands to see all available commands.`);
+      setCommandNotice(t("chatPanel.unknownSlashCommandSendAsText", { command }));
       return;
     }
     await sendMessage(text);
@@ -2118,9 +2118,9 @@ export function ChatPanel({
   const handleCopyMessage = useCallback(async (content: string) => {
     try {
       await navigator.clipboard.writeText(content);
-      onShowToast?.("Copied to clipboard", "Message source copied.", "success");
+      onShowToast?.(t("chatPanel.copiedToClipboard"), t("chatPanel.messageSourceCopied"), "success");
     } catch {
-      onShowToast?.("Copy failed", "Clipboard unavailable.", "error");
+      onShowToast?.(t("chatPanel.copyFailed"), t("chatPanel.clipboardUnavailable"), "error");
     }
   }, [onShowToast]);
 
@@ -2134,17 +2134,18 @@ export function ChatPanel({
         lines.push(`### ${ev.kind.toUpperCase()}${ts ? ` (${ts})` : ""}\n\n${ev.content}`);
         if (ev.reasoning) lines.push(`\n> **Reasoning:** ${ev.reasoning}`);
       } else if (ev.kind === "tool") {
-        lines.push(`\n**Tool: ${ev.event.kind}** — ${ev.event.summary} (${ev.event.status})`);
+        lines.push(`\n**Tool: ${ev.event.kind}**: ${ev.event.summary} (${ev.event.status})`);
       } else if (ev.kind === "interaction") {
+        // i18n-exempt: copied transcript markdown keeps stable English export labels
         lines.push(`\n**Interaction: ${ev.interaction.id}** (status: ${ev.interaction.status})`);
       }
       lines.push("");
     }
     try {
       await navigator.clipboard.writeText(lines.join("\n").trim());
-      onShowToast?.("Copied conversation", "Full transcript copied as markdown.", "success");
+      onShowToast?.(t("chatPanel.copiedConversation"), t("chatPanel.fullTranscriptCopiedAsMarkdown"), "success");
     } catch {
-      onShowToast?.("Copy failed", "Clipboard unavailable.", "error");
+      onShowToast?.(t("chatPanel.copyFailed2"), t("chatPanel.clipboardUnavailable2"), "error");
     }
   }, [chatTimeline, onShowToast]);
 
@@ -2178,13 +2179,13 @@ export function ChatPanel({
       }
       setAgentId(null);
     }
-    setLegacyMessages((prev) => [...prev, { role: "system", content: "Agent session stopped. Reloading..." }]);
+    setLegacyMessages((prev) => [...prev, { role: "system", content: t("chatPanel.agentSessionStoppedReloading") }]);
     window.setTimeout(() => {
       void (async () => {
         try {
           const id = await agentStart({ cwd: projectPath, profileId });
           setAgentId(id);
-          setLegacyMessages([{ role: "system", content: "Agent session restarted." }]);
+          setLegacyMessages([{ role: "system", content: t("chatPanel.agentSessionRestarted") }]);
         } catch (e) {
           setError(e instanceof Error ? e.message : String(e));
         }
@@ -2225,7 +2226,7 @@ export function ChatPanel({
       setStreamText("");
       setReasoningText("");
       setStreamPhase("idle");
-      setCommandNotice("Chat cleared.");
+      setCommandNotice(t("chatPanel.chatCleared"));
       setCommandRecency(recordCommandUse("clear"));
       return;
     }
@@ -2237,12 +2238,12 @@ export function ChatPanel({
       setStreamText("");
       setReasoningText("");
       setStreamPhase("idle");
-      setCommandNotice(`Cleared ${deleted} message${deleted === 1 ? "" : "s"}.`);
+      setCommandNotice(deleted === 1 ? t("chatPanel.clearedMessagesOne", { count: deleted }) : t("chatPanel.clearedMessagesOther", { count: deleted }));
       setCommandRecency(recordCommandUse("clear"));
       addLog("debug", "Chat cleared", `sessionId=${nativeSessionId}; deleted=${deleted}`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      setCommandNotice(`Failed to clear chat: ${msg}`);
+      setCommandNotice(t("chatPanel.failedToClearChat", { msg }));
       addLog("error", "Failed to clear chat messages", msg);
     }
   }, [nativeSessionId, addLog]);
@@ -2282,7 +2283,7 @@ export function ChatPanel({
           setShowLogin(false);
           setSetupRequired(null);
           setError(null);
-          onShowToast?.("Provider connected", `${providerLabel} is now ready.`, "success");
+          onShowToast?.(t("chatPanel.providerConnected"), t("chatPanel.isNowReady", { providerLabel }), "success");
           return;
         }
         if (state.error) {
@@ -2292,7 +2293,7 @@ export function ChatPanel({
           return;
         }
       }
-      throw new Error("Provider sign-in timed out.");
+      throw new Error(t("chatPanel.providerSignInTimedOut"));
     },
     [onShowToast],
   );
@@ -2309,7 +2310,7 @@ export function ChatPanel({
     } catch (loginFailure) {
       const message = loginFailure instanceof Error ? loginFailure.message : String(loginFailure);
       setLoginError(message);
-      onShowToast?.("Failed to connect", message, "error");
+      onShowToast?.(t("chatPanel.failedToConnect"), message, "error");
     } finally {
       setSavingCred(false);
     }
@@ -2330,7 +2331,7 @@ export function ChatPanel({
     } catch (loginFailure) {
       const message = loginFailure instanceof Error ? loginFailure.message : String(loginFailure);
       setLoginError(message);
-      onShowToast?.("Failed to connect", message, "error");
+      onShowToast?.(t("chatPanel.failedToConnect2"), message, "error");
     } finally {
       setSavingCred(false);
     }
@@ -2344,18 +2345,18 @@ export function ChatPanel({
       const refreshed = await nativeProviderRefreshOmpCredentials(managedProvider.id);
       setCatalog(refreshed);
       if (!refreshed.providers.some((provider) => provider.id === managedProvider.id && provider.configured)) {
-        setLoginError(`No ${managedProvider.label} credential was found. Run /login in Oh My Pi, then try again.`);
+        setLoginError(t("chatPanel.noCredentialWasFoundRunLogin", { label: managedProvider.label }));
         return;
       }
       setShowLogin(false);
       setManagedProviderId(null);
       setSetupRequired(null);
       setError(null);
-      onShowToast?.("Provider connected", `${managedProvider.label} was imported from Oh My Pi.`, "success");
+      onShowToast?.(t("chatPanel.providerConnected2"), t("chatPanel.wasImportedFromOhMyPi", { label: managedProvider.label }), "success");
     } catch (refreshError) {
       const message = refreshError instanceof Error ? refreshError.message : String(refreshError);
       setLoginError(message);
-      onShowToast?.("Failed to refresh provider", message, "error");
+      onShowToast?.(t("chatPanel.failedToRefreshProvider"), message, "error");
     } finally {
       setSavingCred(false);
     }
@@ -2499,12 +2500,12 @@ export function ChatPanel({
       setBaseUrl("");
       setError(null);
       setLoginError(null);
-      onShowToast?.("Provider connected", `${providerLabel} is now ready.`, "success");
+      onShowToast?.(t("chatPanel.providerConnected3"), t("chatPanel.isNowReady2", { providerLabel }), "success");
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       addLog("error", "Failed to save provider credential", msg);
       setLoginError(msg);
-      onShowToast?.("Failed to connect", msg, "error");
+      onShowToast?.(t("chatPanel.failedToConnect3"), msg, "error");
     } finally {
       setSavingCred(false);
     }
@@ -2529,11 +2530,11 @@ export function ChatPanel({
       }
       await refreshCatalog();
       addLog("debug", "Account logged out", `account=${accountId}`);
-      onShowToast?.("Logged out", `${accountLabel} removed from the local store.`, "success");
+      onShowToast?.(t("chatPanel.loggedOut"), t("chatPanel.removedFromTheLocalStore", { accountLabel }), "success");
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       addLog("error", "Failed to log out of account", msg);
-      onShowToast?.("Failed to log out", msg, "error");
+      onShowToast?.(t("chatPanel.failedToLogOut"), msg, "error");
     }
   }, [accountUsageWindow, addLog, onShowToast, refreshAccountRows, refreshAccountUsage, refreshCatalog, managedProvider]);
 
@@ -2544,14 +2545,14 @@ export function ChatPanel({
       setAccountRows((prev) => prev.map((row) => (row.id === account.id ? updated : row)));
       addLog("debug", "Account tested", `account=${account.id}; health=${updated.health}`);
       onShowToast?.(
-        "Account tested",
+        t("chatPanel.accountTested"),
         `${account.label}: ${updated.health === "healthy" ? "healthy" : (updated.lastError ?? updated.health)}`,
         updated.health === "healthy" ? "success" : "warning",
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       addLog("error", "Account test failed", msg);
-      onShowToast?.("Account test failed", msg, "error");
+      onShowToast?.(t("chatPanel.accountTestFailed"), msg, "error");
     } finally {
       setTestingAccountId(null);
     }
@@ -2571,11 +2572,11 @@ export function ChatPanel({
         ]);
       }
       addLog("debug", "Provider logged out", `provider=${targetId}`);
-      onShowToast?.("Logged out", `${targetLabel} credential removed from the local store.`, "success");
+      onShowToast?.(t("chatPanel.loggedOut2"), t("chatPanel.credentialRemovedFromTheLocalStore", { targetLabel }), "success");
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       addLog("error", "Failed to log out of provider", msg);
-      onShowToast?.("Failed to log out", msg, "error");
+      onShowToast?.(t("chatPanel.failedToLogOut2"), msg, "error");
     }
   }, [accountUsageWindow, addLog, onShowToast, refreshAccountRows, refreshAccountUsage, refreshCatalog, managedProvider]);
 
@@ -2618,12 +2619,12 @@ export function ChatPanel({
   const handleGenerateIdeas = useCallback(async (opts?: { categoryIds?: string[]; ideaCount?: number; direction?: string | null }) => {
     addLog("debug", "Idea generation requested", `chat=${nativeSessionId ?? "none"} planningSession=${activeSessionId ?? "none"}`);
     if (!nativeSessionId || generatingIdeas) {
-      addLog("debug", "Idea generation skipped", !nativeSessionId ? "chat session unavailable" : "generation already running");
+      addLog("debug", "Idea generation skipped", !nativeSessionId ? "chat session unavailable" /* i18n-exempt: debug log text */ : "generation already running" /* i18n-exempt: debug log text */);
       return;
     }
     if (!activeSessionId) {
       addLog("debug", "Idea generation skipped", "planning session unavailable");
-      setError("Open a project session to save generated ideas.");
+      setError(t("chatPanel.openAProjectSessionToSave"));
       return;
     }
     // Guard: non-local provider without a credential can't generate — show
@@ -2632,7 +2633,7 @@ export function ChatPanel({
       setSetupRequired({
         providerId: selectedProvider.id,
         providerLabel: selectedProvider.label,
-        message: `Connect ${selectedProvider.label} to generate ideas.`,
+        message: t("chatPanel.connectToGenerateIdeas", { label: selectedProvider.label }),
       });
       setManagedProviderId(selectedProvider.id);
       setShowLogin(true);
@@ -2649,8 +2650,8 @@ export function ChatPanel({
       .filter((name): name is string => !!name);
     const scope = categoryNames.length > 0 ? categoryNames.join(", ") : "project-wide";
     const invocationSummary = direction
-      ? `${direction}\n\n${ideaCount} ideas · ${scope}`
-      : `Auto-generate ${ideaCount} ${scope} ideas.`;
+      ? `${direction}\n\n${ideaCount} ideas · ${scope}` // i18n-exempt: model-facing command body
+      : `Auto-generate ${ideaCount} ${scope} ideas.`; // i18n-exempt: model-facing command body
     const displayMessage = `<command name="/skill:basebuild-planning">\n${invocationSummary}\n</command>`;
 
     try {
@@ -2658,7 +2659,7 @@ export function ChatPanel({
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       addLog("error", "Idea activity listeners unavailable", message);
-      setError("Chat activity streaming is unavailable. Reopen the chat and try again.");
+      setError(t("chatPanel.chatActivityStreamingIsUnavailableReopen"));
       return;
     }
     setGeneratingIdeas(true);
@@ -2717,7 +2718,7 @@ export function ChatPanel({
       if (activeSendRef.current !== gen) return;
       if (result.setupRequired) {
         setSetupRequired(result.setupRequired);
-        setShowLogin(result.setupRequired.message.startsWith("Connect "));
+        setShowLogin(result.setupRequired.message.startsWith("Connect " /* i18n-exempt: matches backend setup message */));
       }
       setLastGrounding(result.grounding ?? null);
       await ideaState.refresh();
@@ -2779,14 +2780,14 @@ export function ChatPanel({
     async (idea: Idea) => {
       try {
         if (!onCreatePlanFromIdea) {
-          throw new Error("Plan promotion is unavailable in this chat.");
+          throw new Error(t("chatPanel.planPromotionIsUnavailableInThis"));
         }
         await onCreatePlanFromIdea(idea, nativeSessionId);
         await ideaState.refresh();
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
         addLog("error", "Failed to promote idea to plan", message);
-        onShowToast?.("Could not prepare plan", message, "error");
+        onShowToast?.(t("chatPanel.couldNotPreparePlan"), message, "error");
         throw e;
       }
     },
@@ -2796,10 +2797,10 @@ export function ChatPanel({
     async (idea: Idea) => {
       try {
         await ideaState.rejectIdea(idea.id);
-        onShowToast?.("Idea passed", idea.title, "info");
+        onShowToast?.(t("chatPanel.ideaPassed"), idea.title, "info");
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
-        onShowToast?.("Could not reject idea", message, "error");
+        onShowToast?.(t("chatPanel.couldNotRejectIdea"), message, "error");
         throw e;
       }
     },
@@ -2809,10 +2810,10 @@ export function ChatPanel({
     async (idea: Idea) => {
       try {
         await ideaState.updateIdeaStatus(idea.id, "archived");
-        onShowToast?.("Idea deferred", idea.title, "info");
+        onShowToast?.(t("chatPanel.ideaDeferred"), idea.title, "info");
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
-        onShowToast?.("Could not defer idea", message, "error");
+        onShowToast?.(t("chatPanel.couldNotDeferIdea"), message, "error");
         throw e;
       }
     },
@@ -2826,7 +2827,7 @@ export function ChatPanel({
     async (proposal: ProposedIdea, categoryId: string | null) => {
       try {
         if (!activeSessionId) {
-          throw new Error("Open a project session to save ideas.");
+          throw new Error(t("chatPanel.openAProjectSessionToSave2"));
         }
         const validCategory = categoryId && ideaState.categories.some((cat) => cat.id === categoryId)
           ? categoryId
@@ -2840,11 +2841,11 @@ export function ChatPanel({
           proposal.anchor,
         );
         await ideaState.refresh();
-        onShowToast?.("Idea saved", proposal.title, "info");
+        onShowToast?.(t("chatPanel.ideaSaved"), proposal.title, "info");
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
         addLog("error", "Failed to save proposal to ideas", message);
-        onShowToast?.("Could not save idea", message, "error");
+        onShowToast?.(t("chatPanel.couldNotSaveIdea"), message, "error");
         throw e;
       }
     },
@@ -2868,11 +2869,11 @@ export function ChatPanel({
       const workspaces = await listWorkspaces(projectPath).catch(() => []);
       const match = workspaces.find((w) => w.branch === name);
       setWorktreePath(match?.path ?? null);
-      onShowToast?.("Branch switched", `Now on ${name}`, "success");
+      onShowToast?.(t("chatPanel.branchSwitched"), t("chatPanel.nowOn", { name }), "success");
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       addLog("error", "Failed to switch branch", msg);
-      onShowToast?.("Failed to switch branch", msg, "error");
+      onShowToast?.(t("chatPanel.failedToSwitchBranch"), msg, "error");
     }
   }, [projectPath, branch, addLog, onShowToast]);
 
@@ -2883,11 +2884,11 @@ export function ChatPanel({
       await gitBranchSwitch(projectPath, name);
       setBranch(name);
       setBranches(await gitBranchList(projectPath).catch(() => []));
-      onShowToast?.("Branch created", `Created and switched to ${name}`, "success");
+      onShowToast?.(t("chatPanel.branchCreated"), t("chatPanel.createdAndSwitchedTo", { name }), "success");
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       addLog("error", "Failed to create branch", msg);
-      onShowToast?.("Failed to create branch", msg, "error");
+      onShowToast?.(t("chatPanel.failedToCreateBranch"), msg, "error");
     }
   }, [projectPath, addLog, onShowToast]);
 
@@ -3009,7 +3010,7 @@ export function ChatPanel({
       }
     }}>
       <div aria-live="polite" aria-atomic="true" className="sr-only" >
-        {streaming ? `Agent is responding${streamPhase === "tools" ? " — running tools" : streamPhase === "thinking" ? " — thinking" : ""}` : ""}
+        {streaming ? t((streamPhase === "tools" ? "chatPanel.agentIsResponding.runningTools" : streamPhase === "thinking" ? "chatPanel.agentIsResponding.thinking" : "chatPanel.agentIsResponding.none")) : ""}
       </div>
       {showPrCard && prRec ? (
         <PrRecommendationCard
@@ -3020,24 +3021,24 @@ export function ChatPanel({
       ) : null}
       {showAssignPlanPicker ? (
         <ModalPortal>
-        <div className="modal-overlay" onClick={() => setShowAssignPlanPicker(false)} title="Close plan picker">
-          <div className="modal modal-sm" onClick={(e) => e.stopPropagation()} title="Assign a ready plan">
+        <div className="modal-overlay" onClick={() => setShowAssignPlanPicker(false)} title={t("chatPanel.closePlanPicker")}>
+          <div className="modal modal-sm" onClick={(e) => e.stopPropagation()} title={t("chatPanel.assignAReadyPlan")}>
             <div className="modal-header">
-              <h2>Assign plan</h2>
-              <button className="btn-icon" type="button" title="Close plan picker" onClick={() => setShowAssignPlanPicker(false)}>
+              <h2>{t("chatPanel.assignPlan")}</h2>
+              <button className="btn-icon" type="button" title={t("chatPanel.closePlanPicker")} onClick={() => setShowAssignPlanPicker(false)}>
                 <X size={16} />
               </button>
             </div>
             <div className="modal-body stack">
               {readyPlans.length === 0 ? (
-                <p className="text-muted text-sm">No ready plans.</p>
+                <p className="text-muted text-sm">{t("chatPanel.noReadyPlans")}</p>
               ) : null}
               {readyPlans.map((p) => (
                 <button
                   key={p.id}
                   className="btn"
                   type="button"
-                  title={`Assign "${p.title}" (${p.referenceId}) to this chat`}
+                  title={t("chatPanel.assignToThisChat", { title: p.title, referenceId: p.referenceId })}
                   onClick={() => void handleAssignPlan(p.id)}
                 >
                   <span>{p.title}</span>
@@ -3096,7 +3097,7 @@ export function ChatPanel({
         onCopySessionId={() => {
           if (nativeSessionId) {
             void navigator.clipboard.writeText(nativeSessionId);
-            onShowToast?.("Chat ID copied", nativeSessionId, "info");
+            onShowToast?.(t("chatPanel.chatIdCopied"), nativeSessionId, "info");
           }
         }}
         onStartVoiceCall={voice.support.mic && voiceReady ? () => {
@@ -3163,16 +3164,16 @@ export function ChatPanel({
         const resolveAll = (decision: "allow" | "allow_session" | "deny") =>
           pending.forEach((e) => void handleResolveApproval(e.id, decision));
         return (
-          <div className="chat-approval-bar" title={`Approval required: ${names}`}>
+          <div className="chat-approval-bar" title={t("chatPanel.approvalRequired", { names: names })}>
             <span className="chat-approval-bar-label">
               <span className="chat-approval-bar-icon" aria-hidden="true">🔐</span>
-              Approve <strong>{names}</strong>?
+              {t("chatPanel.approve")} <strong>{names}</strong>?
             </span>
             <div className="chat-approval-bar-actions">
-              <button className="btn btn-sm btn-primary" type="button" title="Allow this tool call once" onClick={() => resolveAll("allow")}>Allow Once</button>
-              <button className="btn btn-sm" type="button" title="Allow all calls to this tool for this session" onClick={() => resolveAll("allow_session")}>Allow Session</button>
-              <button className="btn btn-sm" type="button" title="Deny this tool call" onClick={() => resolveAll("deny")}>Deny</button>
-              <button className="btn btn-sm chat-approval-bar-auto" type="button" title="Switch to Auto mode: allow all tool calls without asking. Change back in Settings." onClick={() => void handleSetApprovalMode("auto")}>Allow All (Auto)</button>
+              <button className="btn btn-sm btn-primary" type="button" title={t("chatPanel.allowThisToolCallOnce")} onClick={() => resolveAll("allow")}>{t("chatPanel.allowOnce")}</button>
+              <button className="btn btn-sm" type="button" title={t("chatPanel.allowAllCallsToThis")} onClick={() => resolveAll("allow_session")}>{t("chatPanel.allowSession")}</button>
+              <button className="btn btn-sm" type="button" title={t("chatPanel.denyThisToolCall")} onClick={() => resolveAll("deny")}>{t("chatPanel.deny")}</button>
+              <button className="btn btn-sm chat-approval-bar-auto" type="button" title={t("chatPanel.switchToAutoModeAllow")} onClick={() => void handleSetApprovalMode("auto")}>{t("chatPanel.allowAllAuto")}</button>
             </div>
           </div>
         );
@@ -3187,14 +3188,14 @@ export function ChatPanel({
               className="chat-question-preview"
               type="button"
               key={`preview-${intr.id}`}
-              title="Reopen the agent's question"
+              title={t("chatPanel.reopenTheAgentSQuestion")}
               onClick={() => restoreQuestion(intr.id)}
             >
               <HelpCircle size={13} className="chat-question-preview-icon" />
               <span className="chat-question-preview-text">
-                {intr.title ?? intr.questions[0]?.prompt ?? "Agent is asking a question"}
+                {intr.title ?? intr.questions[0]?.prompt ?? t("chatPanel.agentIsAskingAQuestion")}
               </span>
-              <span className="chat-question-preview-action">Answer</span>
+              <span className="chat-question-preview-action">{t("chatPanel.answer")}</span>
             </button>
           ))}
         </>
@@ -3204,7 +3205,7 @@ export function ChatPanel({
         <button
           className="chat-scroll-bottom-btn"
           type="button"
-          title="Scroll to bottom of conversation"
+          title={t("chatPanel.scrollToBottomOfConversation")}
           onClick={scrollToBottom}
         >
           <ChevronDown size={16} />
@@ -3217,7 +3218,7 @@ export function ChatPanel({
             className="chat-search-input"
             type="text"
             autoFocus
-            placeholder="Search conversation…"
+            placeholder={t("chatPanel.searchConversation")}
             value={searchQuery}
             onChange={(e) => {
               const q = e.target.value;
@@ -3245,12 +3246,12 @@ export function ChatPanel({
                 els[next].scrollIntoView({ block: "center" });
               }
             }}
-            title="Search messages and tool cards — Enter for next, Shift+Enter for prev, Escape to close"
+            title={t("chatPanel.searchMessagesAndToolCards")}
           />
-          <span className="chat-search-count" title="Match count">
-            {searchMatchCount > 0 ? `${searchActiveIndex + 1}/${searchMatchCount}` : "0/0"}
+          <span className="chat-search-count" title={t("chatPanel.matchCount")}>
+            {searchMatchCount > 0 ? t("chatPanel.text", { value: searchActiveIndex + 1, searchMatchCount: searchMatchCount }) : "0/0"}
           </span>
-          <button className="chat-search-btn" type="button" title="Previous match (Shift+Enter)" onClick={() => {
+          <button className="chat-search-btn" type="button" title={t("chatPanel.previousMatchShiftEnter")} onClick={() => {
             const els = scrollRef.current?.querySelectorAll<HTMLElement>("mark.chat-search-highlight") ?? [];
             if (els.length === 0) return;
             const prev = (searchActiveIndex - 1 + els.length) % els.length;
@@ -3259,7 +3260,7 @@ export function ChatPanel({
           }}>
             <ChevronUp size={12} />
           </button>
-          <button className="chat-search-btn" type="button" title="Next match (Enter)" onClick={() => {
+          <button className="chat-search-btn" type="button" title={t("chatPanel.nextMatchEnter")} onClick={() => {
             const els = scrollRef.current?.querySelectorAll<HTMLElement>("mark.chat-search-highlight") ?? [];
             if (els.length === 0) return;
             const next = (searchActiveIndex + 1) % els.length;
@@ -3268,7 +3269,7 @@ export function ChatPanel({
           }}>
             <ChevronDown size={12} />
           </button>
-          <button className="chat-search-btn" type="button" title="Close search (Escape)" onClick={() => {
+          <button className="chat-search-btn" type="button" title={t("chatPanel.closeSearchEscape")} onClick={() => {
             setShowSearch(false);
             setSearchQuery("");
             setSearchMatchCount(0);
@@ -3284,7 +3285,7 @@ export function ChatPanel({
         <div className="chat-notice-bar" title={modelNotice}>
           <AlertCircle size={12} />
           <span className="text-sm">{modelNotice}</span>
-          <button className="btn-icon btn-icon-sm" title="Dismiss" type="button" onClick={() => setModelNotice(null)}>
+          <button className="btn-icon btn-icon-sm" title={t("chatPanel.dismiss")} type="button" onClick={() => setModelNotice(null)}>
             <X size={11} />
           </button>
         </div>
@@ -3298,15 +3299,15 @@ export function ChatPanel({
           <button
             className="btn btn-sm"
             type="button"
-            title="Retry creating the chat session"
+            title={t("chatPanel.retryCreatingTheChatSession")}
             onClick={() => {
               setError(null);
               setNativeSessionId(null);
             }}
           >
-            <RefreshCw size={12} /> Retry
+            <RefreshCw size={12} /> {t("chatPanel.retry")}
           </button>
-          <button className="btn-icon btn-icon-sm" title="Clear error" type="button" onClick={() => setError(null)}>
+          <button className="btn-icon btn-icon-sm" title={t("chatPanel.clearError")} type="button" onClick={() => setError(null)}>
             <X size={11} />
           </button>
         </div>
@@ -3321,20 +3322,20 @@ export function ChatPanel({
             <button
               className="btn btn-sm"
               type="button"
-              title={`Log in to ${setupRequired.providerLabel}`}
+              title={t("chatPanel.logInTo", { providerLabel: setupRequired.providerLabel })}
               onClick={() => {
                 setLoginError(null);
                 setManagedProviderId(setupRequired.providerId);
                 setShowLogin(true);
               }}
             >
-              <Key size={11} /> Log in
+              <Key size={11} /> {t("chatPanel.logIn")}
             </button>
           ) : (
             <button
               className="btn-icon btn-icon-sm"
               type="button"
-              title="Dismiss"
+              title={t("chatPanel.dismiss")}
               onClick={() => setSetupRequired(null)}
             >
               <X size={11} />
@@ -3390,13 +3391,13 @@ export function ChatPanel({
           passed (used by "Log out all"). Destructive in both cases. */}
       <ConfirmDialog
         open={confirmLogoutProvider !== null}
-        title={`Log out of ${confirmLogoutProvider?.label ?? "provider"}?`}
+        title={t("chatPanel.logOutOf", { label: confirmLogoutProvider?.label ?? "provider" })}
         message={
           confirmLogoutProvider && managedProvider && confirmLogoutProvider.id === managedProvider.id
-            ? `This removes every stored ${confirmLogoutProvider?.label ?? ""} credential from Basebuild's local credential store and blocks Oh My Pi re-import until the next explicit login. Chats using this provider will stop working until you log in again.`
-            : `This removes the stored ${confirmLogoutProvider?.label ?? ""} credential from Basebuild's local credential store. Other accounts on this provider stay connected.`
+            ? t("chatPanel.thisRemovesEveryStoredCredentialFrom", { value1: confirmLogoutProvider?.label ?? "" })
+            : t("chatPanel.thisRemovesTheStoredCredentialFrom", { value1: confirmLogoutProvider?.label ?? "" })
         }
-        confirmLabel="Log out"
+        confirmLabel={t("chatPanel.logOut")}
         destructive
         onConfirm={() => {
           if (!confirmLogoutProvider || !managedProvider) return;
@@ -3412,20 +3413,20 @@ export function ChatPanel({
       {/* Command payload modal: shows the full injected skill/command body. */}
       {commandPayloadModal ? (
         <ModalPortal>
-        <div className="modal-overlay" onClick={() => setCommandPayloadModal(null)} title="Close command payload">
-          <div className="modal modal-sm" onClick={(e) => e.stopPropagation()} title={`${commandPayloadModal.name} payload`}>
+        <div className="modal-overlay" onClick={() => setCommandPayloadModal(null)} title={t("chatPanel.closeCommandPayload")}>
+          <div className="modal modal-sm" onClick={(e) => e.stopPropagation()} title={t("chatPanel.payload", { name: commandPayloadModal.name })}>
             <div className="modal-header">
               <h2>{commandPayloadModal.name}</h2>
               <button
                 className="btn-icon"
-                title="Close"
+                title={t("chatPanel.close")}
                 type="button"
                 onClick={() => setCommandPayloadModal(null)}
               >
                 <X size={16} />
               </button>
             </div>
-            <div className="modal-body command-payload-body" onClick={(e) => e.stopPropagation()} title="Full injected command payload">
+            <div className="modal-body command-payload-body" onClick={(e) => e.stopPropagation()} title={t("chatPanel.fullInjectedCommandPayload")}>
               <pre className="command-payload-pre">{commandPayloadModal.content}</pre>
             </div>
           </div>
@@ -3439,11 +3440,11 @@ export function ChatPanel({
           <>
             {showPlanningMenu ? (
               <ModalPortal>
-              <div className="modal-overlay" onClick={() => setShowPlanningMenu(false)} title="Close ideas menu">
-                <div className="modal modal-sm" onClick={(e) => e.stopPropagation()} title="Idea actions">
+              <div className="modal-overlay" onClick={() => setShowPlanningMenu(false)} title={t("chatPanel.closeIdeasMenu")}>
+                <div className="modal modal-sm" onClick={(e) => e.stopPropagation()} title={t("chatPanel.ideaActions")}>
                   <div className="modal-header">
-                    <h2>Ideas</h2>
-                    <button className="btn-icon" type="button" title="Close ideas menu" onClick={() => setShowPlanningMenu(false)}>
+                    <h2>{t("chatPanel.ideas")}</h2>
+                    <button className="btn-icon" type="button" title={t("chatPanel.closeIdeasMenu")} onClick={() => setShowPlanningMenu(false)}>
                       <X size={16} />
                     </button>
                   </div>
@@ -3452,21 +3453,21 @@ export function ChatPanel({
                       <button
                         className="btn"
                         type="button"
-                        title={`Schematic ${schematicReport.health}: incomplete sections may lead to ungrounded generation — click to open the schematic`}
+                        title={t("chatPanel.schematicIncompleteSectionsMayLeadTo", { health: schematicReport.health })}
                         onClick={() => {
                           setShowPlanningMenu(false);
                           onOpenSchematic?.();
                         }}
                       >
                         <AlertCircle size={11} />
-                        <span>Schematic {schematicReport.health}</span>
-                        <span className="text-muted text-sm">Fix</span>
+                        <span>{t("chatPanel.schematic", { health: schematicReport.health })}</span>
+                        <span className="text-muted text-sm">{t("chatPanel.fix")}</span>
                       </button>
                     )}
                     <button
                       className="btn"
                       type="button"
-                      title="Quick freeform idea generation in the chat"
+                      title={t("chatPanel.quickFreeformIdeaGenerationIn")}
                       disabled={generatingIdeas || !nativeSessionId}
                       onClick={() => {
                         setShowPlanningMenu(false);
@@ -3474,31 +3475,31 @@ export function ChatPanel({
                       }}
                     >
                       <Sparkles size={11} />
-                      <span>Quick ideas</span>
+                      <span>{t("chatPanel.quickIdeas")}</span>
                     </button>
                     <button
                       className="btn"
                       type="button"
-                      title="Pick a category and generate ideas for it"
+                      title={t("chatPanel.pickACategoryAndGenerate")}
                       onClick={() => {
                         setShowPlanningMenu(false);
                         setShowCategoryPicker(true);
                       }}
                     >
                       <FolderTree size={11} />
-                      <span>By category…</span>
+                      <span>{t("chatPanel.byCategory")}</span>
                     </button>
                     <button
                       className="btn"
                       type="button"
-                      title="Open the planning inspector"
+                      title={t("chatPanel.openThePlanningInspector")}
                       onClick={() => {
                         setShowPlanningMenu(false);
                         onOpenPlanningInspector?.();
                       }}
                     >
                       <LayoutGrid size={11} />
-                      <span>Planning inspector</span>
+                      <span>{t("chatPanel.planningInspector")}</span>
                     </button>
                   </div>
                 </div>
@@ -3507,24 +3508,24 @@ export function ChatPanel({
             ) : null}
             {showCategoryPicker ? (
               <ModalPortal>
-              <div className="modal-overlay" onClick={() => setShowCategoryPicker(false)} title="Close category picker">
-                <div className="modal modal-sm" onClick={(e) => e.stopPropagation()} title="Pick a category">
+              <div className="modal-overlay" onClick={() => setShowCategoryPicker(false)} title={t("chatPanel.closeCategoryPicker")}>
+                <div className="modal modal-sm" onClick={(e) => e.stopPropagation()} title={t("chatPanel.pickACategory")}>
                   <div className="modal-header">
-                    <h2>Pick a category</h2>
-                    <button className="btn-icon" type="button" title="Close category picker" onClick={() => setShowCategoryPicker(false)}>
+                    <h2>{t("chatPanel.pickACategory")}</h2>
+                    <button className="btn-icon" type="button" title={t("chatPanel.closeCategoryPicker")} onClick={() => setShowCategoryPicker(false)}>
                       <X size={16} />
                     </button>
                   </div>
                   <div className="modal-body stack">
                     {sessionCategories.length === 0 ? (
-                      <p className="text-muted text-sm">No categories yet.</p>
+                      <p className="text-muted text-sm">{t("chatPanel.noCategoriesYet")}</p>
                     ) : null}
                     {sessionCategories.map((cat) => (
                       <button
                         key={cat.id}
                         className="btn"
                         type="button"
-                        title={`Generate ideas for ${cat.name}`}
+                        title={t("chatPanel.generateIdeasFor", { name: cat.name })}
                         disabled={generatingIdeas}
                         onClick={() => void handleGenerateForCategory(cat.id)}
                       >
@@ -3535,12 +3536,12 @@ export function ChatPanel({
                     <button
                       className="btn"
                       type="button"
-                      title="Freeform generation (no category)"
+                      title={t("chatPanel.freeformGenerationNoCategory")}
                       disabled={generatingIdeas}
                       onClick={() => void handleGenerateForCategory(undefined)}
                     >
-                      <span>Freeform</span>
-                      <span className="text-muted text-sm">No specific category</span>
+                      <span>{t("chatPanel.freeform")}</span>
+                      <span className="text-muted text-sm">{t("chatPanel.noSpecificCategory")}</span>
                     </button>
                   </div>
                 </div>
@@ -3599,11 +3600,11 @@ export function ChatPanel({
               <div className="chat-command-notice">
                 <span>{commandNotice}</span>
                 {input.trim().startsWith("/") ? (
-                  <button className="btn btn-sm" type="button" title="Send this slash-prefixed text as a normal message" onClick={() => void sendMessage(input.trim())}>
-                    Send as text
+                  <button className="btn btn-sm" type="button" title={t("chatPanel.sendThisSlashPrefixedText")} onClick={() => void sendMessage(input.trim())}>
+                    {t("chatPanel.sendAsText")}
                   </button>
                 ) : null}
-                <button className="btn-icon btn-icon-sm" type="button" title="Dismiss command notice" onClick={() => setCommandNotice(null)}>
+                <button className="btn-icon btn-icon-sm" type="button" title={t("chatPanel.dismissCommandNotice")} onClick={() => setCommandNotice(null)}>
                   <X size={11} />
                 </button>
               </div>
@@ -3623,32 +3624,32 @@ export function ChatPanel({
             ) : null}
             {showClearConfirm ? (
               <ModalPortal>
-              <div className="modal-overlay" onClick={() => setShowClearConfirm(false)} title="Cancel clear chat">
-                <div className="modal modal-sm" onClick={(e) => e.stopPropagation()} title="Confirm clear chat">
+              <div className="modal-overlay" onClick={() => setShowClearConfirm(false)} title={t("chatPanel.cancelClearChat")}>
+                <div className="modal modal-sm" onClick={(e) => e.stopPropagation()} title={t("chatPanel.confirmClearChat")}>
                   <div className="modal-header">
-                    <h2>Clear chat?</h2>
-                    <button className="btn-icon" type="button" title="Cancel" onClick={() => setShowClearConfirm(false)}>
+                    <h2>{t("chatPanel.clearChat")}</h2>
+                    <button className="btn-icon" type="button" title={t("chatPanel.cancel")} onClick={() => setShowClearConfirm(false)}>
                       <X size={16} />
                     </button>
                   </div>
                   <div className="modal-body stack">
-                    <p className="text-sm">This will delete all messages and tool events in this chat. The chat session and its provider/model/effort selection are preserved. This cannot be undone.</p>
+                    <p className="text-sm">{t("chatPanel.thisWillDeleteAllMessages")}</p>
                     <div className="row gap-sm">
                       <button
                         className="btn"
                         type="button"
-                        title="Cancel and keep the chat as-is"
+                        title={t("chatPanel.cancelAndKeepTheChat")}
                         onClick={() => setShowClearConfirm(false)}
                       >
-                        Cancel
+                        {t("chatPanel.cancel")}
                       </button>
                       <button
                         className="btn btn-primary"
                         type="button"
-                        title="Delete all messages and tool events in this chat"
+                        title={t("chatPanel.deleteAllMessagesAndTool")}
                         onClick={() => void handleClearChat()}
                       >
-                        Clear
+                        {t("chatPanel.clear")}
                       </button>
                     </div>
                   </div>
@@ -3681,40 +3682,39 @@ export function ChatPanel({
             <button
               className="chat-bg-agent-gate"
               type="button"
-              title="Enable the chat input for this session — the background agent keeps running either way"
+              title={t("chatPanel.enableTheChatInputFor")}
               onClick={() => setBgInputUnlocked(true)}
             >
               <Bot size={12} className="chat-bg-agent-gate-icon" />
               <span>
-                A background agent is running. Click here to enable the chat input —
-                interrupting may cause the background agent to fail its original task.
+                {t("chatPanel.aBackgroundAgentIsRunning")}
               </span>
             </button>
           ) : null}
           {sessionTodos.length > 0 ? <ChatTodoChecklist todos={sessionTodos} /> : null}
           {planMode && !loading && !streaming && nativeMessages.some((message) => message.role === "assistant") ? (
             <div className="chat-notice-bar is-plan" role="status">
-              <span>Plan mode is on: the agent reads and plans without changing files. Approve the plan to let it make changes.</span>
+              <span>{t("chatPanel.planModeIsOnTheAgent")}</span>
               <button
                 className="btn btn-primary"
                 type="button"
-                title="Approve the plan: turns plan mode off and asks the agent to carry it out"
+                title={t("chatPanel.approveThePlanTurnsPlanMode")}
                 onClick={() => void handleApprovePlan()}
               >
-                Approve plan
+                {t("chatPanel.approvePlan")}
               </button>
             </div>
           ) : null}
           {iterationCapped && !loading ? (
             <div className="chat-notice-bar" role="status">
-              <span>The agent paused after reaching its step limit.</span>
+              <span>{t("chatPanel.theAgentPausedAfterReachingIts")}</span>
               <button
                 className="btn"
                 type="button"
-                title="Ask the agent to keep going from where it stopped"
-                onClick={() => void sendMessage("Continue")}
+                title={t("chatPanel.askTheAgentToKeepGoing")}
+                onClick={() => void sendMessage("Continue" /* i18n-exempt: model-facing prompt, stays English */)}
               >
-                Continue
+                {t("chatPanel.continue")}
               </button>
             </div>
           ) : null}
@@ -3722,13 +3722,13 @@ export function ChatPanel({
             <textarea
               ref={chatInputRef}
               className="input chat-input"
-              aria-label="Chat message input"
+              aria-label={t("chatPanel.chatMessageInput")}
               placeholder={
                 !nativeMode
-                  ? "Agent not connected. Click retry above to start."
+                  ? t("chatPanel.agentNotConnectedClickRetry")
                   : steerable
-                    ? "Steer the agent while it works… (Enter to send)"
-                    : "Type a message… (Enter to send, Shift+Enter for newline)"
+                    ? t("chatPanel.steerTheAgentWhileIt")
+                    : t("chatPanel.typeAMessageEnterTo")
               }
               value={input}
               onChange={(e) => {
@@ -3867,7 +3867,7 @@ export function ChatPanel({
               }}
               rows={2}
               disabled={inputDisabled}
-              title={!nativeMode ? "Chat input: start the agent to enable sending" : steerable ? "Chat input: the agent is working, press Enter to steer it mid-turn" : "Chat input: type a message and press Enter to send"}
+              title={!nativeMode ? t("chatPanel.chatInputStartTheAgent") : steerable ? t("chatPanel.chatInputTheAgentIs") : t("chatPanel.chatInputTypeAMessage")}
             />
           </div>
           <div className="chat-composer-controls">
@@ -3886,7 +3886,7 @@ export function ChatPanel({
                   effortChip={effortLevel}
                   effortOptions={(catalog?.effortLevels ?? [])
                     .filter((effort) => selectedModel?.supportedEfforts.includes(effort.id) ?? false)
-                    .map((effort) => ({ id: effort.id, label: effort.label }))}
+                    .map((effort) => ({ id: effort.id, label: effortDisplayLabel(effort.id, effort.label) }))}
                   onChangeEffort={(effort) => {
                     addLog("debug", "Chat effort selected", `sessionId=${nativeSessionId ?? "none"}; effort=${effort}`);
                     setEffortLevel(effort);
@@ -3899,18 +3899,18 @@ export function ChatPanel({
                   className={`btn chat-plan-toggle${planMode ? " is-active" : ""}`}
                   type="button"
                   aria-pressed={planMode}
-                  title={planMode ? "Plan mode is on: the agent reads and plans without changing files. Click to turn it off." : "Plan mode: the agent reads and plans without changing files until you approve the plan"}
+                  title={planMode ? t("chatPanel.planModeIsOnTheAgent2") : t("chatPanel.planModeTheAgentReadsAnd")}
                   disabled={!nativeSessionId || loading}
                   onClick={() => void handleSetPlanMode(!planMode)}
                 >
-                  <ListChecks size={13} /> Plan
+                  <ListChecks size={13} /> {t("chatPanel.plan3")}
                 </button>
                 {contextFiles.length > 0 ? (
                   <span
                     className="chat-context-chip"
-                    title={`Context files sent with every request:\n${contextFiles.map((file) => file.label).join("\n")}`}
+                    title={t("chatPanel.contextFilesSentWithEveryRequest", { value1: contextFiles.map((file) => file.label).join("\n") })}
                   >
-                    <FileText size={12} /> {contextFiles.length} {contextFiles.length === 1 ? "context file" : "context files"}
+                    <FileText size={12} /> {contextFiles.length} {contextFiles.length === 1 ? t("chatPanel.contextFile") : t("chatPanel.contextFiles")}
                   </span>
                 ) : null}
                 {routeVia ? (
@@ -3918,19 +3918,19 @@ export function ChatPanel({
                     className={`chat-route-badge is-${routeVia}`}
                     title={
                       routeVia === "omp"
-                        ? "This chat routes through the Oh My Pi (OMP) RPC bridge — some Basebuild tools may be unavailable."
-                        : "This chat uses Basebuild's native transport (first-party) — full tool support."
+                        ? t("chatPanel.thisChatRoutesThroughThe")
+                        : t("chatPanel.thisChatUsesBasebuildS")
                     }
                   >
-                    {routeVia === "omp" ? "OMP" : "Native"}
+                    {routeVia === "omp" ? t("chatPanel.oMP") : t("chatPanel.native")}
                   </span>
                 ) : null}
                 {isLocalProvider && genStats ? (
-                  <span className="chat-gen-stats" title="Local generation stats from the last completed turn">
-                    <span className="chat-gen-stats-label">Local</span>
-                    {genStats.tokensPerSecond != null ? <span>{genStats.tokensPerSecond.toFixed(1)} tok/s</span> : null}
-                    {genStats.ttftMs != null ? <span>{genStats.ttftMs} ms TTFT</span> : null}
-                    {genStats.durationMs != null ? <span>{(genStats.durationMs / 1000).toFixed(1)}s</span> : null}
+                  <span className="chat-gen-stats" title={t("chatPanel.localGenerationStatsFromThe")}>
+                    <span className="chat-gen-stats-label">{t("chatPanel.local")}</span>
+                    {genStats.tokensPerSecond != null ? <span>{t("chatPanel.tokS", { value: genStats.tokensPerSecond.toFixed(1) })}</span> : null}
+                    {genStats.ttftMs != null ? <span>{t("chatPanel.msTtft", { ttftMs: genStats.ttftMs })}</span> : null}
+                    {genStats.durationMs != null ? <span>{t("chatPanel.s", { value: (genStats.durationMs / 1000).toFixed(1) })}</span> : null}
                   </span>
                 ) : null}
               </div>
@@ -3940,7 +3940,7 @@ export function ChatPanel({
                 <button
                   className="btn chat-send-btn chat-stop-btn"
                   type="button"
-                  title="Stop the agent and unlock the composer"
+                  title={t("chatPanel.stopTheAgentAndUnlock")}
                   onClick={() => void handleStopNative()}
                 >
                   <Square size={13} />
@@ -3953,8 +3953,8 @@ export function ChatPanel({
                     type="button"
                     title={
                       voiceReady
-                        ? "Push to talk: hold and speak, release to send (or hold Space bar)"
-                        : "Start a chat session before dictating"
+                        ? t("chatPanel.pushToTalkHoldAnd")
+                        : t("chatPanel.startAChatSessionBefore")
                     }
                     disabled={!voiceReady || voice.callActive}
                     onPointerDown={() => void voice.beginPushToTalk()}
@@ -3968,8 +3968,8 @@ export function ChatPanel({
                     type="button"
                     title={
                       voice.callActive
-                        ? "Hang up the voice call"
-                        : "Start a voice call: continuous listening, hands free, talk over the agent to interrupt"
+                        ? t("chatPanel.hangUpTheVoiceCall")
+                        : t("chatPanel.startAVoiceCallContinuous")
                     }
                     disabled={!voiceReady}
                     onClick={() => {
@@ -3984,7 +3984,7 @@ export function ChatPanel({
               <button
                 className="btn btn-primary chat-send-btn"
                 type="button"
-                title={steerable ? "Steer the running agent: your message is injected into the turn in progress" : "Send message"}
+                title={steerable ? t("chatPanel.steerTheRunningAgentYour") : t("chatPanel.sendMessage")}
                 disabled={sendDisabled}
                 onClick={() => void handleSend()}
               >
@@ -4030,7 +4030,7 @@ export function ChatPanel({
                   void generateIdeasRef.current?.({
                     categoryIds: categoryId ? [categoryId] : [],
                     ideaCount: 8,
-                    direction: "Find more grounded, distinct improvements. Avoid semantic duplicates and explain each estimate.",
+                    direction: "Find more grounded, distinct improvements. Avoid semantic duplicates and explain each estimate." /* i18n-exempt: model prompt */,
                   });
                 }}
                 onReviewed={() => {
@@ -4043,43 +4043,43 @@ export function ChatPanel({
           </div>
         )}
         {debugMode ? (
-          <div className="chat-debug-panel" title="Raw event stream from the model and agent loop">
+          <div className="chat-debug-panel" title={t("chatPanel.rawEventStreamFromThe")}>
             <button
               type="button"
               className="chat-debug-panel-toggle"
-              title={debugExpanded ? "Collapse debug event stream" : "Expand debug event stream"}
+              title={debugExpanded ? t("chatPanel.collapseDebugEventStream") : t("chatPanel.expandDebugEventStream")}
               onClick={() => setDebugExpanded(!debugExpanded)}
             >
-              {debugExpanded ? "▼" : "▶"} Debug Event Stream ({debugEvents.length})
+              {t("chatPanel.debugEventStream", { value: debugExpanded ? "▼" : "▶", debugEventsCount: debugEvents.length })}
             </button>
             {debugExpanded ? (
               <div className="chat-debug-panel-body">
                 {/* Session info row with copy button */}
-                <div className="chat-debug-session-info" title="Current chat session id — click to copy">
-                  <span className="chat-debug-session-label">session</span>
-                  <code className="chat-debug-session-id">{nativeSessionId ?? "none"}</code>
+                <div className="chat-debug-session-info" title={t("chatPanel.currentChatSessionIdClick")}>
+                  <span className="chat-debug-session-label">{t("chatPanel.session")}</span>
+                  <code className="chat-debug-session-id">{nativeSessionId ?? t("chatPanel.none")}</code>
                   <button
                     type="button"
                     className="btn-icon btn-icon-sm chat-debug-copy-btn"
-                    title="Copy session id"
+                    title={t("chatPanel.copySessionId")}
                     onClick={() => void navigator.clipboard.writeText(nativeSessionId ?? "")}
                   >
                     <Copy size={10} />
                   </button>
                 </div>
                 {debugEvents.length === 0 ? (
-                  <div className="chat-debug-empty text-muted text-sm">No events yet. Send a message to see raw event data.</div>
+                  <div className="chat-debug-empty text-muted text-sm">{t("chatPanel.noEventsYetSendA")}</div>
                 ) : (
                   <div className="chat-debug-event-list">
                     {debugEvents.slice(-100).map((e, i) => (
                       <div key={i} className="chat-debug-event">
                         <div className="chat-debug-event-header">
-                          <span className="chat-debug-event-ts">{new Date(e.ts).toLocaleTimeString(undefined, { hour12: false })}</span>
+                          <span className="chat-debug-event-ts">{formatDateTime(new Date(e.ts), { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}</span>
                           <span className="chat-debug-event-channel">{e.channel}</span>
                           <button
                             type="button"
                             className="btn-icon btn-icon-sm chat-debug-copy-btn"
-                            title="Copy this event"
+                            title={t("chatPanel.copyThisEvent")}
                             onClick={() => void navigator.clipboard.writeText(
                               typeof e.data === "string" ? e.data : JSON.stringify(e.data, null, 2),
                             )}
@@ -4096,25 +4096,25 @@ export function ChatPanel({
                   <button
                     type="button"
                     className="btn btn-sm chat-debug-copy-all"
-                    title="Copy all debug events to clipboard"
+                    title={t("chatPanel.copyAllDebugEventsTo")}
                     disabled={debugEvents.length === 0}
                     onClick={() => {
                       const text = debugEvents.map((e) =>
-                        `[${new Date(e.ts).toLocaleTimeString(undefined, { hour12: false })}] ${e.channel}\n${
+                        `[${formatDateTime(new Date(e.ts), { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}] ${e.channel}\n${
                           typeof e.data === "string" ? e.data : JSON.stringify(e.data, null, 2)
                         }`,
                       ).join("\n\n");
                       void navigator.clipboard.writeText(text);
                     }}
                   >
-                    <Copy size={10} /> Copy All
+                    <Copy size={10} /> {t("chatPanel.copyAll")}
                   </button>
                   <button
                     type="button"
                     className="btn btn-sm chat-debug-clear"
-                    title="Clear debug event log"
+                    title={t("chatPanel.clearDebugEventLog")}
                     onClick={() => setDebugEvents([])}
-                  >Clear</button>
+                  >{t("chatPanel.clear")}</button>
                 </div>
               </div>
               ) : null}

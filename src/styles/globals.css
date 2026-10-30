@@ -38,8 +38,8 @@
   --bb-ease: ease-out;
 
   /* Fonts */
-  --bb-font: "Space Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --bb-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --bb-font: "Space Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", sans-serif;
+  --bb-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", monospace;
 
   /* Layout */
   --bb-sidebar-w: 220px;

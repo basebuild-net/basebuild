@@ -1,5 +1,6 @@
 import { Download, RefreshCw } from "lucide-react";
 import type { UpdaterState } from "../../state/updater";
+import { t } from "../../i18n";
 
 type UpdateButtonProps = {
   updates: UpdaterState;
@@ -19,12 +20,12 @@ export function UpdateButton({ updates, onOpenSettings }: UpdateButtonProps) {
       <button
         className="update-taskbar-btn"
         type="button"
-        title={`Basebuild${versionLabel} is downloaded — click to restart and apply it`}
+        title={t("updateButton.basebuildIsDownloadedClickToRestart", { versionLabel: versionLabel })}
         onClick={() => void updates.restartToApply()}
         disabled={installing}
       >
         <RefreshCw size={13} className={installing ? "spin" : ""} />
-        <span>{installing ? "Restarting…" : "Restart to apply update"}</span>
+        <span>{installing ? t("updateButton.restarting") : t("updateButton.restartToApplyUpdate")}</span>
       </button>
     );
   }
@@ -35,12 +36,12 @@ export function UpdateButton({ updates, onOpenSettings }: UpdateButtonProps) {
       <button
         className="update-taskbar-status"
         type="button"
-        title={`Downloading Basebuild${versionLabel} in the background — you can keep working; it applies when you restart`}
+        title={t("updateButton.downloadingBasebuildInTheBackgroundYou", { versionLabel: versionLabel })}
         onClick={onOpenSettings}
         disabled
       >
         <Download size={13} />
-        <span>{`Downloading${versionLabel}…`}</span>
+        <span>{t("updateButton.downloading", { versionLabel: versionLabel })}</span>
       </button>
     );
   }
@@ -50,11 +51,11 @@ export function UpdateButton({ updates, onOpenSettings }: UpdateButtonProps) {
       <button
         className="update-taskbar-status"
         type="button"
-        title="Checking for Basebuild updates"
+        title={t("updateButton.checkingForBasebuildUpdates")}
         onClick={onOpenSettings}
       >
         <RefreshCw size={12} className="spin" />
-        <span>Checking</span>
+        <span>{t("updateButton.checking")}</span>
       </button>
     );
   }
@@ -69,12 +70,12 @@ export function UpdateButton({ updates, onOpenSettings }: UpdateButtonProps) {
       channelStatus === "malformedManifest" ||
       channelStatus === "platformMissing" ||
       channelStatus === "signatureInvalid";
-    const label = isChannelBroken ? "Update unavailable" : "Update error";
+    const label = isChannelBroken ? t("updateButton.updateUnavailable") : t("updateButton.updateError");
     return (
       <button
         className={`update-taskbar-status${isChannelBroken ? " is-warning" : " is-error"}`}
         type="button"
-        title={info?.channelExplanation ?? updates.error ?? "Update check failed"}
+        title={info?.channelExplanation ?? updates.error ?? t("updateButton.updateCheckFailed")}
         onClick={onOpenSettings}
       >
         <RefreshCw size={12} />

@@ -3,6 +3,7 @@ import { X } from "lucide-react";
 import { ModalPortal } from "../../ModalPortal";
 import { listResolvedSkills, readResolvedSkill, type ResolvedSkill } from "../../../lib/skillRegistry";
 import { LoadingBlock, SkeletonRows } from "../Loading";
+import { t } from "../../../i18n";
 
 export function SkillsTab() {
   const [skills, setSkills] = useState<ResolvedSkill[] | null>(null);
@@ -18,7 +19,7 @@ export function SkillsTab() {
         const list = await listResolvedSkills();
         setSkills(list);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to load skills");
+        setError(e instanceof Error ? e.message: t("skillsTab.failedToLoadSkills"));
       }
     })();
   }, []);
@@ -44,7 +45,7 @@ export function SkillsTab() {
       const content = await readResolvedSkill(skill.name);
       setPreviewContent(content);
     } catch (e) {
-      setPreviewError(e instanceof Error ? e.message : "Failed to load skill content");
+      setPreviewError(e instanceof Error ? e.message: t("skillsTab.failedToLoadSkillContent"));
     } finally {
       setPreviewLoading(false);
     }
@@ -52,14 +53,14 @@ export function SkillsTab() {
 
   return (
     <div className="stack">
-      <h3>Skills</h3>
-      <p className="text-muted text-sm">Resolved skills available to the agent loop.</p>
+      <h3>{t("skillsTab.skills")}</h3>
+      <p className="text-muted text-sm">{t("skillsTab.resolvedSkillsAvailableToThe")}</p>
       {error ? (
         <p className="text-danger text-sm">{error}</p>
       ) : skills === null ? (
-        <SkeletonRows rows={4} label="Loading skills…" />
+        <SkeletonRows rows={4} label={t("skillsTab.loadingSkills")} />
       ) : skills.length === 0 ? (
-        <p className="text-muted text-sm">No skills resolved. Bundled skills provision on first run.</p>
+        <p className="text-muted text-sm">{t("skillsTab.noSkillsResolvedBundledSkills")}</p>
       ) : (
         <div className="skills-list">
           {skills.map((skill) => (
@@ -71,10 +72,10 @@ export function SkillsTab() {
               <button
                 className="btn btn-sm"
                 type="button"
-                title="Preview skill content"
+                title={t("skillsTab.previewSkillContent")}
                 onClick={() => void openPreview(skill)}
               >
-                View
+                {t("skillsTab.view")}
               </button>
             </div>
           ))}
@@ -90,7 +91,7 @@ export function SkillsTab() {
               <button
                 className="btn-icon"
                 type="button"
-                title="Close preview"
+                title={t("skillsTab.closePreview")}
                 onClick={() => setPreviewSkill(null)}
               >
                 <X size={16} />
@@ -98,7 +99,7 @@ export function SkillsTab() {
             </div>
             <div className="modal-body">
               {previewLoading ? (
-                <LoadingBlock label="Loading skill…" compact />
+                <LoadingBlock label={t("skillsTab.loadingSkill")} compact />
               ) : previewError ? (
                 <p className="text-danger text-sm">{previewError}</p>
               ) : (

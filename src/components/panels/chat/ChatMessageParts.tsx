@@ -2,19 +2,20 @@ import { useMemo, useState } from "react";
 import { Brain } from "lucide-react";
 import { MarkdownView } from "../MarkdownView";
 import { parseCommandPayload } from "../../../lib/chatCommands";
+import { t } from "../../../i18n";
 
 export function ThinkingBlock({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(true);
   return (
-    <div className="chat-thinking-block" title="Model thinking — click to expand">
+    <div className="chat-thinking-block" title={t("chatMessageParts.modelThinkingClickToExpand")}>
       <button
         className="chat-thinking-toggle"
         type="button"
-        title={expanded ? "Collapse model thinking trace" : "Expand model thinking trace"}
+        title={expanded ? t("chatMessageParts.collapseModelThinkingTrace") : t("chatMessageParts.expandModelThinkingTrace")}
         onClick={() => setExpanded(!expanded)}
       >
         <Brain size={11} />
-        {expanded ? "▼" : "▶"} Thinking…
+        {t("chatMessageParts.thinking", { value: expanded ? "▼" : "▶" })}
       </button>
       {expanded ? <MarkdownView text={text} className="chat-thinking-content" /> : null}
     </div>
@@ -35,7 +36,7 @@ export function UserMessageContent({
       <button
         className="chat-command-chip"
         type="button"
-        title={`View full ${parsed.name} payload`}
+        title={t("chatMessageParts.viewFullPayload", { name: parsed.name })}
         onClick={() => onViewPayload(parsed.name, parsed.content)}
       >
         {parsed.name}

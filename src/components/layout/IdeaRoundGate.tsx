@@ -1,5 +1,6 @@
 import { AlertTriangle } from "lucide-react";
 import { ModalPortal } from "../ModalPortal";
+import { t } from "../../i18n";
 
 type IdeaRoundGateProps = {
   open: boolean;
@@ -18,30 +19,29 @@ type IdeaRoundGateProps = {
 export function IdeaRoundGate({ open, health, onOpenWizard, onProceed, onCancel }: IdeaRoundGateProps) {
   if (!open) return null;
   const gap = health === "missing"
-    ? "This project has no schematic yet — the round will run without focus grounding."
-    : "The schematic is incomplete — the round will run with partial grounding.";
+    ? t("ideaRoundGate.thisProjectHasNoSchematicYet")
+    : t("ideaRoundGate.theSchematicIsIncompleteTheRound");
   return (
     <ModalPortal>
-    <div className="modal-overlay" role="dialog" aria-label="Schematic incomplete">
-      <div className="idea-round-gate" title="Schematic incomplete warning">
+    <div className="modal-overlay" role="dialog" aria-label={t("ideaRoundGate.schematicIncomplete")}>
+      <div className="idea-round-gate" title={t("ideaRoundGate.schematicIncompleteWarning")}>
         <div className="idea-round-gate-header">
           <AlertTriangle size={14} />
-          <span>Schematic {health}</span>
+          <span>{t("ideaRoundGate.schematic", { health: health })}</span>
         </div>
         <p className="idea-round-gate-body">{gap}</p>
         <p className="idea-round-gate-body text-muted">
-          Grounded rounds work best with a complete schematic (vision, goals,
-          priorities). You can run the wizard first, or proceed anyway.
+          {t("ideaRoundGate.groundedRoundsWorkBestWith")}
         </p>
         <div className="idea-round-gate-actions">
-          <button className="btn btn-sm btn-primary" type="button" title="Run the schematic wizard first" onClick={onOpenWizard}>
-            Open wizard
+          <button className="btn btn-sm btn-primary" type="button" title={t("ideaRoundGate.runTheSchematicWizardFirst")} onClick={onOpenWizard}>
+            {t("ideaRoundGate.openWizard")}
           </button>
-          <button className="btn btn-sm" type="button" title="Run the round with whatever grounding exists" onClick={onProceed}>
-            Proceed anyway
+          <button className="btn btn-sm" type="button" title={t("ideaRoundGate.runTheRoundWithWhatever")} onClick={onProceed}>
+            {t("ideaRoundGate.proceedAnyway")}
           </button>
-          <button className="btn btn-sm" type="button" title="Cancel the round" onClick={onCancel}>
-            Cancel
+          <button className="btn btn-sm" type="button" title={t("ideaRoundGate.cancelTheRound")} onClick={onCancel}>
+            {t("ideaRoundGate.cancel")}
           </button>
         </div>
       </div>

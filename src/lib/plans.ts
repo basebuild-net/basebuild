@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { invoke } from "@tauri-apps/api/core";
 import type { PlanAssessment } from "./planning-assessment";
 
@@ -125,14 +126,16 @@ export function sortPlansForDisplay(plans: Plan[]): Plan[] {
   );
 }
 
-export const PLAN_STATUS_LABEL: Record<PlanStatus, string> = {
-  draft: "Draft",
-  openspec: "OpenSpec",
-  ready: "Ready",
-  running: "Running",
-  finished: "Finished",
-  cancelled: "Cancelled",
-};
+export function PLAN_STATUS_LABEL(): Record<PlanStatus, string> {
+  return {
+    draft: t("plans.planStatusLabelDraft"),
+    openspec: "OpenSpec",
+    ready: t("plans.planStatusLabelReady"),
+    running: t("plans.planStatusLabelRunning"),
+    finished: t("plans.planStatusLabelFinished"),
+    cancelled: t("plans.planStatusLabelCancelled"),
+  };
+}
 
 export function isTerminalStatus(status: PlanStatus): boolean {
   return status === "finished" || status === "cancelled";

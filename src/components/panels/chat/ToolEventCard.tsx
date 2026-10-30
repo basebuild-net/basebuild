@@ -4,6 +4,8 @@ import type { Idea } from "../../../lib/ideas";
 import { IdeaBatchPreview, parseIdeaBatch } from "../IdeaReviewWorkbench";
 import { formatElapsed } from "./chatFormat";
 import { SubagentTaskCard } from "./SubagentTaskCard";
+import { t } from "../../../i18n";
+import { formatDateTime } from "../../../i18n/format";
 
 // Module-level expansion state for tool cards. Keyed by tool event id,
 // survives re-renders during streaming so a card the user expanded stays
@@ -51,7 +53,7 @@ export function ToolEventCard({
   const diffLines = diffText.split("\n").filter((l) => l.length > 0);
 
   const timeStr = event.createdAt
-    ? new Date(event.createdAt * 1000).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+    ? formatDateTime(new Date(event.createdAt * 1000), { hour: "2-digit", minute: "2-digit", second: "2-digit" })
     : null;
   const activeDuration = isRunning && event.createdAt
     ? formatElapsed(Math.max(0, Math.floor(Date.now() / 1000) - event.createdAt))
@@ -90,13 +92,13 @@ export function ToolEventCard({
       const cmd = typeof parsedArgs === "object" && parsedArgs !== null && "command" in parsedArgs
         ? String(parsedArgs.command)
         : null;
-      return cmd ? { label: "Command", value: cmd } : null;
+      return cmd ? { label: t("toolEventCard.command"), value: cmd } : null;
     }
     if (isEdit) {
       const path = typeof parsedArgs === "object" && parsedArgs !== null && "path" in parsedArgs
         ? String(parsedArgs.path)
         : null;
-      return path ? { label: "File", value: path } : null;
+      return path ? { label: t("toolEventCard.file"), value: path } : null;
     }
     // Generic: look for common fields.
     if (typeof parsedArgs === "object" && parsedArgs !== null) {
@@ -114,24 +116,24 @@ export function ToolEventCard({
     if (!event.decision) return null;
     const dec = event.decision;
     if (dec === "approved") {
-      return event.ruleSource ? `Allowed by rule: ${event.ruleSource}` : "Allowed by user";
+      return event.ruleSource ? t("toolEventCard.allowedByRule", { ruleSource: event.ruleSource }) : t("toolEventCard.allowedByUser");
     }
     if (dec === "denied") {
-      return event.ruleSource ? `Denied by rule: ${event.ruleSource}` : "Denied by user";
+      return event.ruleSource ? t("toolEventCard.deniedByRule", { ruleSource: event.ruleSource }) : t("toolEventCard.deniedByUser");
     }
-    if (dec === "auto") return "Auto-approved (session mode)";
-    if (dec === "pending") return "Approval pending";
+    if (dec === "auto") return t("toolEventCard.autoApprovedSessionMode");
+    if (dec === "pending") return t("toolEventCard.approvalPending");
     return dec;
   })();
 
   return (
-    <div data-tool-id={event.id} className={`tool-card tool-card-${statusClass}${isApproval ? " tool-card-approval" : ""}`} title={`${event.kind}: ${event.status}${timeStr ? ` at ${timeStr}` : ""}${provenance ? ` — ${provenance}` : ""}`}>
+    <div data-tool-id={event.id} className={`tool-card tool-card-${statusClass}${isApproval ? " tool-card-approval" : ""}`} title={t("toolEventCard.text", { kind: event.kind, status: event.status, value: timeStr ? ` at ${timeStr}` : "", value2: provenance ? ` — ${provenance}` : "" })}>
       <div className="tool-card-header" onClick={() => { if (!isApproval) toggleExpanded(); }} role={isApproval ? undefined : "button"} tabIndex={isApproval ? -1 : 0} aria-expanded={isApproval ? undefined : expanded}>
         <span className="tool-card-icon">{icon}</span>
         <span className={`tool-card-name is-${event.kind.replace(/_/g, "-")}`}>{event.kind.replace(/_/g, " ")}</span>
-        {argDisplay ? <code className="tool-card-arg-value" title={`${argDisplay.label}: ${argDisplay.value}`}>{argDisplay.value}</code> : null}
+        {argDisplay ? <code className="tool-card-arg-value" title={t("toolEventCard.text2", { label: argDisplay.label, value: argDisplay.value })}>{argDisplay.value}</code> : null}
         <span className={`tool-card-status tool-card-status-${statusClass}`}>
-          {event.status}{activeDuration ? ` · ${activeDuration}` : ""}
+          {event.status}{activeDuration ? t("toolEventCard.text3", { activeDuration: activeDuration }) : ""}
         </span>
         {timeStr ? <span className="tool-card-time text-muted">{timeStr}</span> : null}
         {!isApproval ? <span className="tool-card-expand">{expanded ? "▼" : "▶"}</span> : null}
@@ -139,19 +141,19 @@ export function ToolEventCard({
       {showExpanded ? (
         <div className="tool-card-body">
           {argDisplay ? (
-            <div className="tool-card-arg-detail" title={`${argDisplay.label} passed to this tool`}>
+            <div className="tool-card-arg-detail" title={t("toolEventCard.passedToThisTool", { label: argDisplay.label })}>
               <span className="tool-card-arg-label">{argDisplay.label}:</span>
               <code className="tool-card-arg-code">{argDisplay.value}</code>
             </div>
           ) : null}
           {parsedArgs ? (
-            <div className="tool-card-args-full" title="Full arguments JSON">
-              <span className="tool-card-arg-label">Full args:</span>
+            <div className="tool-card-args-full" title={t("toolEventCard.fullArgumentsJson")}>
+              <span className="tool-card-arg-label">{t("toolEventCard.fullArgs")}</span>
               <pre className="tool-card-args-json">{JSON.stringify(parsedArgs, null, 2)}</pre>
             </div>
           ) : null}
           {hasDiff ? (
-            <pre className="tool-card-diff" title="Unified line diff (added/removed lines)">
+            <pre className="tool-card-diff" title={t("toolEventCard.unifiedLineDiffAddedRemoved")}>
               {diffLines.map((line, i) => (
                 <span key={i} className={line.startsWith("+") ? "diff-add" : line.startsWith("-") ? "diff-del" : "diff-ctx"}>{line}{"\n"}</span>
               ))}
@@ -160,13 +162,13 @@ export function ToolEventCard({
             <pre className="tool-card-summary">{event.summary}</pre>
           ) : null}
           {provenance ? (
-            <div className="tool-card-provenance text-muted text-sm" title={`Decision: ${event.decision}${event.ruleSource ? ` — rule: ${event.ruleSource}` : ""}`}>
+            <div className="tool-card-provenance text-muted text-sm" title={event.ruleSource ? t("toolEventCard.decisionWithRule", { decision: event.decision ?? "", ruleSource: event.ruleSource }) : t("toolEventCard.decision", { decision: event.decision ?? "" })}>
               {provenance}
             </div>
           ) : null}
           {debugMode ? (
-            <div className="tool-card-debug" title="Raw event data (debug mode)">
-              <span className="tool-card-debug-label">Debug:</span>
+            <div className="tool-card-debug" title={t("toolEventCard.rawEventDataDebugMode")}>
+              <span className="tool-card-debug-label">{t("toolEventCard.debug")}</span>
               <pre className="tool-card-debug-data">{JSON.stringify(event, null, 2)}</pre>
             </div>
           ) : null}
@@ -177,17 +179,17 @@ export function ToolEventCard({
       ) : null}
       {isApproval && isRunning && onResolveApproval ? (
         <div className="tool-card-actions tool-card-approval-actions">
-          <button className="btn btn-sm btn-primary" title="Allow this tool call once" type="button" onClick={() => onResolveApproval("allow")}>Allow Once</button>
-          <button className="btn btn-sm" title="Allow all calls to this tool for this session" type="button" onClick={() => onResolveApproval("allow_session")}>Allow Session</button>
-          <button className="btn btn-sm" title="Deny this tool call" type="button" onClick={() => onResolveApproval("deny")}>Deny</button>
+          <button className="btn btn-sm btn-primary" title={t("toolEventCard.allowThisToolCallOnce")} type="button" onClick={() => onResolveApproval("allow")}>{t("toolEventCard.allowOnce")}</button>
+          <button className="btn btn-sm" title={t("toolEventCard.allowAllCallsToThis")} type="button" onClick={() => onResolveApproval("allow_session")}>{t("toolEventCard.allowSession")}</button>
+          <button className="btn btn-sm" title={t("toolEventCard.denyThisToolCall")} type="button" onClick={() => onResolveApproval("deny")}>{t("toolEventCard.deny")}</button>
           {onSetApprovalMode ? (
-            <button className="btn btn-sm tool-card-allow-all" title="Switch to Auto mode: allow all tool calls without asking. You can change this back in Settings." type="button" onClick={() => onSetApprovalMode("auto")}>Allow All (Auto)</button>
+            <button className="btn btn-sm tool-card-allow-all" title={t("toolEventCard.switchToAutoModeAllow")} type="button" onClick={() => onSetApprovalMode("auto")}>{t("toolEventCard.allowAllAuto")}</button>
           ) : null}
         </div>
       ) : null}
       {isApproval && isRunning && !onResolveApproval ? (
-        <div className="tool-card-actions text-muted text-sm" title="Approval resolution is not available for this event">
-          <span>Approval pending — waiting for resolution</span>
+        <div className="tool-card-actions text-muted text-sm" title={t("toolEventCard.approvalResolutionIsNotAvailable")}>
+          <span>{t("toolEventCard.approvalPendingWaitingForResolution")}</span>
         </div>
       ) : null}
     </div>

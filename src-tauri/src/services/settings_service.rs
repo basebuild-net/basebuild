@@ -15,6 +15,45 @@ use crate::{
 };
 type DbResult<T> = Result<T, String>;
 
+const UI_LOCALE_KEY: &str = "ui_locale";
+
+/// UI language selection. `preference` is one of `system`, `en`, `zh-CN`;
+/// `effective` is the resolved locale, `en` or `zh-CN`.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiLocale {
+    pub preference: String,
+    pub effective: String,
+}
+
+impl Default for UiLocale {
+    fn default() -> Self {
+        Self {
+            preference: "system".to_string(),
+            effective: "en".to_string(),
+        }
+    }
+}
+
+impl UiLocale {
+    /// Replace unknown values with safe defaults so a corrupt row never
+    /// yields an unsupported locale.
+    fn sanitized(self) -> Self {
+        let preference = match self.preference.as_str() {
+            "system" | "en" | "zh-CN" => self.preference,
+            _ => "system".to_string(),
+        };
+        let effective = match self.effective.as_str() {
+            "zh-CN" => "zh-CN".to_string(),
+            _ => "en".to_string(),
+        };
+        Self {
+            preference,
+            effective,
+        }
+    }
+}
+
 #[allow(dead_code)]
 fn gen_id() -> String {
     let ts = std::time::SystemTime::now()
@@ -229,6 +268,55 @@ impl SettingsService {
 
     pub fn reset_defaults() -> DbResult<()> {
         Self::set_defaults(&RuntimeDefaults::conservative())
+    }
+
+    // ─── UI locale ───
+
+    /// Persisted UI language. `preference` is what the user chose (`system`,
+    /// `en`, or `zh-CN`); `effective` is the concrete locale the frontend
+    /// resolved it to (`en` or `zh-CN`). Rust reads `effective` for tray labels
+    /// and the model-facing language directive.
+    pub fn get_ui_locale() -> DbResult<UiLocale> {
+        let conn = StorageService::connect()?;
+        let value: Option<String> = conn
+            .query_row(
+                "SELECT value FROM app_defaults WHERE key = ?1",
+                params![UI_LOCALE_KEY],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        Ok(value
+            .and_then(|v| serde_json::from_str::<UiLocale>(&v).ok())
+            .map(UiLocale::sanitized)
+            .unwrap_or_default())
+    }
+
+    pub fn set_ui_locale(preference: &str, effective: &str) -> DbResult<UiLocale> {
+        let locale = UiLocale {
+            preference: preference.to_string(),
+            effective: effective.to_string(),
+        }
+        .sanitized();
+        let conn = StorageService::connect()?;
+        conn.execute(
+            "INSERT INTO app_defaults (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![
+                UI_LOCALE_KEY,
+                serde_json::to_string(&locale).map_err(|e| e.to_string())?
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(locale)
+    }
+
+    /// Effective locale for Rust-side copy (`en` or `zh-CN`). Never errors:
+    /// an unreadable row degrades to English.
+    pub fn effective_ui_locale() -> String {
+        Self::get_ui_locale()
+            .map(|l| l.effective)
+            .unwrap_or_else(|_| "en".to_string())
     }
 
     // ─── Permissions ───

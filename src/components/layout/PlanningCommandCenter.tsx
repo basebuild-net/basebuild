@@ -1,4 +1,5 @@
 import { Plus, Sparkles, Wrench, Rocket, CheckCircle, GitMerge, Archive } from "lucide-react";
+import { t } from "../../i18n";
 
 type StageId = "ideas" | "openspec" | "ready" | "queued" | "running" | "blocked" | "review" | "finished";
 
@@ -41,78 +42,78 @@ export function PlanningCommandCenter(props: PlanningCommandCenterProps) {
   const stages: CommandCenterStage[] = [
     {
       id: "ideas",
-      label: "Ideas",
+      label: t("planningCommandCenter.ideas"),
       count: props.ideas,
       status: stageStatus(props.ideas, false, false),
-      actionLabel: "Generate more",
+      actionLabel: t("planningCommandCenter.generateMore"),
     },
     {
       id: "openspec",
-      label: "OpenSpec",
+      label: t("planningCommandCenter.openspec"),
       count: props.openspec,
       status: stageStatus(props.openspec, false, false),
-      actionLabel: "View drafts",
+      actionLabel: t("planningCommandCenter.viewDrafts"),
     },
     {
       id: "ready",
-      label: "Ready",
+      label: t("planningCommandCenter.ready"),
       count: props.ready,
       status: stageStatus(props.ready, false, false),
-      actionLabel: "Assign to chat",
+      actionLabel: t("planningCommandCenter.assignToChat"),
     },
     {
       id: "queued",
-      label: "Queued",
+      label: t("planningCommandCenter.queued"),
       count: props.queued,
       status: stageStatus(props.queued, false, false),
-      actionLabel: "Start queue",
+      actionLabel: t("planningCommandCenter.startQueue"),
     },
     {
       id: "running",
-      label: "Running",
+      label: t("planningCommandCenter.running"),
       count: props.running,
       status: stageStatus(props.running, props.running > 0, false),
-      actionLabel: "View runs",
+      actionLabel: t("planningCommandCenter.viewRuns"),
     },
     {
       id: "blocked",
-      label: "Blocked",
+      label: t("planningCommandCenter.blocked"),
       count: props.blocked,
       status: stageStatus(props.blocked, false, props.blocked > 0),
-      actionLabel: "Resolve",
+      actionLabel: t("planningCommandCenter.resolve"),
     },
     {
       id: "review",
-      label: "Review",
+      label: t("planningCommandCenter.review2"),
       count: props.review,
       status: stageStatus(props.review, false, false),
-      actionLabel: "Review now",
+      actionLabel: t("planningCommandCenter.reviewNow"),
     },
     {
       id: "finished",
-      label: "Finished",
+      label: t("planningCommandCenter.finished"),
       count: props.finished,
       status: stageStatus(props.finished, false, false),
-      actionLabel: "Archive/Sync",
+      actionLabel: t("planningCommandCenter.archiveSync2"),
     },
   ];
 
   return (
-    <div className="planning-command-center" title="Planning command center — live counts and actions">
+    <div className="planning-command-center" title={t("planningCommandCenter.planningCommandCenterLiveCounts")}>
       <div className="planning-stage-cards">
         {stages.map((stage) => (
           <button
             key={stage.id}
             type="button"
             className={`planning-stage-card is-${stage.status}`}
-            title={`${stage.label}: ${stage.count}. ${stage.actionLabel}`}
+            title={t("planningCommandCenter.text", { label: stage.label, count: stage.count, actionLabel: stage.actionLabel })}
             onClick={() => props.onStageClick?.(stage.id)}
           >
             <span className="planning-stage-count">{stage.count}</span>
             <span className="planning-stage-label">{stage.label}</span>
             <span className="planning-stage-action">{stage.actionLabel}</span>
             {stage.status === "active" ? (
-              <span className="planning-stage-pulse" title="Active" />
+              <span className="planning-stage-pulse" title={t("planningCommandCenter.active")} />
             ) : null}
           </button>
         ))}
@@ -121,46 +122,46 @@ export function PlanningCommandCenter(props: PlanningCommandCenterProps) {
         <button
           className="btn btn-sm btn-primary"
           type="button"
-          title="Generate more grounded ideas from the project schematic"
+          title={t("planningCommandCenter.generateMoreGroundedIdeasFrom")}
           onClick={props.onGenerateIdeas}
         >
-          <Plus size={11} /> Generate ideas
+          <Plus size={11} /> {t("planningCommandCenter.generateIdeas")}
         </button>
         <button
           className="btn btn-sm"
           type="button"
-          title="Review generated ideas and approve selected ideas into OpenSpec"
+          title={t("planningCommandCenter.reviewGeneratedIdeasAndApprove")}
           onClick={props.onReviewIdeas}
           disabled={props.ideas === 0}
         >
-          <Wrench size={11} /> Review ideas
+          <Wrench size={11} /> {t("planningCommandCenter.reviewIdeas")}
         </button>
         <button
           className="btn btn-sm"
           type="button"
-          title="Review finished runs awaiting review"
+          title={t("planningCommandCenter.reviewFinishedRunsAwaitingReview")}
           onClick={props.onReview}
           disabled={props.review === 0}
         >
-          <CheckCircle size={11} /> Review ({props.review})
+          <CheckCircle size={11} /> {t("planningCommandCenter.review", { review: props.review })}
         </button>
         <button
           className="btn btn-sm"
           type="button"
-          title="Open the merge queue for finished worktree runs"
+          title={t("planningCommandCenter.openTheMergeQueueFor")}
           onClick={props.onMerge}
           disabled={props.finished === 0}
         >
-          <GitMerge size={11} /> Merge
+          <GitMerge size={11} /> {t("planningCommandCenter.merge")}
         </button>
         <button
           className="btn btn-sm"
           type="button"
-          title="Archive or sync completed OpenSpec changes"
+          title={t("planningCommandCenter.archiveOrSyncCompletedOpenspec")}
           onClick={props.onArchiveSync}
           disabled={props.finished === 0}
         >
-          <Archive size={11} /> Archive/Sync
+          <Archive size={11} /> {t("planningCommandCenter.archiveSync")}
         </button>
       </div>
     </div>
