@@ -18,6 +18,8 @@ type SplashPhase =
   | "error"
   | "ready";
 
+const SPLASH_CHECK_TIMEOUT_MS = 8_000;
+
 export function StartupSplash({ updates, onComplete }: StartupSplashProps) {
   const [version, setVersion] = useState("");
   const [phase, setPhase] = useState<SplashPhase>("checking");
@@ -26,6 +28,18 @@ export function StartupSplash({ updates, onComplete }: StartupSplashProps) {
   useEffect(() => {
     void appVersion().then(setVersion).catch(() => {});
   }, []);
+
+  // A slow or unreachable update server must never hold the app hostage: after
+  // a short wait, enter the app and let the check finish in the background
+  // (an update found later downloads silently and the taskbar offers restart).
+  useEffect(() => {
+    if (phase !== "checking") return;
+    const timer = window.setTimeout(() => {
+      setPhase("ready");
+      onComplete();
+    }, SPLASH_CHECK_TIMEOUT_MS);
+    return () => window.clearTimeout(timer);
+  }, [phase, onComplete]);
 
   // React to updater state changes. The splash is the ONLY place an update
   // is applied automatically: at startup nothing is open yet, so a restart

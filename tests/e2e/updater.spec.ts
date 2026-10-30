@@ -4,7 +4,8 @@ test.describe("updater taskbar", () => {
   test("downloads in background, then offers Restart to apply (no forced restart)", async ({ page }) => {
     await page.addInitScript(() => {
       localStorage.setItem("basebuild:first-run-complete", "true");
-      Object.defineProperty(navigator, "platform", { get: () => "Win32" });
+      // Releases ship for macOS and Linux too; the check must not be Windows-only.
+      Object.defineProperty(navigator, "platform", { get: () => "MacIntel" });
     });
 
     await page.goto("/");
