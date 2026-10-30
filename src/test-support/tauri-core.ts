@@ -529,6 +529,9 @@ function reconcileMockPlanRunOwners(
   return runs;
 }
 
+/** OpenSpec runtime mock state, toggled per test via init-script window flags. */
+type OpenSpecE2eFlags = { __BASEBUILD_E2E_OPENSPEC_MISSING__?: boolean; __BASEBUILD_E2E_OPENSPEC_NO_NPM__?: boolean };
+
 export async function invoke<T>(command: string, args: Record<string, unknown> = {}): Promise<T> {
   // Loading states are only observable if the backend is slow. Tests set
   // `__BASEBUILD_E2E_INVOKE_DELAY_MS__` (all commands) or scope it to a few
@@ -1636,9 +1639,10 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       const isStopPartial = req.content.includes("stop-partial-test");
       const isReasoningSplit = req.content.includes("reasoning-split-test");
       const isMultiTurnTools = req.content.includes("multi-turn-tools-test");
+      const isSubagentTask = req.content.includes("subagent-task-test");
       const isStreamTest = req.content.includes("stream-test") && !isMultiToolStream && !isApprovalStream && !isStopPartial && !isReasoningSplit && !isMultiTurnTools;
       const streamedContent = "Streaming **bold** and `code` arrived incrementally.";
-      if (isStreamTest || isMultiToolStream || isApprovalStream || isStopPartial || isReasoningSplit || isMultiTurnTools) {
+      if (isStreamTest || isMultiToolStream || isApprovalStream || isStopPartial || isReasoningSplit || isMultiTurnTools || isSubagentTask) {
         const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
         const chunk = (delta: string, channel?: string) =>
           __emit("native-chat://chunk", { sessionId: req.sessionId, delta, ...(channel ? { channel } : {}) });
@@ -1659,7 +1663,33 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         chunk("Considering the request…", "reasoning");
         await sleep(200);
 
-        if (isMultiToolStream || isApprovalStream) {
+        if (isSubagentTask) {
+          // Mirrors subagent_service: the parent `task` tool event carries the
+          // toolCallId that every subagent-event payload is keyed on.
+          const taskId = `te-task-${Date.now()}`;
+          const subagentEvent = (payload: Record<string, unknown>) =>
+            __emit("native-chat://subagent-event", { sessionId: req.sessionId, toolCallId: taskId, ...payload });
+          toolEvent({ id: taskId, kind: "task", status: "running", summary: "Starting 3 subagents", arguments: JSON.stringify({ tasks: [{ name: "audit-parser" }, { name: "audit-tokenizer" }, { name: "audit-tests" }] }), sequence: 1 });
+          subagentEvent({ index: 0, name: "audit-parser", childSessionId: "child-parser", status: "queued" });
+          subagentEvent({ index: 1, name: "audit-tokenizer", childSessionId: "child-tokenizer", status: "queued" });
+          subagentEvent({ index: 2, name: "audit-tests", childSessionId: "child-tests", status: "queued" });
+          await sleep(200);
+          subagentEvent({ index: 0, name: "audit-parser", childSessionId: "child-parser", status: "running", activity: "Reading src/parser.ts" });
+          subagentEvent({ index: 1, name: "audit-tokenizer", childSessionId: "child-tokenizer", status: "running", activity: "Reading src/tokenizer.ts" });
+          await sleep(200);
+          subagentEvent({ index: 0, name: "audit-parser", childSessionId: "child-parser", status: "completed", result: "Parser is sound." });
+          subagentEvent({ index: 2, name: "audit-tests", childSessionId: "child-tests", status: "failed", result: "Could not run tests: npm missing." });
+          await sleep(200);
+          subagentEvent({
+            index: 1,
+            name: "audit-tokenizer",
+            childSessionId: "child-tokenizer",
+            status: "awaiting_approval",
+            pendingApproval: { toolCallId: "te-child-run", toolName: "run_command", command: "npm test", arguments: JSON.stringify({ command: "npm test" }) },
+          });
+          // Hold the parent open so the awaiting-approval row stays observable.
+          await sleep(10000);
+        } else if (isMultiToolStream || isApprovalStream) {
           // Real backend emits a "tools" status chunk before tool processing
           // (agent_loop_service: emit("tools", "status")) — mirror it so the
           // running-tools / waiting-approval indicator renders in e2e.
@@ -2430,7 +2460,36 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         assistantMessage,
       } as T;
     }
-    case "openspec_runtime_status":
+    case "openspec_runtime_status": {
+      const flags = globalThis as typeof globalThis & OpenSpecE2eFlags;
+      const missing = flags.__BASEBUILD_E2E_OPENSPEC_MISSING__ === true;
+      return {
+        state: missing ? "missing" : "ready",
+        version: missing ? null : "1.0.0-e2e",
+        executablePath: missing ? null : "C:\\basebuild-e2e\\openspec.exe",
+        schema: missing ? null : "spec-driven",
+        projectReady: !missing,
+        message: null,
+      } as T;
+    }
+    case "openspec_runtime_install":
+    case "openspec_runtime_update": {
+      const action = command === "openspec_runtime_install" ? "install" : "update";
+      const flags = globalThis as typeof globalThis & OpenSpecE2eFlags;
+      const wait = (ms: number) => {
+        const { promise, resolve } = Promise.withResolvers<void>();
+        setTimeout(resolve, ms);
+        return promise;
+      };
+      __emit("openspec://runtime-progress", { action, phase: "started", message: "npm install -g @fission-ai/openspec@latest" });
+      await wait(300);
+      if (flags.__BASEBUILD_E2E_OPENSPEC_NO_NPM__ === true) {
+        throw new Error("npm was not found on PATH. Install Node.js (it includes npm), then try again.");
+      }
+      __emit("openspec://runtime-progress", { action, phase: "output", message: "added 1 package in 2s" });
+      await wait(200);
+      __emit("openspec://runtime-progress", { action, phase: "finished", message: "openspec 1.0.0-e2e" });
+      flags.__BASEBUILD_E2E_OPENSPEC_MISSING__ = false;
       return {
         state: "ready",
         version: "1.0.0-e2e",
@@ -2439,6 +2498,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         projectReady: true,
         message: null,
       } as T;
+    }
     case "omp_status":
       return { installed: true, version: "omp 1.2.3", configPath: "C:\\basebuild-e2e\\.omp\\config.yml", message: null } as T;
     case "omp_debug_context":

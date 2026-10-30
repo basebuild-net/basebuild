@@ -50,7 +50,10 @@ export function SubagentTaskCard({ event }: { event: NativeToolEvent }) {
 
   const answer = async (run: SubagentRun, decision: Decision) => {
     const approval = run.pendingApproval;
-    if (!approval) return;
+    if (!approval) {
+      addLog("debug", "Subagent approval skipped", `${run.name}: no pending approval`);
+      return;
+    }
     addLog("debug", "Subagent approval answered", `${run.name}: ${decision} for ${approval.toolName}`);
     try {
       await resolveToolApproval(approval.toolCallId, decision);
