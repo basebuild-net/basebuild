@@ -19,7 +19,9 @@ pub struct StorageService;
 // bump.
 // 15 -> 16: plan_mode column on native_chat_sessions, plus the
 // native_chat_todos and native_chat_compactions tables.
-const CURRENT_SCHEMA_VERSION: i64 = 16;
+// 16 -> 17: subagent child sessions (parent_session_id, parent_tool_call_id,
+// subagent_name, subagent_status, subagent_index) on native_chat_sessions.
+const CURRENT_SCHEMA_VERSION: i64 = 17;
 
 impl StorageService {
     pub fn state_db_path() -> Result<PathBuf, String> {
@@ -1452,6 +1454,30 @@ impl StorageService {
                 FOREIGN KEY (session_id) REFERENCES native_chat_sessions(id) ON DELETE CASCADE
             );
             CREATE INDEX IF NOT EXISTS idx_native_chat_compactions_session ON native_chat_compactions(session_id, created_at);",
+        );
+
+        // Migration (subagents): child sessions spawned by the `task` tool are
+        // ordinary chat sessions linked to their parent. Additive only.
+        for (column, definition) in [
+            ("parent_session_id", "TEXT"),
+            ("parent_tool_call_id", "TEXT"),
+            ("subagent_name", "TEXT"),
+            ("subagent_status", "TEXT"),
+            ("subagent_index", "INTEGER"),
+        ] {
+            let has_column = connection
+                .prepare(&format!("SELECT {column} FROM native_chat_sessions LIMIT 0"))
+                .is_ok();
+            if !has_column {
+                let _ = connection.execute(
+                    &format!("ALTER TABLE native_chat_sessions ADD COLUMN {column} {definition}"),
+                    [],
+                );
+            }
+        }
+        let _ = connection.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_native_chat_parent ON native_chat_sessions(parent_session_id);
+            CREATE INDEX IF NOT EXISTS idx_native_chat_parent_tool ON native_chat_sessions(parent_tool_call_id);",
         );
 
         // Migration (planning-system-qol): add reasoning column to

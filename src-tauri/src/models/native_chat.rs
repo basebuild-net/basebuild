@@ -58,6 +58,24 @@ pub struct NativeToolEvent {
     /// Stable per-session monotonic order. Survives timestamp ties.
     pub sequence: i64,
     pub created_at: i64,
+    /// Child runs spawned by a `task` tool event, in entry order. Empty for
+    /// every other tool.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub subagents: Vec<SubagentRun>,
+}
+
+/// One entry of a `task` call: the child session that runs it and its state.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SubagentRun {
+    pub index: i64,
+    pub name: String,
+    pub child_session_id: String,
+    /// queued, running, awaiting_approval, completed, failed, or cancelled.
+    pub status: String,
+    /// The child's final report. Set once the child reaches a terminal state.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

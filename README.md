@@ -87,6 +87,9 @@ See [`LICENSE`](./LICENSE) for the complete terms.
   permission mode per chat.
 - **Native agent workspace.** Streamed chat, gated tools, MCP servers, project
   context, terminals, and Git live in one desktop window.
+- **Parallel subagents and in-app OpenSpec.** Fan independent assignments out
+  to child chats within your provider's concurrency limit, and install or
+  update OpenSpec from Settings.
 - **Community usage estimates.** Optional anonymous sync contributes provider,
   model, token, cost, and timing aggregates to a shared evidence base for
   comparing plan value and usable hours.

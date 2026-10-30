@@ -1,17 +1,27 @@
+use std::collections::VecDeque;
+use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
+use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
+use std::thread;
 
-use crate::models::openspec_runtime::OpenSpecRuntimeStatus;
+use tauri::{AppHandle, Emitter};
+
+use crate::models::openspec_runtime::{
+    OpenSpecRuntimeProgress, OpenSpecRuntimeStatus, OPENSPEC_RUNTIME_PROGRESS_EVENT,
+};
 use crate::services::process_helpers::{hidden_command, run_with_timeout, OMP_TIMEOUT};
 
 type RResult<T> = Result<T, String>;
 
-/// Service for detecting and validating the OpenSpec toolchain.
+/// Service for detecting, installing, and updating the OpenSpec toolchain.
 ///
 /// Detection is local-only: no network calls. The service probes for an
 /// `openspec` executable on PATH (or a user-configured path), runs
 /// `openspec --version`, and checks whether the project has an `openspec/`
-/// directory. Install/update are explicit stubs returning actionable
-/// `not configured` messages until a distribution source is selected.
+/// directory. Install and update run `npm install -g @fission-ai/openspec@latest`
+/// and are only started after the user confirms in the UI.
 pub struct OpenSpecRuntimeService;
 
 impl OpenSpecRuntimeService {
@@ -26,6 +36,16 @@ impl OpenSpecRuntimeService {
         let project_ready = project_path
             .map(|p| Path::new(p).join("openspec").is_dir())
             .unwrap_or(false);
+        if OPERATION_RUNNING.load(Ordering::SeqCst) {
+            return OpenSpecRuntimeStatus {
+                state: "installing".to_string(),
+                version: None,
+                executable_path: None,
+                schema: None,
+                project_ready,
+                message: Some("An OpenSpec install or update is running.".to_string()),
+            };
+        }
 
         match Self::detect_executable() {
             DetectResult::Found { path, version } => {
@@ -131,22 +151,38 @@ impl OpenSpecRuntimeService {
         None
     }
 
-    /// Install stub: returns an actionable error until a source is configured.
-    /// No network call is made.
-    pub fn install(_project_path: Option<&str>) -> RResult<OpenSpecRuntimeStatus> {
-        Err(
-            "OpenSpec install source not configured. Set a manual executable path in Settings → OpenSpec or install OpenSpec manually and set the path."
-                .to_string(),
-        )
+    /// Install OpenSpec from npm (`@fission-ai/openspec`) as a global package.
+    /// Callers must have obtained user confirmation in the UI first.
+    pub fn install(app: &AppHandle, project_path: Option<&str>) -> RResult<OpenSpecRuntimeStatus> {
+        Self::run_global_install(app, RuntimeAction::Install, project_path)
     }
 
-    /// Update stub: returns an actionable error until a source is configured.
-    /// No network call is made.
-    pub fn update(_project_path: Option<&str>) -> RResult<OpenSpecRuntimeStatus> {
-        Err(
-            "OpenSpec update source not configured. Update OpenSpec manually and verify the path in Settings → OpenSpec."
-                .to_string(),
-        )
+    /// Update OpenSpec to the latest npm release. Requires an existing install.
+    pub fn update(app: &AppHandle, project_path: Option<&str>) -> RResult<OpenSpecRuntimeStatus> {
+        if matches!(Self::detect_executable(), DetectResult::NotFound) {
+            return Err("OpenSpec is not installed. Use Install first.".to_string());
+        }
+        Self::run_global_install(app, RuntimeAction::Update, project_path)
+    }
+
+    fn run_global_install(
+        app: &AppHandle,
+        action: RuntimeAction,
+        project_path: Option<&str>,
+    ) -> RResult<OpenSpecRuntimeStatus> {
+        let spec = format!("{OPENSPEC_NPM_PACKAGE}@latest");
+        {
+            let _guard = OperationGuard::acquire()?;
+            emit_progress(app, action, "started", format!("npm install -g {spec}"));
+            stream_npm_install(app, action, &spec)?;
+            emit_progress(
+                app,
+                action,
+                "finished",
+                "npm finished. Checking the OpenSpec version.".to_string(),
+            );
+        }
+        Ok(Self::status(project_path))
     }
 }
 
@@ -159,6 +195,129 @@ pub enum DetectResult {
     NotFound,
     /// Detection errored.
     Error(String),
+}
+
+/// npm distribution of the OpenSpec CLI.
+pub const OPENSPEC_NPM_PACKAGE: &str = "@fission-ai/openspec";
+/// Number of trailing npm output lines kept for error messages.
+const NPM_OUTPUT_TAIL_LINES: usize = 8;
+/// Longest npm output line forwarded to the UI.
+const NPM_LINE_MAX_CHARS: usize = 300;
+const NPM_BIN: &str = if cfg!(windows) { "npm.cmd" } else { "npm" };
+
+/// Set while an install or update runs so overlapping calls fail fast and
+/// status reports `installing`.
+static OPERATION_RUNNING: AtomicBool = AtomicBool::new(false);
+
+struct OperationGuard;
+
+impl OperationGuard {
+    fn acquire() -> RResult<Self> {
+        OPERATION_RUNNING
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .map(|_| OperationGuard)
+            .map_err(|_| "An OpenSpec install or update is already running.".to_string())
+    }
+}
+
+impl Drop for OperationGuard {
+    fn drop(&mut self) {
+        OPERATION_RUNNING.store(false, Ordering::SeqCst);
+    }
+}
+
+#[derive(Clone, Copy)]
+enum RuntimeAction {
+    Install,
+    Update,
+}
+
+impl RuntimeAction {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Install => "install",
+            Self::Update => "update",
+        }
+    }
+}
+
+fn emit_progress(app: &AppHandle, action: RuntimeAction, phase: &str, message: String) {
+    let _ = app.emit(
+        OPENSPEC_RUNTIME_PROGRESS_EVENT,
+        OpenSpecRuntimeProgress {
+            action: action.label().to_string(),
+            phase: phase.to_string(),
+            message,
+        },
+    );
+}
+
+fn spawn_line_reader<R: Read + Send + 'static>(pipe: R, tx: mpsc::Sender<String>) {
+    thread::spawn(move || {
+        for line in BufReader::new(pipe).lines().map_while(Result::ok) {
+            let trimmed = line.trim();
+            if !trimmed.is_empty() {
+                let clipped: String = trimmed.chars().take(NPM_LINE_MAX_CHARS).collect();
+                let _ = tx.send(clipped);
+            }
+        }
+    });
+}
+
+/// Run `npm install -g <spec>`, forwarding each output line as a progress
+/// event. Returns an error with the final output lines when npm fails.
+fn stream_npm_install(app: &AppHandle, action: RuntimeAction, spec: &str) -> RResult<()> {
+    let mut child = hidden_command(NPM_BIN)
+        .args(["install", "-g", spec])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                "npm was not found on PATH. Install Node.js (it includes npm), then try again."
+                    .to_string()
+            } else {
+                format!("Failed to start npm: {e}")
+            }
+        })?;
+
+    let (tx, rx) = mpsc::channel::<String>();
+    if let Some(stdout) = child.stdout.take() {
+        spawn_line_reader(stdout, tx.clone());
+    }
+    if let Some(stderr) = child.stderr.take() {
+        spawn_line_reader(stderr, tx.clone());
+    }
+    drop(tx);
+
+    // rx ends once both reader threads have finished, i.e. both pipes closed.
+    let mut tail: VecDeque<String> = VecDeque::with_capacity(NPM_OUTPUT_TAIL_LINES);
+    for line in rx {
+        emit_progress(app, action, "output", line.clone());
+        if tail.len() == NPM_OUTPUT_TAIL_LINES {
+            tail.pop_front();
+        }
+        tail.push_back(line);
+    }
+
+    let exit = child
+        .wait()
+        .map_err(|e| format!("Failed to wait for npm: {e}"))?;
+    if exit.success() {
+        return Ok(());
+    }
+    let mut message = format!("npm install -g {spec} failed (exit {:?}).", exit.code());
+    if !tail.is_empty() {
+        let lines: Vec<&str> = tail.iter().map(String::as_str).collect();
+        message.push('\n');
+        message.push_str(&lines.join("\n"));
+    }
+    if tail.iter().any(|line| line.contains("EACCES")) {
+        message.push_str(
+            "\nnpm cannot write to its global prefix. Fix the npm permissions or use a Node.js install with a writable global prefix.",
+        );
+    }
+    Err(message)
 }
 
 /// Best-effort `which` for the openspec executable. Returns the absolute path
@@ -189,7 +348,7 @@ mod tests {
         // This test verifies the missing path returns a usable status.
         let status = OpenSpecRuntimeService::status(None);
         assert!(
-            status.state == "missing" || status.state == "error",
+            status.state == "missing" || status.state == "error" || status.state == "installing",
             "expected missing or error, got {}",
             status.state
         );
@@ -223,18 +382,10 @@ mod tests {
     }
 
     #[test]
-    fn install_returns_actionable_error() {
-        let result = OpenSpecRuntimeService::install(None);
-        assert!(result.is_err());
-        let msg = result.unwrap_err();
-        assert!(msg.contains("not configured"));
-    }
-
-    #[test]
-    fn update_returns_actionable_error() {
-        let result = OpenSpecRuntimeService::update(None);
-        assert!(result.is_err());
-        let msg = result.unwrap_err();
-        assert!(msg.contains("not configured"));
+    fn operation_guard_rejects_overlapping_runs() {
+        let first = OperationGuard::acquire().expect("first acquire succeeds");
+        assert!(OperationGuard::acquire().is_err());
+        drop(first);
+        assert!(OperationGuard::acquire().is_ok());
     }
 }

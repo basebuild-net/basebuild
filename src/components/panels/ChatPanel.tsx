@@ -125,6 +125,7 @@ import {
   type ProviderAccountUsage,
 } from "../../lib/native-chat";
 import { resolveToolApproval } from "../../lib/native-chat";
+import { mergeSubagentEvent, type SubagentEventPayload } from "../../lib/native-chat";
 import { buildChatTimeline, type LiveSegment } from "../../lib/chatTimeline";
 import { useIdeaState } from "../../state/ideas";
 import { setLastGrounding } from "../../state/grounding";
@@ -910,6 +911,7 @@ export function ChatPanel({
       "native-chat://interactive-request",
       "native-chat://error",
       "native-chat://metrics",
+      "native-chat://subagent-event",
     ];
     const unlisteners: Promise<() => void>[] = [];
     for (const ch of channels) {
@@ -1066,6 +1068,25 @@ export function ChatPanel({
       void unlistenTool.then((fn) => fn());
       void unlistenApproval.then((fn) => fn());
       void unlistenInteraction.then((fn) => fn());
+    };
+  }, [nativeMode, nativeSessionId]);
+
+  // Native mode: fold live subagent progress into the parent `task` card.
+  useEffect(() => {
+    if (!nativeMode || !nativeSessionId) return;
+    const unlistenSubagent = listen<SubagentEventPayload>("native-chat://subagent-event", (event) => {
+      const payload = event.payload;
+      if (payload.sessionId !== nativeSessionId) return;
+      setToolEvents((prev) =>
+        prev.map((item) =>
+          item.id === payload.toolCallId
+            ? { ...item, subagents: mergeSubagentEvent(item.subagents, payload) }
+            : item,
+        ),
+      );
+    });
+    return () => {
+      void unlistenSubagent.then((fn) => fn());
     };
   }, [nativeMode, nativeSessionId]);
 

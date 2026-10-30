@@ -23,6 +23,7 @@ use crate::services::provider_client::{
     ToolSchema,
 };
 use crate::services::settings_service::SettingsService;
+use crate::services::subagent_service::{self, SubagentHost};
 use crate::services::todo_service::TodoService;
 use crate::services::tool_runtime_service::{
     allowed_in_plan_mode, redact_tool_arguments, registry, ToolDef, ToolKind, ToolResult,
@@ -54,6 +55,20 @@ static ACTIVE_RUNS: LazyLock<Mutex<std::collections::HashMap<String, Arc<RunHand
 /// is what makes the queue-versus-finish handoff atomic without deadlocking.
 static PENDING_STEERS: LazyLock<Mutex<std::collections::HashMap<String, Vec<String>>>> =
     LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+
+/// Which tools a provider request is offered. `Chat` is the parent chat turn,
+/// which also gets `task`. `Subagent` is a child run: it cannot ask the user,
+/// propose ideas for the parent, or start subagents of its own. `None` is
+/// plain chat with no tools.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolScope {
+    None,
+    Chat,
+    Subagent,
+}
+
+/// Tools a subagent child never sees.
+const SUBAGENT_EXCLUDED_TOOLS: &[&str] = &["task", "ask_user", "propose_ideas"];
 
 /// A pending approval request waiting for UI resolution. The agent loop
 /// blocks on `rx` until the UI calls `resolve_approval` with a decision.
@@ -153,6 +168,8 @@ fn await_approval(
     session_id: &str,
 ) -> ApprovalResolution {
     let (tx, rx) = std::sync::mpsc::channel::<ApprovalResolution>();
+    let key = subagent_service::approval_key(session_id, &call.id);
+    let is_child = subagent_service::is_subagent(session_id);
     let command = args
         .get("command")
         .and_then(Value::as_str)
@@ -160,7 +177,7 @@ fn await_approval(
     {
         let mut pending = PENDING_APPROVALS.lock();
         pending.insert(
-            call.id.clone(),
+            key.clone(),
             PendingApproval {
                 tool_name: call.name.clone(),
                 command: command.clone(),
@@ -169,41 +186,58 @@ fn await_approval(
             },
         );
     }
-    // Emit a tool-event with status "pending" so the UI shows which tool
-    // is waiting for approval in the running-tools indicator.
-    let _ = app.emit(
-        "native-chat://tool-event",
-        json!({
-            "sessionId": session_id,
-            "toolCallId": call.id,
-            "toolName": call.name,
-            "status": "pending",
-            "summary": format!("{} — approval required", call.name),
-            "arguments": call.arguments,
-            "decision": "pending",
-            "ruleSource": "gateway",
-        }),
-    );
-    let _ = app.emit(
-        "native-chat://approval-request",
-        json!({
-            "sessionId": session_id,
-            "toolCallId": call.id,
-            "toolName": call.name,
-            "command": command,
-            "arguments": call.arguments,
-        }),
-    );
-    match rx.recv_timeout(std::time::Duration::from_secs(600)) {
+    // Subagent children surface approvals on the parent's task card, so the
+    // chat-level tool event and approval request are skipped for them.
+    if is_child {
+        subagent_service::note_approval_pending(
+            app,
+            session_id,
+            &key,
+            &call.name,
+            command.as_deref(),
+            &call.arguments,
+        );
+    } else {
+        // Emit a tool-event with status "pending" so the UI shows which tool
+        // is waiting for approval in the running-tools indicator.
+        let _ = app.emit(
+            "native-chat://tool-event",
+            json!({
+                "sessionId": session_id,
+                "toolCallId": call.id,
+                "toolName": call.name,
+                "status": "pending",
+                "summary": format!("{} — approval required", call.name),
+                "arguments": call.arguments,
+                "decision": "pending",
+                "ruleSource": "gateway",
+            }),
+        );
+        let _ = app.emit(
+            "native-chat://approval-request",
+            json!({
+                "sessionId": session_id,
+                "toolCallId": call.id,
+                "toolName": call.name,
+                "command": command,
+                "arguments": call.arguments,
+            }),
+        );
+    }
+    let resolution = match rx.recv_timeout(std::time::Duration::from_secs(600)) {
         Ok(resolution) => resolution,
         Err(_) => {
-            PENDING_APPROVALS.lock().remove(&call.id);
+            PENDING_APPROVALS.lock().remove(&key);
             ApprovalResolution {
                 decision: PermissionDecision::Deny,
                 session_rule: None,
             }
         }
+    };
+    if is_child {
+        subagent_service::note_approval_resolved(app, session_id);
     }
+    resolution
 }
 
 /// Resolve a pending approval by tool call id. Called by the UI's approve/deny
@@ -390,7 +424,7 @@ pub struct ToolEventRecord {
 /// `system` is the system prompt.
 /// `messages` is the full conversation history (user + assistant + tool turns).
 /// `app` is the Tauri handle for emitting streaming events.
-/// `supports_tools` gates whether tools are offered (false = plain chat).
+/// `scope` selects which tools the provider is offered (see `ToolScope`).
 /// `planning_session_id` redirects structured planning captures while keeping
 /// chat events and cancellation scoped to `session_id`.
 ///
@@ -403,22 +437,33 @@ pub fn run_agent_turn(
     effort_level: &str,
     api_key: Option<String>,
     base_url: Option<String>,
+    account_id: Option<String>,
     system: String,
     messages: Vec<ChatMsg>,
     app: AppHandle,
-    supports_tools: bool,
+    scope: ToolScope,
     planning_session_id: Option<&str>,
 ) -> RunResult {
     let handle = Arc::new(RunHandle {
         token: CancellationToken::new(),
     });
-    // Register for cancellation.
+    // Register for cancellation. A subagent registers only while its parent run
+    // is live. The check and the insert share the `ACTIVE_RUNS` lock that
+    // `cancel_run` holds while it cancels, so a cancel either refuses the child
+    // here or finds the child registered and cancels it.
     {
         let mut active = ACTIVE_RUNS.lock();
+        if scope == ToolScope::Subagent && !subagent_admitted(session_id, &active) {
+            return cancelled_run();
+        }
         active.insert(session_id.to_string(), handle.clone());
     }
-    // The lifecycle authority owns chat/run/plan coherence.
-    let _ = crate::services::plan_lifecycle_service::PlanLifecycleService::chat_running(session_id);
+    // The lifecycle authority owns chat/run/plan coherence. Subagent children
+    // are not plan chats, so they stay out of it.
+    let lifecycle = scope != ToolScope::Subagent;
+    if lifecycle {
+        let _ = crate::services::plan_lifecycle_service::PlanLifecycleService::chat_running(session_id);
+    }
 
     let result = run_loop_inner(
         session_id,
@@ -428,10 +473,11 @@ pub fn run_agent_turn(
         effort_level,
         api_key,
         base_url,
+        account_id,
         &system,
         messages,
         &app,
-        supports_tools,
+        scope,
         planning_session_id,
         &handle.token,
     );
@@ -454,24 +500,67 @@ pub fn run_agent_turn(
     } else {
         crate::services::plan_lifecycle_service::ChatTerminalState::Failed
     };
-    let _ = crate::services::plan_lifecycle_service::PlanLifecycleService::chat_terminal(
-        &app, session_id, terminal,
-    );
+    if lifecycle {
+        let _ = crate::services::plan_lifecycle_service::PlanLifecycleService::chat_terminal(
+            &app, session_id, terminal,
+        );
+    }
 
     result
 }
 
+/// A run that never started: nothing is registered and no provider call is made.
+fn cancelled_run() -> RunResult {
+    RunResult {
+        content: String::new(),
+        reasoning: None,
+        segments: Vec::new(),
+        completed: false,
+        cancelled: true,
+        hit_cap: false,
+        truncated: false,
+        tool_events: Vec::new(),
+        usage: RunUsage::default(),
+    }
+}
+
+/// Whether a subagent may register its run: its parent must have a live,
+/// uncancelled run. Called with the `ACTIVE_RUNS` lock held.
+fn subagent_admitted(
+    session_id: &str,
+    active: &std::collections::HashMap<String, Arc<RunHandle>>,
+) -> bool {
+    subagent_service::parent_of(session_id)
+        .and_then(|parent| active.get(&parent))
+        .is_some_and(|handle| !handle.token.is_cancelled())
+}
+
 /// Cancel a running agent loop for a session. Returns true if a run was found.
 pub fn cancel_run(session_id: &str) -> bool {
-    let active = ACTIVE_RUNS.lock();
-    let found = if let Some(handle) = active.get(session_id) {
-        handle.token.cancel();
-        true
-    } else {
-        false
+    let found = {
+        let active = ACTIVE_RUNS.lock();
+        if let Some(handle) = active.get(session_id) {
+            handle.token.cancel();
+            true
+        } else {
+            false
+        }
     };
     // A cancelled turn must not hand stale redirections to the next run.
     PENDING_STEERS.lock().remove(session_id);
+    // Wake any child approval this session is blocked on. Dropping the sender
+    // makes the waiting child deny and observe its cancelled token.
+    let child_prefix = format!("{session_id}#");
+    PENDING_APPROVALS
+        .lock()
+        .retain(|key, _| !key.starts_with(&child_prefix));
+    // Children run under their own tokens, so cancel them explicitly. The
+    // locks above are released first because cancel_run recurses.
+    for child_id in subagent_service::live_children(session_id) {
+        cancel_run(&child_id);
+    }
+    // Queued children sit in a permit wait. Wake them so they see the cancel.
+    subagent_service::wake_children(session_id);
     found
 }
 
@@ -576,6 +665,12 @@ pub fn sweep_interrupted_runs() {
          WHERE run_state IN ('running','needs_input')",
         [],
     );
+    let _ = tx.execute(
+        "UPDATE native_chat_sessions SET subagent_status = 'failed'
+         WHERE parent_session_id IS NOT NULL
+           AND subagent_status IN ('queued','running','awaiting_approval')",
+        [],
+    );
     let _ = tx.commit();
     let _ = crate::services::plan_lifecycle_service::PlanLifecycleService::reconcile_stale_owners(
         None, None,
@@ -590,23 +685,46 @@ fn run_loop_inner(
     effort_level: &str,
     api_key: Option<String>,
     base_url: Option<String>,
+    account_id: Option<String>,
     system: &str,
     mut messages: Vec<ChatMsg>,
     app: &AppHandle,
-    supports_tools: bool,
+    scope: ToolScope,
     planning_session_id: Option<&str>,
     token: &CancellationToken,
 ) -> RunResult {
-    let tools: Vec<ToolSchema> = if supports_tools {
-        registry().iter().map(|t| t.schema.clone()).collect()
-    } else {
-        Vec::new()
+    // Subagents run only when the provider's run-concurrency settings enable
+    // them. Children never get `task`, so the cap applies to the parent alone.
+    let subagent_cap = match scope {
+        ToolScope::Chat => subagent_service::concurrency_cap(project_path, provider_id),
+        ToolScope::None | ToolScope::Subagent => None,
     };
-    let tool_defs = if supports_tools {
-        registry()
-    } else {
-        Vec::new()
+    let offered: Vec<ToolDef> = match scope {
+        ToolScope::None => Vec::new(),
+        ToolScope::Chat => registry()
+            .into_iter()
+            .filter(|tool| {
+                tool.schema.name != subagent_service::TASK_TOOL_NAME || subagent_cap.is_some()
+            })
+            .collect(),
+        ToolScope::Subagent => registry()
+            .into_iter()
+            .filter(|tool| !SUBAGENT_EXCLUDED_TOOLS.contains(&tool.schema.name.as_str()))
+            .collect(),
     };
+    let tools: Vec<ToolSchema> = offered.iter().map(|tool| tool.schema.clone()).collect();
+    let tool_defs = offered;
+    // Only the parent chat has a host, so only it can start subagents. A child
+    // that calls `task` anyway finds no such tool and gets "Unknown tool".
+    let subagents = subagent_cap.map(|max| SubagentHost {
+        session_id: session_id.to_string(),
+        api_key: api_key.clone(),
+        base_url: base_url.clone(),
+        account_id: account_id.clone(),
+        system: system.to_string(),
+        gate: Arc::new(tokio::sync::Semaphore::new(max as usize)),
+        app: app.clone(),
+    });
     let workspace_root = PathBuf::from(project_path);
     let mut session_rules: Vec<SessionRule> = Vec::new();
     let mut tool_events: Vec<ToolEventRecord> = Vec::new();
@@ -908,6 +1026,7 @@ fn run_loop_inner(
             iteration,
             draft_message_id.as_deref(),
             &mut tool_events,
+            subagents.as_ref(),
         );
 
         // Append tool results as messages.
@@ -951,6 +1070,7 @@ fn process_tool_calls(
     iteration: usize,
     message_id: Option<&str>,
     tool_events: &mut Vec<ToolEventRecord>,
+    subagents: Option<&SubagentHost>,
 ) -> Vec<(ToolCallRequest, ToolResult)> {
     let mut results: Vec<(ToolCallRequest, ToolResult)> = Vec::with_capacity(calls.len());
     // Surface and checkpoint every tool before execution. This makes the
@@ -972,6 +1092,7 @@ fn process_tool_calls(
             &call.id, session_id, message_id, &call.name, "running", &summary, None, None, None,
             None,
         );
+        subagent_service::note_activity(app, session_id, &summary);
     }
 
     // Intercept propose_ideas calls: capture structured ideas to the catalog
@@ -979,7 +1100,7 @@ fn process_tool_calls(
     // never executed by the generic executor — it's a structured-data channel
     // for generate-ideas runs. One tool event per capture so cards stream in.
     for (idx, call) in calls.iter().enumerate() {
-        if call.name == "propose_ideas" {
+        if call.name == "propose_ideas" && is_intercepted(&call.name, tool_defs) {
             let result = execute_propose_ideas(planning_session_id.unwrap_or(session_id), call);
             record_tool_event(
                 app,
@@ -997,7 +1118,7 @@ fn process_tool_calls(
     // the frontend renders question cards, park the iteration until the user
     // responds or the run is cancelled. Never reaches the generic executor.
     for (idx, call) in calls.iter().enumerate() {
-        if call.name == "ask_user" {
+        if call.name == "ask_user" && is_intercepted(&call.name, tool_defs) {
             let result = execute_ask_user(app, session_id, call);
             record_tool_event(
                 app,
@@ -1014,8 +1135,28 @@ fn process_tool_calls(
     // Intercept todo_write: validate and persist the whole checklist, then
     // refresh the UI. Never reaches the generic executor.
     for (idx, call) in calls.iter().enumerate() {
-        if call.name == "todo_write" {
+        if call.name == "todo_write" && is_intercepted(&call.name, tool_defs) {
             let result = execute_todo_write(app, session_id, call);
+            record_tool_event(
+                app,
+                session_id,
+                message_id,
+                call,
+                &result,
+                iteration,
+                tool_events,
+            );
+            results.push((calls[idx].clone(), result));
+        }
+    }
+    // Intercept task: run each entry as a subagent child and fold the reports
+    // into this one result. Only the parent chat has a host to run them.
+    for (idx, call) in calls.iter().enumerate() {
+        if call.name == "task" && is_intercepted(&call.name, tool_defs) {
+            let result = match subagents {
+                Some(host) => subagent_service::execute_task(host, call, token),
+                None => ToolResult::failure("task is not available in this context.".to_string()),
+            };
             record_tool_event(
                 app,
                 session_id,
@@ -1032,9 +1173,7 @@ fn process_tool_calls(
     let remaining: Vec<(usize, &ToolCallRequest)> = calls
         .iter()
         .enumerate()
-        .filter(|(_, c)| {
-            c.name != "propose_ideas" && c.name != "ask_user" && c.name != "todo_write"
-        })
+        .filter(|(_, c)| !is_intercepted(&c.name, tool_defs))
         .collect();
 
     let read_only: Vec<(usize, &ToolCallRequest)> = remaining
@@ -1744,6 +1883,14 @@ fn tool_def_for<'a>(name: &str, defs: &'a [ToolDef]) -> Option<&'a ToolDef> {
     defs.iter().find(|d| d.schema.name == name)
 }
 
+/// Tools the loop executes itself rather than through the generic executor.
+/// They count as intercepted only when the current scope offers them, so a
+/// child that calls `task` anyway falls through to the "Unknown tool" path.
+fn is_intercepted(name: &str, tool_defs: &[ToolDef]) -> bool {
+    matches!(name, "propose_ideas" | "ask_user" | "todo_write" | "task")
+        && tool_def_for(name, tool_defs).is_some()
+}
+
 /// Tools offered to the provider for one turn. Plan mode hides mutating tools
 /// so the model plans instead of attempting edits. The gateway refuses any call
 /// that still arrives.
@@ -2261,6 +2408,31 @@ mod tests {
     fn clear_test_run(session_id: &str) {
         ACTIVE_RUNS.lock().remove(session_id);
         PENDING_STEERS.lock().remove(session_id);
+    }
+
+    #[test]
+    fn subagent_is_admitted_only_while_its_parent_run_is_live() {
+        let parent = "admit-parent";
+        let child = "admit-child";
+        crate::services::subagent_service::register_child_for_test(child, parent);
+        let mut active: std::collections::HashMap<String, Arc<RunHandle>> =
+            std::collections::HashMap::new();
+        assert!(!subagent_admitted(child, &active), "no parent run registered");
+        let handle = Arc::new(RunHandle {
+            token: CancellationToken::new(),
+        });
+        active.insert(parent.to_string(), handle.clone());
+        assert!(subagent_admitted(child, &active), "a live parent admits its child");
+        handle.token.cancel();
+        assert!(
+            !subagent_admitted(child, &active),
+            "a cancelled parent must refuse new children"
+        );
+        assert!(
+            !subagent_admitted("admit-stranger", &active),
+            "unknown sessions are not children"
+        );
+        crate::services::subagent_service::forget_child_for_test(child);
     }
 
     #[test]

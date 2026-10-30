@@ -50,6 +50,7 @@ pub mod stability_service;
 pub mod startup_service;
 pub mod storage_paths;
 pub mod storage_service;
+pub mod subagent_service;
 pub mod sync_service;
 pub mod terminal_service;
 pub mod todo_service;
