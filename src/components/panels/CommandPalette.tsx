@@ -9,6 +9,7 @@ import {
   type ChatCommand,
   type RankedCommand,
 } from "../../lib/chatCommands";
+import { t } from "../../i18n";
 
 /**
  * Command palette popup for the chat composer.
@@ -73,10 +74,10 @@ export function CommandPalette({
   if (!open) return null;
 
   return (
-    <div className="command-palette" ref={listRef} role="listbox" aria-label="Slash commands">
+    <div className="command-palette" ref={listRef} role="listbox" aria-label={t("commandPalette.slashCommands")}>
       {ranked.length === 0 ? (
-        <div className="command-palette-empty" title="No commands match your filter">
-          No commands match "{query}". Press Escape to close.
+        <div className="command-palette-empty" title={t("commandPalette.noCommandsMatchYourFilter")}>
+          {t("commandPalette.noCommandsMatchPressEscape", { query: query })}
         </div>
       ) : (
         ranked.map((cmd, i) => (
@@ -87,7 +88,7 @@ export function CommandPalette({
             data-cmd-index={i}
             role="option"
             aria-selected={i === activeIndex}
-            title={`${cmd.usage} — ${cmd.description}`}
+            title={t("commandPalette.text", { usage: cmd.usage, description: cmd.description })}
             onClick={() => onPick(tabComplete(cmd))}
             onMouseEnter={() => onActiveIndexChange(i)}
           >
@@ -99,8 +100,8 @@ export function CommandPalette({
             <span
               className={`command-palette-badge is-${cmd.category}`}
               title={cmd.category === "in-chat"
-                ? "In-Chat — does something in the conversation (injects a skill, generates output, etc.)"
-                : "UI — triggers a Basebuild UI action (opens a picker, clears chat, stops a request)"}
+                ? t("commandPalette.inChatDoesSomethingIn")
+                : t("commandPalette.uITriggersABasebuildUi")}
             >
               {categoryLabel(cmd.category)}
             </span>
@@ -108,25 +109,22 @@ export function CommandPalette({
         ))
       )}
       {helper.recognized && helper.command ? (
-        <div className="command-palette-helper" title={`Usage: ${helper.usage}`}>
+        <div className="command-palette-helper" title={t("commandPalette.usage", { usage: helper.usage })}>
           <span className="command-palette-helper-usage">{helper.usage}</span>
           {helper.requiredArgs.length > 0 ? (
             <span className="command-palette-helper-args">
-              Required: {helper.requiredArgs.join(", ")}
-            </span>
+              {t("commandPalette.required", { value: helper.requiredArgs.join(", ") })}</span>
           ) : null}
           {helper.optionalArgs.length > 0 ? (
             <span className="command-palette-helper-args is-optional">
-              Optional: {helper.optionalArgs.join(", ")}
-            </span>
+              {t("commandPalette.optional", { value: helper.optionalArgs.join(", ") })}</span>
           ) : null}
           {helper.validationError ? (
             <span className="command-palette-helper-error">{helper.validationError}</span>
           ) : null}
           {helper.examples.length > 0 ? (
             <span className="command-palette-helper-examples">
-              Example: {helper.examples[0]}
-            </span>
+              {t("commandPalette.example", { value: helper.examples[0] })}</span>
           ) : null}
         </div>
       ) : helper.validationError ? (

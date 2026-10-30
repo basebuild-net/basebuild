@@ -30,6 +30,8 @@ import {
 import { listSessions, type Session } from "../../lib/sessions";
 import { useLogs } from "../../state/log";
 import { SkeletonRows } from "./Loading";
+import { t } from "../../i18n";
+import { formatRelativeTime, formatDateTime } from "../../i18n/format";
 
 function ProjectMonogram({ name, active, color }: { name: string; active: boolean; color?: ProjectColor }) {
   const letter = name.charAt(0).toUpperCase() || "?";
@@ -68,16 +70,16 @@ type ProjectSidebarProps = {
 
 const PINNED_PROJECTS_KEY = "basebuild.pinned-projects.v1";
 const PROJECT_COLORS_KEY = "basebuild.project-colors.v1";
-const PROJECT_COLOR_PRESETS = [
-  { key: "none", label: "None" },
-  { key: "blue", label: "Blue" },
-  { key: "green", label: "Green" },
-  { key: "purple", label: "Purple" },
-  { key: "orange", label: "Sage" },
-  { key: "red", label: "Red" },
+const PROJECT_COLOR_PRESETS = () => [
+  { key: "none", label: t("projectSidebar.none") },
+  { key: "blue", label: t("projectSidebar.blue") },
+  { key: "green", label: t("projectSidebar.green") },
+  { key: "purple", label: t("projectSidebar.purple") },
+  { key: "orange", label: t("projectSidebar.sage") },
+  { key: "red", label: t("projectSidebar.red") },
 ] as const;
 
-type ProjectColor = (typeof PROJECT_COLOR_PRESETS)[number]["key"];
+type ProjectColor = "none" | "blue" | "green" | "purple" | "orange" | "red";
 
 function readPinnedProjects(): Set<string> {
   if (typeof localStorage === "undefined") return new Set();
@@ -106,7 +108,7 @@ function readProjectColors(): Map<string, ProjectColor> {
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return new Map();
     const map = new Map<string, ProjectColor>();
     for (const [key, value] of Object.entries(parsed)) {
-      if (PROJECT_COLOR_PRESETS.some((p) => p.key === value)) {
+      if (PROJECT_COLOR_PRESETS().some((p) => p.key === value)) {
         map.set(key, value as ProjectColor);
       }
     }
@@ -130,13 +132,8 @@ function writeProjectColors(colors: Map<string, ProjectColor>) {
 }
 
 function formatTime(ts: number): string {
-  const date = new Date(ts * 1000);
-  const now = Date.now();
-  const diff = now - ts * 1000;
-  if (diff < 60000) return "just now";
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-  return date.toLocaleDateString();
+  if (Date.now() - ts * 1000 < 86400000) return formatRelativeTime(ts);
+  return formatDateTime(new Date(ts * 1000), { dateStyle: "medium" });
 }
 
 export function ProjectSidebar({
@@ -202,7 +199,7 @@ export function ProjectSidebar({
     if (!onClearChats) return;
     const sessions = sessionsByProject.get(path) ?? [];
     const titles = sessions.map((s) => s.title).join(", ");
-    if (!confirm(`Clear ${sessions.length} chat${sessions.length === 1 ? "" : "s"} for this project? This cannot be undone.`)) {
+    if (!confirm(sessions.length === 1 ? t("projectSidebar.clearChatsConfirmOne", { count: sessions.length }) : t("projectSidebar.clearChatsConfirmOther", { count: sessions.length }))) {
       addLog("debug", "Clear chats cancelled", path);
       return;
     }
@@ -264,21 +261,21 @@ export function ProjectSidebar({
   }
 
   return (
-    <aside className="sidebar" aria-label="Projects">
+    <aside className="sidebar" aria-label={t("projectSidebar.projects")}>
       <div className="sidebar-header">
-        <span className="sidebar-title">Projects</span>
-        <span className="sidebar-sort-indicator" title={searchQuery.trim() ? "Filtered results" : pinnedPaths.size > 0 ? "Pinned first, then A-Z" : "Sorted alphabetically"}>
-          {pinnedPaths.size > 0 ? "★ A-Z" : "A-Z"}
+        <span className="sidebar-title">{t("projectSidebar.projects")}</span>
+        <span className="sidebar-sort-indicator" title={searchQuery.trim() ? t("projectSidebar.filteredResults") : pinnedPaths.size > 0 ? t("projectSidebar.pinnedFirstThenAZ") : t("projectSidebar.sortedAlphabetically")}>
+          {pinnedPaths.size > 0 ? t("projectSidebar.aZ") : t("projectSidebar.aZ2")}
         </span>
-        <button className="btn-icon" title="Open folder" aria-label="Open folder" type="button" onClick={() => { addLog("debug", "Open folder clicked"); onOpenFolder(); }}>
+        <button className="btn-icon" title={t("projectSidebar.openFolder")} aria-label={t("projectSidebar.openFolder")} type="button" onClick={() => { addLog("debug", "Open folder clicked"); onOpenFolder(); }}>
           <FolderPlus size={15} />
         </button>
         <button
           className="btn-icon"
-          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          title={collapsed ? t("projectSidebar.expandSidebar") : t("projectSidebar.collapseSidebar")}
+          aria-label={collapsed ? t("projectSidebar.expandSidebar") : t("projectSidebar.collapseSidebar")}
           type="button"
-          onClick={() => { addLog("debug", collapsed ? "Expand sidebar" : "Collapse sidebar"); onToggleCollapse(); }}
+          onClick={() => { addLog("debug", collapsed ? t("projectSidebar.expandSidebar2") : t("projectSidebar.collapseSidebar2")); onToggleCollapse(); }}
         >
           {collapsed ? <ChevronRight size={15} /> : <ChevronLeft size={15} />}
         </button>
@@ -288,7 +285,7 @@ export function ProjectSidebar({
         <input
           type="search"
           className="sidebar-search-input"
-          placeholder="Search projects..."
+          placeholder={t("projectSidebar.searchProjects")}
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
         />
@@ -296,9 +293,9 @@ export function ProjectSidebar({
 
       <div className="sidebar-list">
         {!projectsReady && sortedProjects.length === 0 ? (
-          <SkeletonRows rows={4} label="Loading projects…" />
+          <SkeletonRows rows={4} label={t("projectSidebar.loadingProjects")} />
         ) : sortedProjects.length === 0 ? (
-          <p className="text-muted text-sm pad sidebar-empty">No projects yet.</p>
+          <p className="text-muted text-sm pad sidebar-empty">{t("projectSidebar.noProjectsYet")}</p>
         ) : (
           sortedProjects.map((project) => {
             const isActive = project.path === activeProjectPath;
@@ -312,11 +309,11 @@ export function ProjectSidebar({
                   {/* Collapse chevron */}
                   <button
                     className="sidebar-chevron-btn"
-                    title={isCollapsed ? "Expand" : "Collapse"}
+                    title={isCollapsed ? t("projectSidebar.expand") : t("projectSidebar.collapse")}
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      addLog("debug", isCollapsed ? "Expand project" : "Collapse project", project.path);
+                      addLog("debug", isCollapsed ? t("projectSidebar.expandProject") : t("projectSidebar.collapseProject"), project.path);
                       setCollapsedProjects((prev) => {
                         const next = new Set(prev);
                         if (next.has(project.path)) next.delete(project.path);
@@ -342,8 +339,8 @@ export function ProjectSidebar({
                   {isActive ? (
                     <button
                       className="btn-icon btn-icon-sm sidebar-item-more"
-                      title="New session"
-                      aria-label="New session"
+                      title={t("projectSidebar.newSession")}
+                      aria-label={t("projectSidebar.newSession")}
                       type="button"
                       onClick={(e) => { e.stopPropagation(); addLog("debug", "New session clicked", project.path); onCreateSession(); }}
                     >
@@ -352,8 +349,8 @@ export function ProjectSidebar({
                   ) : null}
                   <button
                     className="btn-icon btn-icon-sm sidebar-item-more"
-                    title="More options"
-                    aria-label="More options"
+                    title={t("projectSidebar.moreOptions")}
+                    aria-label={t("projectSidebar.moreOptions")}
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
@@ -364,18 +361,18 @@ export function ProjectSidebar({
                   </button>
                   {menuPath === project.path ? (
                     <div className="context-menu" onMouseLeave={() => setMenuPath(null)}>
-                      <button className="menu-item" type="button" title={isPinned ? "Unpin project" : "Pin project"} onClick={() => togglePin(project.path)}>
-                        <Pin size={13} className={isPinned ? "icon-rotate-180" : ""} /> {isPinned ? "Unpin" : "Pin"}
+                      <button className="menu-item" type="button" title={isPinned ? t("projectSidebar.unpinProject") : t("projectSidebar.pinProject")} onClick={() => togglePin(project.path)}>
+                        <Pin size={13} className={isPinned ? "icon-rotate-180" : ""} /> {isPinned ? t("projectSidebar.unpin") : t("projectSidebar.pin")}
                       </button>
-                      <div className="menu-item has-submenu" title="Set project color">
-                        <Palette size={13} /> Set color
+                      <div className="menu-item has-submenu" title={t("projectSidebar.setProjectColor")}>
+                        <Palette size={13} /> {t("projectSidebar.setColor")}
                         <div className="menu-submenu">
-                          {PROJECT_COLOR_PRESETS.map((preset) => (
+                          {PROJECT_COLOR_PRESETS().map((preset) => (
                             <button
                               key={preset.key}
                               className={`menu-item menu-item-color${color === preset.key || (!color && preset.key === "none") ? " is-active" : ""}`}
                               type="button"
-                              title={`Set color: ${preset.label}`}
+                              title={t("projectSidebar.setColor2", { label: preset.label })}
                               onClick={() => setColor(project.path, preset.key)}
                             >
                               <span className={`project-color-dot${preset.key === "none" ? "" : ` is-${preset.key}`}`} />
@@ -385,19 +382,19 @@ export function ProjectSidebar({
                         </div>
                       </div>
                       {onClearChats ? (
-                        <button className="menu-item" type="button" title="Clear all chats for this project" onClick={() => handleClearChats(project.path)}>
-                          <TerminalSquare size={13} /> Clear chats
+                        <button className="menu-item" type="button" title={t("projectSidebar.clearAllChatsForThis")} onClick={() => handleClearChats(project.path)}>
+                          <TerminalSquare size={13} /> {t("projectSidebar.clearChats")}
                         </button>
                       ) : null}
-                      <button className="menu-item" type="button" title="Open project in file explorer" onClick={() => handleReveal(project.path)}>
-                        <ExternalLink size={13} /> Open in explorer
+                      <button className="menu-item" type="button" title={t("projectSidebar.openProjectInFileExplorer")} onClick={() => handleReveal(project.path)}>
+                        <ExternalLink size={13} /> {t("projectSidebar.openInExplorer")}
                       </button>
-                      <button className="menu-item" type="button" title={hiddenPaths.has(project.path) ? "Show project in list" : "Hide project from list"} onClick={() => toggleHide(project.path)}>
+                      <button className="menu-item" type="button" title={hiddenPaths.has(project.path) ? t("projectSidebar.showProjectInList") : t("projectSidebar.hideProjectFromList")} onClick={() => toggleHide(project.path)}>
                         {hiddenPaths.has(project.path) ? <Eye size={13} /> : <EyeOff size={13} />}
-                        {hiddenPaths.has(project.path) ? "Show in list" : "Hide from list"}
+                        {hiddenPaths.has(project.path) ? t("projectSidebar.showInList") : t("projectSidebar.hideFromList")}
                       </button>
-                      <button className="menu-item menu-item-danger" type="button" title="Remove project from list" onClick={() => handleRemove(project.path)}>
-                        <X size={13} /> Remove
+                      <button className="menu-item menu-item-danger" type="button" title={t("projectSidebar.removeProjectFromList")} onClick={() => handleRemove(project.path)}>
+                        <X size={13} /> {t("projectSidebar.remove")}
                       </button>
                     </div>
                   ) : null}
@@ -455,7 +452,7 @@ export function ProjectSidebar({
                         {editingSession !== s.id ? (
                           <button
                             className="btn-icon btn-icon-sm sidebar-session-edit-btn"
-                            title="Rename"
+                            title={t("projectSidebar.rename")}
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
@@ -468,21 +465,21 @@ export function ProjectSidebar({
                         ) : null}
                         {sessionMenu === s.id ? (
                           <div className="context-menu" onMouseLeave={() => setSessionMenu(null)}>
-                            <button className="menu-item" type="button" title="Rename session" onClick={() => {
+                            <button className="menu-item" type="button" title={t("projectSidebar.renameSession")} onClick={() => {
                               setEditingSession(s.id);
                               setEditValue(s.title);
                               setSessionMenu(null);
                             }}>
-                              <Pencil size={13} /> Rename
+                              <Pencil size={13} /> {t("projectSidebar.rename")}
                             </button>
                             {onDeleteSession ? (
-                              <button className="menu-item menu-item-danger" type="button" title="Delete session" onClick={() => {
-                                if (confirm(`Delete session "${s.title}"? This cannot be undone.`)) {
+                              <button className="menu-item menu-item-danger" type="button" title={t("projectSidebar.deleteSession")} onClick={() => {
+                                if (confirm(t("projectSidebar.deleteSessionThisCannotBeUndone", { title: s.title }))) {
                                   onDeleteSession(s.id);
                                 }
                                 setSessionMenu(null);
                               }}>
-                                <X size={13} /> Delete
+                                <X size={13} /> {t("projectSidebar.delete")}
                               </button>
                             ) : null}
                           </div>
@@ -496,17 +493,17 @@ export function ProjectSidebar({
           })
         )}
         {hiddenPaths.size > 0 ? (
-          <button className="sidebar-show-hidden" type="button" title="Show hidden projects" onClick={() => setHiddenPaths(new Set())}>
-            <Eye size={13} /> Show {hiddenPaths.size} hidden
+          <button className="sidebar-show-hidden" type="button" title={t("projectSidebar.showHiddenProjects")} onClick={() => setHiddenPaths(new Set())}>
+            <Eye size={13} /> {t("projectSidebar.showHidden", { size: hiddenPaths.size })}
           </button>
         ) : null}
       </div>
 
       {activeProjectPath && projectDetection ? (
         <div className="sidebar-detection">
-          <div className={`pill${projectDetection.hasGit ? " is-ok" : ""}`} title="Git repository">Git</div>
-          <div className={`pill${projectDetection.hasOpenSpec ? " is-ok" : ""}`} title="OpenSpec config present">OpenSpec</div>
-          <div className={`pill${projectDetection.hasBasebuild ? " is-ok" : ""}`} title=".basebuild config present">.basebuild</div>
+          <div className={`pill${projectDetection.hasGit ? " is-ok" : ""}`} title={t("projectSidebar.gitRepository")}>{t("projectSidebar.git")}</div>
+          <div className={`pill${projectDetection.hasOpenSpec ? " is-ok" : ""}`} title={t("projectSidebar.openSpecConfigPresent")}>{t("projectSidebar.openSpec")}</div>
+          <div className={`pill${projectDetection.hasBasebuild ? " is-ok" : ""}`} title={t("projectSidebar.basebuildConfigPresent")}>{t("projectSidebar.basebuild")}</div>
         </div>
       ) : null}
     </aside>

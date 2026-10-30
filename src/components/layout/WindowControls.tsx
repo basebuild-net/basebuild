@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Minus, Square, X } from "lucide-react";
 import { desktopPlatform } from "../../lib/platform";
+import { t } from "../../i18n";
 
 /** Custom min/max/close for frameless Windows and Linux windows. macOS keeps
  *  its native traffic lights (overlay title bar), so this renders nothing there. */
@@ -30,13 +31,13 @@ function CustomWindowControls() {
 
   return (
     <div className="window-controls">
-      <button className="window-control-btn" title="Minimize" type="button" onClick={minimize}>
+      <button className="window-control-btn" title={t("windowControls.minimize")} type="button" onClick={minimize}>
         <Minus size={14} />
       </button>
-      <button className="window-control-btn" title={maximized ? "Restore" : "Maximize"} type="button" onClick={toggleMaximize}>
+      <button className="window-control-btn" title={maximized ? t("windowControls.restore") : t("windowControls.maximize")} type="button" onClick={toggleMaximize}>
         <Square size={11} />
       </button>
-      <button className="window-control-btn window-control-close" title="Close" type="button" onClick={close}>
+      <button className="window-control-btn window-control-close" title={t("windowControls.close")} type="button" onClick={close}>
         <X size={14} />
       </button>
     </div>

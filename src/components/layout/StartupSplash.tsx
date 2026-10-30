@@ -3,6 +3,7 @@ import { AlertTriangle, Download, RefreshCw, X } from "lucide-react";
 import type { UpdaterState } from "../../state/updater";
 import { appVersion } from "../../lib/app";
 import { CopyButton } from "./CopyButton";
+import { t } from "../../i18n";
 
 type StartupSplashProps = {
   updates: UpdaterState;
@@ -104,13 +105,13 @@ export function StartupSplash({ updates, onComplete }: StartupSplashProps) {
   return (
     <div className="splash-overlay">
       <div className="splash-card">
-        <div className="splash-brand">BASEBUILD</div>
-        <div className="splash-version mono">v{version || "0.0.0"}</div>
+        <div className="splash-brand">{t("startupSplash.bASEBUILD")}</div>
+        <div className="splash-version mono">{t("startupSplash.v", { version: version || "0.0.0" })}</div>
 
         {phase === "checking" && (
           <div className="splash-status">
             <RefreshCw size={14} className="spin" />
-            <span>Checking for updates…</span>
+            <span>{t("startupSplash.checkingForUpdates")}</span>
           </div>
         )}
 
@@ -118,12 +119,12 @@ export function StartupSplash({ updates, onComplete }: StartupSplashProps) {
           <div className="splash-progress">
             <div className="splash-status">
               {updates.status === "installing" || updates.status === "downloaded"
-                ? "Restarting to apply update…"
+                ? t("startupSplash.restartingToApplyUpdate")
                 : updates.progress?.step === "installing"
-                  ? "Installing…"
+                  ? t("startupSplash.installing")
                   : updates.progress?.step === "restarting"
-                    ? "Restarting…"
-                    : `Downloading update${updates.info?.version ? ` ${updates.info.version}` : ""}…`}
+                    ? t("startupSplash.restarting")
+                    : t("startupSplash.downloadingUpdate", { value: updates.info?.version ? ` ${updates.info.version}` : "" })}
             </div>
             {progressPct !== null ? (
               <div className="splash-progress-bar">
@@ -140,10 +141,10 @@ export function StartupSplash({ updates, onComplete }: StartupSplashProps) {
                 <button
                   className="btn btn-ghost btn-sm"
                   type="button"
-                  title="Use Basebuild now — the update keeps downloading and applies when you restart"
+                  title={t("startupSplash.useBasebuildNowTheUpdate")}
                   onClick={handleContinueWithoutRestart}
                 >
-                  Continue without restarting
+                  {t("startupSplash.continueWithoutRestarting")}
                 </button>
               </div>
             ) : null}
@@ -153,23 +154,24 @@ export function StartupSplash({ updates, onComplete }: StartupSplashProps) {
         {phase === "mandatory" && updates.info && (
           <div className="splash-update-info">
             <div className="splash-update-title">
-              <AlertTriangle size={14} /> Mandatory update required
+              <AlertTriangle size={14} /> {t("startupSplash.mandatoryUpdateRequired")}
             </div>
             <p className="splash-update-summary text-sm">
-              This version of Basebuild is no longer supported.
-              {updates.info.policy.minimumSupportedVersion
-                ? ` Minimum supported version is ${updates.info.policy.minimumSupportedVersion}.`
-                : ""}
-              {" "}Updating to {updates.info.version}…
+              {t("startupSplash.thisVersionOfBasebuildIs", {
+                minimumSupportedVersionNote: updates.info.policy.minimumSupportedVersion
+                  ? t("startupSplash.minimumSupportedVersionNote", { minimumSupportedVersion: updates.info.policy.minimumSupportedVersion })
+                  : "",
+                version: updates.info.version ?? "",
+              })}
             </p>
             <div className="splash-actions">
               <button
                 className="btn btn-update btn-sm"
                 type="button"
-                title={`Updating to Basebuild ${updates.info.version ?? ""}`}
+                title={t("startupSplash.updatingToBasebuild", { version: updates.info.version ?? "" })}
                 disabled
               >
-                <Download size={12} /> Updating…
+                <Download size={12} /> {t("startupSplash.updating")}
               </button>
             </div>
           </div>
@@ -178,41 +180,41 @@ export function StartupSplash({ updates, onComplete }: StartupSplashProps) {
         {phase === "error" && (
           <div className="splash-update-info">
             <div className="splash-update-title">
-              <AlertTriangle size={14} /> Update check failed
+              <AlertTriangle size={14} /> {t("startupSplash.updateCheckFailed")}
             </div>
             <p className="splash-update-summary text-muted text-sm">
-              {updates.info?.channelExplanation ?? updates.error ?? "Could not check for updates."}
+              {updates.info?.channelExplanation ?? updates.error ?? t("startupSplash.couldNotCheckForUpdates")}
             </p>
             {updates.info?.rawError ? (
               <details className="update-raw-error">
-                <summary className="text-muted text-sm">Raw error</summary>
+                <summary className="text-muted text-sm">{t("startupSplash.rawError")}</summary>
                 <pre className="text-sm mono">{updates.info.rawError}</pre>
               </details>
             ) : null}
             {updates.info?.rawError ? (
               <div className="splash-error-copy">
-                <CopyButton text={updates.info.rawError} label="Copy error" />
+                <CopyButton text={updates.info.rawError} label={t("startupSplash.copyError")} />
               </div>
             ) : null}
             <div className="splash-actions">
               <button
                 className="btn btn-sm"
                 type="button"
-                title="Retry update check"
+                title={t("startupSplash.retryUpdateCheck")}
                 onClick={handleRetry}
               >
-                <RefreshCw size={12} /> Retry
+                <RefreshCw size={12} /> {t("startupSplash.retry")}
               </button>
               <button
                 className="btn btn-ghost btn-sm"
                 type="button"
-                title="Continue to Basebuild without updating"
+                title={t("startupSplash.continueToBasebuildWithoutUpdating")}
                 onClick={() => {
                   setPhase("ready");
                   onComplete();
                 }}
               >
-                Continue anyway
+                {t("startupSplash.continueAnyway")}
               </button>
             </div>
           </div>
@@ -222,13 +224,13 @@ export function StartupSplash({ updates, onComplete }: StartupSplashProps) {
           <button
             className="btn btn-ghost btn-sm splash-skip-check"
             type="button"
-            title="Skip update check and continue to Basebuild"
+            title={t("startupSplash.skipUpdateCheckAndContinue")}
             onClick={() => {
               setPhase("ready");
               onComplete();
             }}
           >
-            <X size={12} /> Skip
+            <X size={12} /> {t("startupSplash.skip")}
           </button>
         )}
       </div>

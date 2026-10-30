@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 /** Non-null Suspense fallback for user-opened modal bodies.
  *
  * The design contract requires that Suspense fallbacks for user-opened
@@ -6,7 +7,7 @@
  * sees immediate feedback while the lazy-loaded modal content resolves. */
 import { LogoPulse } from "./LogoPulse";
 
-export function ModalLoading({ label = "Loading…" }: { label?: string }) {
+export function ModalLoading({ label = t("modalLoading.loading") }: { label?: string }) {
   return (
     <div className="modal-loading" role="status" aria-live="polite">
       <LogoPulse size={20} />

@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, FileCode, Folder, RefreshCw, Search, X } fro
 import { listFiles, type DirEntry } from "../../lib/files";
 import { gitStatus, type FileChangeType, type GitStatus } from "../../lib/git";
 import { ModalPortal } from "../ModalPortal";
+import { t } from "../../i18n";
 
 type FileExplorerModalProps = {
   projectPath: string | null;
@@ -34,15 +35,17 @@ const GIT_COLORS: Record<FileChangeType, string> = {
   other: "var(--bb-muted)",
 };
 
-const GIT_LABELS: Record<FileChangeType, string> = {
-  added: "Added",
-  modified: "Modified",
-  deleted: "Deleted",
-  untracked: "Untracked",
-  renamed: "Renamed",
-  unmerged: "Unmerged",
-  other: "Other",
-};
+function gitLabels(): Record<FileChangeType, string> {
+  return {
+    added: t("fileExplorerModal.added2"),
+    modified: t("fileExplorerModal.modified2"),
+    deleted: t("fileExplorerModal.deleted2"),
+    untracked: t("fileExplorerModal.untracked2"),
+    renamed: t("fileExplorerModal.renamed2"),
+    unmerged: t("fileExplorerModal.unmerged"),
+    other: t("fileExplorerModal.other"),
+  };
+}
 
 // Priority order for rolling a folder's status up from its descendants.
 const FOLDER_PRIORITY: FileChangeType[] = [
@@ -248,7 +251,7 @@ export function FileExplorerModal({ projectPath, open, onClose, onOpenFile }: Fi
     return (
       <span
         className={`files-item-git-dot files-item-git-${type}`}
-        title={GIT_LABELS[type]}
+        title={gitLabels()[type]}
       />
     );
   };
@@ -293,7 +296,7 @@ export function FileExplorerModal({ projectPath, open, onClose, onOpenFile }: Fi
 
   return (
     <ModalPortal>
-    <div className="file-modal-overlay" role="dialog" aria-label="File explorer" onClick={onClose}>
+    <div className="file-modal-overlay" role="dialog" aria-label={t("fileExplorerModal.fileExplorer")} onClick={onClose}>
       <div className="file-modal" onClick={(e) => e.stopPropagation()}>
         <div className="file-modal-header">
           <div className="file-modal-search">
@@ -301,20 +304,20 @@ export function FileExplorerModal({ projectPath, open, onClose, onOpenFile }: Fi
             <input
               className="input file-modal-search-input"
               type="text"
-              placeholder="Filter files…"
+              placeholder={t("fileExplorerModal.filterFiles")}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              title="Filter files by name"
+              title={t("fileExplorerModal.filterFilesByName")}
               autoFocus
             />
           </div>
           <span className="file-modal-path mono text-muted" title={projectPath}>
-            {branch ? `${branch}` : projectPath.split(/[\\/]/).pop()}
+            {branch ? t("fileExplorerModal.text", { branch: branch }) : projectPath.split(/[\\/]/).pop()}
           </span>
           <button
             className="btn-icon btn-icon-sm"
             type="button"
-            title="Refresh file tree and git status"
+            title={t("fileExplorerModal.refreshFileTreeAndGit")}
             onClick={() => void load()}
             disabled={loading}
           >
@@ -323,7 +326,7 @@ export function FileExplorerModal({ projectPath, open, onClose, onOpenFile }: Fi
           <button
             className="btn-icon btn-icon-sm"
             type="button"
-            title="Close (Esc)"
+            title={t("fileExplorerModal.closeEsc")}
             onClick={onClose}
           >
             <X size={14} />
@@ -331,28 +334,28 @@ export function FileExplorerModal({ projectPath, open, onClose, onOpenFile }: Fi
         </div>
         <div className="file-modal-body">
           <div className="file-modal-tree">
-            <div className="files-tree-legend" title="Git status legend">
+            <div className="files-tree-legend" title={t("fileExplorerModal.gitStatusLegend")}>
               <span className="files-tree-legend-item">
-                <span className="files-item-git-dot files-item-git-added" /> Added
+                <span className="files-item-git-dot files-item-git-added" /> {t("fileExplorerModal.added")}
               </span>
               <span className="files-tree-legend-item">
-                <span className="files-item-git-dot files-item-git-modified" /> Modified
+                <span className="files-item-git-dot files-item-git-modified" /> {t("fileExplorerModal.modified")}
               </span>
               <span className="files-tree-legend-item">
-                <span className="files-item-git-dot files-item-git-deleted" /> Deleted
+                <span className="files-item-git-dot files-item-git-deleted" /> {t("fileExplorerModal.deleted")}
               </span>
               <span className="files-tree-legend-item">
-                <span className="files-item-git-dot files-item-git-untracked" /> Untracked
+                <span className="files-item-git-dot files-item-git-untracked" /> {t("fileExplorerModal.untracked")}
               </span>
               <span className="files-tree-legend-item">
-                <span className="files-item-git-dot files-item-git-renamed" /> Renamed
+                <span className="files-item-git-dot files-item-git-renamed" /> {t("fileExplorerModal.renamed")}
               </span>
             </div>
             {error ? (
               <p className="text-danger text-sm pad">{error}</p>
             ) : filtered ? (
               filtered.length === 0 ? (
-                <p className="text-muted text-sm pad">No matching files.</p>
+                <p className="text-muted text-sm pad">{t("fileExplorerModal.noMatchingFiles")}</p>
               ) : (
                 filtered.map(({ node, depth }) => {
                   const gitType = gitForNode(node);
@@ -377,7 +380,7 @@ export function FileExplorerModal({ projectPath, open, onClose, onOpenFile }: Fi
                 })
               )
             ) : rootNodes.length === 0 ? (
-              <p className="text-muted text-sm pad">{loading ? "Loading…" : "Empty folder."}</p>
+              <p className="text-muted text-sm pad">{loading ? t("fileExplorerModal.loading") : t("fileExplorerModal.emptyFolder")}</p>
             ) : (
               rootNodes.map((node) => renderNode(node, 0))
             )}
@@ -394,19 +397,19 @@ export function FileExplorerModal({ projectPath, open, onClose, onOpenFile }: Fi
                     <button
                       className="btn btn-primary btn-sm"
                       type="button"
-                      title="Open in a file tab"
+                      title={t("fileExplorerModal.openInAFileTab")}
                       onClick={() => handleOpen(selected)}
                     >
-                      Open
+                      {t("fileExplorerModal.open")}
                     </button>
                   ) : (
                     <button
                       className="btn btn-primary btn-sm"
                       type="button"
-                      title={selected.expanded ? "Collapse folder" : "Expand folder"}
+                      title={selected.expanded ? t("fileExplorerModal.collapseFolder") : t("fileExplorerModal.expandFolder")}
                       onClick={() => void toggleFolder(selected.entry)}
                     >
-                      {selected.expanded ? "Collapse" : "Expand"}
+                      {selected.expanded ? t("fileExplorerModal.collapse") : t("fileExplorerModal.expand")}
                     </button>
                   )}
                 </div>
@@ -420,17 +423,17 @@ export function FileExplorerModal({ projectPath, open, onClose, onOpenFile }: Fi
                   <p className="text-sm files-detail-git">
                     <span
                       className={`files-item-git-dot files-item-git-${selectedGit}`}
-                      title={GIT_LABELS[selectedGit]}
+                      title={gitLabels()[selectedGit]}
                     />
-                    <span>Git: {GIT_LABELS[selectedGit]}</span>
+                    <span>{t("fileExplorerModal.git", { value: gitLabels()[selectedGit] })}</span>
                   </p>
                 ) : (
-                  <p className="text-muted text-sm">Git: no changes</p>
+                  <p className="text-muted text-sm">{t("fileExplorerModal.gitNoChanges")}</p>
                 )}
               </div>
             ) : (
               <p className="text-muted text-sm pad">
-                Select a file to preview, or double-click to open. Click a folder to expand it.
+                {t("fileExplorerModal.selectAFileToPreview")}
               </p>
             )}
           </div>

@@ -77,6 +77,8 @@ import { NotificationsTab } from "./settings/NotificationsTab";
 import { SkillsTab } from "./settings/SkillsTab";
 import { AppearanceTab } from "./settings/AppearanceTab";
 import { LoadingBlock, SkeletonControl, SkeletonRows } from "./Loading";
+import { t } from "../../i18n";
+import { formatDateTime } from "../../i18n/format";
 
 type SettingsModalProps = {
   open: boolean;
@@ -202,7 +204,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
         try {
           validations[profile.id] = await validateRuntimeProfile(profile);
         } catch {
-          validations[profile.id] = { valid: false, version: null, error: "Validation failed" };
+          validations[profile.id] = { valid: false, version: null, error: t("settingsModal.validationFailed") };
         }
       }
       setProfileValidations(validations);
@@ -397,48 +399,48 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
   // Appearance leads so theme and UI scale are one click away.
   const tabGroups: { group: string; tabs: { id: Tab; label: string; icon: typeof Settings2 }[] }[] = [
     {
-      group: "Appearance",
+      group: t("settingsModal.appearance"),
       tabs: [
-        { id: "appearance", label: "Appearance", icon: Sun },
-        { id: "notifications", label: "Notifications", icon: Bell },
+        { id: "appearance", label: t("settingsModal.appearance"), icon: Sun },
+        { id: "notifications", label: t("settingsModal.notifications"), icon: Bell },
       ],
     },
     {
-      group: "General",
+      group: t("settingsModal.general"),
       tabs: [
-        { id: "updates", label: "Updates", icon: RefreshCw },
-        { id: "account", label: "Account", icon: User },
-        { id: "about", label: "About", icon: Globe },
+        { id: "updates", label: t("settingsModal.updates"), icon: RefreshCw },
+        { id: "account", label: t("settingsModal.account"), icon: User },
+        { id: "about", label: t("settingsModal.about"), icon: Globe },
       ],
     },
     {
-      group: "Providers & Models",
+      group: t("settingsModal.providersModels"),
       tabs: [
-        { id: "providers", label: "Providers", icon: Globe },
-        { id: "defaults", label: "Defaults", icon: Settings2 },
+        { id: "providers", label: t("settingsModal.providers"), icon: Globe },
+        { id: "defaults", label: t("settingsModal.defaults"), icon: Settings2 },
       ],
     },
     {
-      group: "Execution",
+      group: t("settingsModal.execution"),
       tabs: [
-        { id: "permissions", label: "Permissions", icon: Lock },
-        { id: "planning", label: "Planning", icon: Lightbulb },
-        { id: "openspec", label: "OpenSpec", icon: Wrench },
-        { id: "final_touches", label: "Final Touches", icon: Settings2 },
-        { id: "concurrency", label: "Concurrency", icon: Settings2 },
+        { id: "permissions", label: t("settingsModal.permissions"), icon: Lock },
+        { id: "planning", label: t("settingsModal.planning"), icon: Lightbulb },
+        { id: "openspec", label: t("settingsModal.openspec"), icon: Wrench },
+        { id: "final_touches", label: t("settingsModal.finalTouches"), icon: Settings2 },
+        { id: "concurrency", label: t("settingsModal.concurrency"), icon: Settings2 },
       ],
     },
     {
-      group: "Integrations",
+      group: t("settingsModal.integrations"),
       tabs: [
-        { id: "mcp", label: "MCP Servers", icon: Plug },
-        { id: "configs", label: "Config Packs", icon: Settings2 },
-        { id: "skills", label: "Skills", icon: Sparkles },
+        { id: "mcp", label: t("settingsModal.mcpServers"), icon: Plug },
+        { id: "configs", label: t("settingsModal.configPacks"), icon: Settings2 },
+        { id: "skills", label: t("settingsModal.skills"), icon: Sparkles },
       ],
     },
     {
-      group: "Privacy & Data",
-      tabs: [{ id: "analytics", label: "Analytics", icon: Shield }],
+      group: t("settingsModal.privacyData"),
+      tabs: [{ id: "analytics", label: t("settingsModal.analytics"), icon: Shield }],
     },
   ];
 
@@ -458,8 +460,8 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal settings-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>Settings</h2>
-          <button className="btn-icon" title="Close" type="button" onClick={onClose}>
+          <h2>{t("settingsModal.settings")}</h2>
+          <button className="btn-icon" title={t("settingsModal.close")} type="button" onClick={onClose}>
             <X size={16} />
           </button>
         </div>
@@ -467,7 +469,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
           <div className="settings-sidebar">
             {tabGroups.map((group) => (
               <div key={group.group} className="settings-group">
-                <span className="settings-group-label" title={`${group.group} settings`}>{group.group}</span>
+                <span className="settings-group-label" title={t("settingsModal.settings2", { group: group.group })}>{group.group}</span>
                 {group.tabs.map((t) => {
                   const Icon = t.icon;
                   return (
@@ -491,24 +493,24 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
             {tab === "updates" ? (
               <div className="stack">
                 <div className="settings-section-header">
-                  <h3>App Updates</h3>
+                  <h3>{t("settingsModal.appUpdates")}</h3>
                   <button
                     className="btn btn-sm"
                     type="button"
-                    title="Check for updates now"
+                    title={t("settingsModal.checkForUpdatesNow")}
                     onClick={() => void updates.checkNow()}
                     disabled={updateChecking || updateBusy || updateDownloaded}
                   >
-                    <RefreshCw size={12} className={updateChecking ? "spin" : ""} /> Check for updates
+                    <RefreshCw size={12} className={updateChecking ? "spin" : ""} /> {t("settingsModal.checkForUpdates")}
                   </button>
                 </div>
                 <div className="update-version-grid">
                   <div className="update-version-cell">
-                    <div className="text-muted text-sm">Installed</div>
+                    <div className="text-muted text-sm">{t("settingsModal.installed")}</div>
                     <div className="mono">{version || "—"}</div>
                   </div>
                   <div className="update-version-cell">
-                    <div className="text-muted text-sm">Latest</div>
+                    <div className="text-muted text-sm">{t("settingsModal.latest")}</div>
                     <div className="mono">{latestVersion}</div>
                   </div>
                 </div>
@@ -516,28 +518,28 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                   <div className="requirement-row is-ok">
                     <span className="requirement-badge is-ok">↓</span>
                     <div>
-                      <div className="requirement-name">Version {updates.info.version} available</div>
+                      <div className="requirement-name">{t("settingsModal.versionAvailable", { version: updates.info.version ?? "" })}</div>
                       {updates.info.notes ? <div className="requirement-detail text-muted text-sm update-notes">{updates.info.notes}</div> : null}
                       {updates.info.downloadUrl ? <div className="requirement-detail text-muted text-sm mono update-notes">{updates.info.downloadUrl}</div> : null}
                       {updateDownloaded || updateInstalling ? (
                         <button
                           className="btn btn-update btn-sm update-action-row"
                           type="button"
-                          title="Restart Basebuild to apply the downloaded update"
+                          title={t("settingsModal.restartBasebuildToApplyThe")}
                           onClick={() => void updates.restartToApply()}
                           disabled={updateInstalling}
                         >
-                          <RefreshCw size={12} className={updateInstalling ? "spin" : ""} /> {updateInstalling ? "Restarting…" : "Restart to apply update"}
+                          <RefreshCw size={12} className={updateInstalling ? "spin" : ""} /> {updateInstalling ? t("settingsModal.restarting") : t("settingsModal.restartToApplyUpdate")}
                         </button>
                       ) : (
                         <button
                           className="btn btn-update btn-sm update-action-row"
                           type="button"
-                          title="Download this update in the background — it applies when you restart"
+                          title={t("settingsModal.downloadThisUpdateInThe")}
                           onClick={() => void updates.download()}
                           disabled={updateBusy}
                         >
-                          <Download size={12} /> {updateDownloading ? "Downloading…" : "Download update"}
+                          <Download size={12} /> {updateDownloading ? t("settingsModal.downloading") : t("settingsModal.downloadUpdate")}
                         </button>
                       )}
                     </div>
@@ -545,35 +547,35 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                 ) : updates.info ? (
                   <>
                     <p className={`text-sm${updates.status === "error" ? " text-danger" : " text-muted"}`}>
-                      {updates.error ?? updates.info.notes ?? "You're on the latest version."}
+                      {updates.error ?? updates.info.notes ?? t("settingsModal.youReOnTheLatest")}
                     </p>
                     {updates.info.channelStatus && updates.info.channelStatus !== "ok" ? (
                       <div className="requirement-row is-warn">
                         <span className="requirement-badge is-warn">!</span>
                         <div>
-                          <div className="requirement-name">Update channel: {updates.info.channelStatus}</div>
+                          <div className="requirement-name">{t("settingsModal.updateChannel", { channelStatus: updates.info.channelStatus })}</div>
                           {updates.info.rawError ? (
                             <details className="update-raw-error">
-                              <summary className="text-muted text-sm">Raw updater message</summary>
+                              <summary className="text-muted text-sm">{t("settingsModal.rawUpdaterMessage")}</summary>
                               <pre className="text-sm mono">{updates.info.rawError}</pre>
                             </details>
                           ) : null}
                           {updates.info.rawError ? (
-                            <CopyButton text={updates.info.rawError} label="Copy" className="btn btn-ghost btn-sm" />
+                            <CopyButton text={updates.info.rawError} label={t("settingsModal.copy")} className="btn btn-ghost btn-sm" />
                           ) : null}
                         </div>
                       </div>
                     ) : null}
                   </>
                 ) : (
-                  <p className="text-muted text-sm">Checking for updates on startup and every 5 minutes.</p>
+                  <p className="text-muted text-sm">{t("settingsModal.checkingForUpdatesOnStartup")}</p>
                 )}
 
                 <div className="settings-section-header settings-section-spacer">
-                  <h3>Windows Startup</h3>
+                  <h3>{t("settingsModal.windowsStartup")}</h3>
                 </div>
                 {startupLoading ? (
-                  <LoadingBlock label="Loading startup status…" compact />
+                  <LoadingBlock label={t("settingsModal.loadingStartupStatus")} compact />
                 ) : startupStatus ? (
                   <div className="stack">
                     {startupStatus.platformSupported ? (
@@ -581,19 +583,19 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                         <label className="row gap-sm">
                           <input
                             type="checkbox"
-                            title="Launch Basebuild at Windows sign-in (minimized to tray)"
+                            title={t("settingsModal.launchBasebuildAtWindowsSign")}
                             checked={startupStatus.desired}
                             disabled={startupToggling}
                             onChange={(e) => void toggleStartup(e.target.checked)}
                           />
                           <span className="text-sm">
-                            Launch at Windows sign-in (minimized to tray)
+                            {t("settingsModal.launchAtWindowsSignIn")}
                           </span>
                         </label>
                         <p className="text-muted text-sm">
-                          Effective state: {startupStatus.effective}
+                          {t("settingsModal.effectiveState", { state: startupStatus.effective })}
                           {startupStatus.desired && startupStatus.effective !== "enabled" ? (
-                            <span className="text-danger"> — registration may have failed</span>
+                            <span className="text-danger"> {t("settingsModal.registrationMayHaveFailed")}</span>
                           ) : null}
                         </p>
                         {startupStatus.lastReconciliation && !startupStatus.lastReconciliation.success ? (
@@ -601,30 +603,30 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                             <button
                               className="btn btn-ghost btn-sm"
                               type="button"
-                              title="Retry autostart registration"
+                              title={t("settingsModal.retryAutostartRegistration")}
                               disabled={startupToggling}
                               onClick={() => void retryStartupReconcile()}
                             >
-                              <RefreshCw size={12} /> Retry registration
+                              <RefreshCw size={12} /> {t("settingsModal.retryRegistration")}
                             </button>
                           </div>
                         ) : null}
                       </>
                     ) : (
                       <p className="text-muted text-sm">
-                        Automatic startup is not supported on this platform.
+                        {t("settingsModal.automaticStartupIsNotSupported")}
                       </p>
                     )}
                   </div>
                 ) : (
-                  <p className="text-muted text-sm">Startup status is unavailable right now.</p>
+                  <p className="text-muted text-sm">{t("settingsModal.startupStatusIsUnavailableRight")}</p>
                 )}
 
                 <div className="settings-section-header settings-section-spacer">
-                  <h3>Requirement Checks</h3>
+                  <h3>{t("settingsModal.requirementChecks")}</h3>
                   <button
                     className="btn-icon btn-icon-sm"
-                    title="Refresh requirement checks"
+                    title={t("settingsModal.refreshRequirementChecks")}
                     type="button"
                     onClick={() => void refreshReq()}
                     disabled={loading}
@@ -633,9 +635,9 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                   </button>
                 </div>
                 {loading && requirements.length === 0 ? (
-                  <SkeletonRows rows={4} label="Loading requirement checks…" />
+                  <SkeletonRows rows={4} label={t("settingsModal.loadingRequirementChecks")} />
                 ) : requirements.length === 0 ? (
-                  <p className="text-muted">No requirement checks available.</p>
+                  <p className="text-muted">{t("settingsModal.noRequirementChecksAvailable")}</p>
                 ) : (
                   requirements.map((req) => (
                     <div key={req.id} className={`requirement-row is-${req.severity}`}>
@@ -655,11 +657,11 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
             {/* ─── Defaults ─── */}
             {tab === "defaults" ? (
               <div className="stack">
-                <h3>Runtime Defaults</h3>
-                <p className="text-muted text-sm">Set default adapters for new chat and terminal tabs. These are local-only.</p>
+                <h3>{t("settingsModal.runtimeDefaults")}</h3>
+                <p className="text-muted text-sm">{t("settingsModal.setDefaultAdaptersForNew")}</p>
 
                 {defaultsLoading ? (
-                  <LoadingBlock label="Loading defaults…" />
+                  <LoadingBlock label={t("settingsModal.loadingDefaults")} />
                 ) : defaults ? (
                   <>
                     <RuntimeDefaultsFields
@@ -676,22 +678,22 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                       <div className="requirement-row is-attention">
                         <span className="requirement-badge is-attention">!</span>
                         <div>
-                          <div className="requirement-name">Selected adapter is unavailable</div>
+                          <div className="requirement-name">{t("settingsModal.selectedAdapterIsUnavailable")}</div>
                           <div className="requirement-detail text-muted text-sm">
                             {profileValidations[defaults.defaultChatProfileId].error ??
-                              "This adapter reported unavailable. Install it or pick an available adapter; new chats fall back to an available one."}
+                              t("settingsModal.thisAdapterReportedUnavailableInstall")}
                           </div>
                         </div>
                       </div>
                     ) : null}
 
                     <label className="stack-sm">
-                      <span className="text-sm text-muted">Default model (optional)</span>
+                      <span className="text-sm text-muted">{t("settingsModal.defaultModelOptional")}</span>
                       <input
                         className="input"
                         type="text"
-                        title="Default model name for adapters that support model selection"
-                        placeholder="e.g. claude-sonnet-4-20250514"
+                        title={t("settingsModal.defaultModelNameForAdapters")}
+                        placeholder={t("settingsModal.eGClaudeSonnet4")}
                         value={defaults.defaultModel ?? ""}
                         onChange={(e) => void saveDefaults({ ...defaults, defaultModel: e.target.value || null })}
                       />
@@ -700,31 +702,31 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                     <label className="row gap-sm mt-4">
                       <input
                         type="checkbox"
-                        title="Auto-send generated prompts — disabled by default for safety"
+                        title={t("settingsModal.autoSendGeneratedPromptsDisabled")}
                         checked={defaults.autoSendGeneratedPrompts}
                         onChange={(e) => void saveDefaults({ ...defaults, autoSendGeneratedPrompts: e.target.checked })}
                       />
-                      <span className="text-sm">Auto-send generated prompts</span>
+                      <span className="text-sm">{t("settingsModal.autoSendGeneratedPrompts")}</span>
                     </label>
                     <p className="text-muted text-sm mt-n4">
-                      When enabled, prompts from the chat planning menu are sent immediately. Disabled by default.
+                      {t("settingsModal.whenEnabledPromptsFromThe")}
                     </p>
 
                     {/* GIT Ai — model used by Source → Generate commit */}
                     <div className="stack-sm mt-12">
-                      <h4 className="text-sm text-muted mb-4">GIT Ai</h4>
+                      <h4 className="text-sm text-muted mb-4">{t("settingsModal.gITAi")}</h4>
                       <p className="text-muted text-sm">
-                        Model used by Source → Generate commit. Only configured providers are listed. Falls back to your chat default when unset.
+                        {t("settingsModal.modelUsedBySourceGenerate")}
                       </p>
                       <label className="row gap-sm mb-4">
-                        <span className="text-sm label-w-64">Provider</span>
+                        <span className="text-sm label-w-64">{t("settingsModal.provider")}</span>
                         <select
                           className="input"
-                          title="GIT Ai provider — used by Source → Generate commit"
+                          title={t("settingsModal.gITAiProviderUsedBy")}
                           value={defaults.gitAiProviderId ?? ""}
                           onChange={(e) => void saveDefaults({ ...defaults, gitAiProviderId: e.target.value || null, gitAiModelId: null })}
                         >
-                          <option value="">(use chat default)</option>
+                          <option value="">{t("settingsModal.useChatDefault")}</option>
                           {(catalog?.providers ?? []).filter((p) => p.configured && !p.localOnly).map((p) => (
                             <option key={p.id} value={p.id}>{p.label}</option>
                           ))}
@@ -732,14 +734,14 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                       </label>
                       {defaults.gitAiProviderId ? (
                         <label className="row gap-sm">
-                          <span className="text-sm label-w-64">Model</span>
+                          <span className="text-sm label-w-64">{t("settingsModal.model")}</span>
                           <select
                             className="input"
-                            title="GIT Ai model — used by Source → Generate commit"
+                            title={t("settingsModal.gITAiModelUsedBy")}
                             value={defaults.gitAiModelId ?? ""}
                             onChange={(e) => void saveDefaults({ ...defaults, gitAiModelId: e.target.value || null })}
                           >
-                            <option value="">(provider default)</option>
+                            <option value="">{t("settingsModal.providerDefault")}</option>
                             {(catalog?.models ?? [])
                               .filter((m) => m.providerId === defaults.gitAiProviderId)
                               .map((m) => (
@@ -751,14 +753,14 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                     </div>
                   </>
                 ) : (
-                  <p className="text-muted text-sm">Runtime defaults are unavailable right now.</p>
+                  <p className="text-muted text-sm">{t("settingsModal.runtimeDefaultsAreUnavailableRight")}</p>
                 )}
 
                 {/* Profile validation */}
                 <div className="mt-12">
-                  <h4 className="text-sm text-muted mb-6">Adapter health</h4>
+                  <h4 className="text-sm text-muted mb-6">{t("settingsModal.adapterHealth")}</h4>
                   {defaultsLoading ? (
-                    <SkeletonRows rows={3} label="Loading adapter health…" />
+                    <SkeletonRows rows={3} label={t("settingsModal.loadingAdapterHealth")} />
                   ) : (
                     profiles.map((p) => {
                       const v = profileValidations[p.id];
@@ -781,10 +783,10 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                 <button
                   className="btn btn-sm"
                   type="button"
-                  title="Reset runtime defaults to factory values"
+                  title={t("settingsModal.resetRuntimeDefaultsToFactory")}
                   onClick={() => void resetRuntimeDefaults().then(() => void refreshDefaults())}
                 >
-                  <RefreshCw size={12} /> Reset to defaults
+                  <RefreshCw size={12} /> {t("settingsModal.resetToDefaults")}
                 </button>
               </div>
             ) : null}
@@ -792,56 +794,56 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
             {/* ─── Permissions ─── */}
             {tab === "permissions" ? (
               <div className="stack">
-                <h3>Permission Rules</h3>
-                <p className="text-muted text-sm">Control what agent actions require confirmation. These are local-only.</p>
+                <h3>{t("settingsModal.permissionRules")}</h3>
+                <p className="text-muted text-sm">{t("settingsModal.controlWhatAgentActionsRequire")}</p>
 
                 {permissionsLoading ? (
-                  <LoadingBlock label="Loading permission rules…" />
+                  <LoadingBlock label={t("settingsModal.loadingPermissionRules")} />
                 ) : permissions ? (
                   <>
                     <PermissionSelect
-                      label="Command execution"
-                      title="Permission for running commands outside the chat/terminal process"
+                      label={t("settingsModal.commandExecution")}
+                      title={t("settingsModal.permissionForRunningCommandsOutside")}
                       value={permissions.allowCommandExecution}
                       onChange={(v) => void savePermissions({ ...permissions, allowCommandExecution: v })}
                     />
                     <PermissionSelect
-                      label="External file context"
-                      title="Permission for reading files outside the active project root"
+                      label={t("settingsModal.externalFileContext")}
+                      title={t("settingsModal.permissionForReadingFilesOutside")}
                       value={permissions.allowExternalContext}
                       onChange={(v) => void savePermissions({ ...permissions, allowExternalContext: v })}
                     />
                     <PermissionSelect
-                      label="File modification"
-                      title="Permission for modifying files in the active project"
+                      label={t("settingsModal.fileModification")}
+                      title={t("settingsModal.permissionForModifyingFilesIn")}
                       value={permissions.allowFileModification}
                       onChange={(v) => void savePermissions({ ...permissions, allowFileModification: v })}
                     />
                   </>
                 ) : (
                   <p className="text-muted text-sm">
-                    Permission rules are unavailable right now. Reset to defaults to restore them.
+                    {t("settingsModal.permissionRulesAreUnavailableRight")}
                   </p>
                 )}
 
                 <button
                   className="btn btn-sm"
                   type="button"
-                  title="Reset permissions to conservative defaults"
+                  title={t("settingsModal.resetPermissionsToConservativeDefaults")}
                   onClick={() => void resetPermissionRules().then(() => void refreshPermissions())}
                 >
-                  <RefreshCw size={12} /> Reset to defaults
+                  <RefreshCw size={12} /> {t("settingsModal.resetToDefaults")}
                 </button>
 
                 {/* Approval Gateway */}
                 <div className="stack approval-gateway-section">
-                  <h4>Approval Gateway</h4>
+                  <h4>{t("settingsModal.approvalGateway")}</h4>
                   <p className="text-muted text-sm">
-                    Controls how the agent loop handles tool calls that need approval.
+                    {t("settingsModal.controlsHowTheAgentLoop")}
                   </p>
 
                   {approvalLoading ? (
-                    <LoadingBlock label="Loading approval mode…" compact />
+                    <LoadingBlock label={t("settingsModal.loadingApprovalMode")} compact />
                   ) : (
                     <>
                       <div className="row gap-sm">
@@ -850,7 +852,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                             key={m}
                             className={`btn btn-sm ${approvalMode === m ? "btn-primary" : ""}`}
                             type="button"
-                            title={`Set approval mode to ${m}`}
+                            title={t("settingsModal.setApprovalModeTo", { m: m })}
                             onClick={() => {
                               setApprovalModeState(m);
                               if (projectPath) void setApprovalMode(projectPath, m).then(() => void refreshApproval(projectPath));
@@ -864,20 +866,20 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                         ))}
                       </div>
                       <p className="text-muted text-sm">
-                        {approvalMode === "safe" && "Every tool call prompts for approval. Most secure, most interruptions."}
-                        {approvalMode === "balanced" && "Read-only tools auto-allow; mutating tools prompt. The default."}
-                        {approvalMode === "auto" && "All tools auto-allow within workspace scoping, except tools blocked by a deny rule. Fastest."}
+                        {approvalMode === "safe" && t("settingsModal.everyToolCallPromptsFor")}
+                        {approvalMode === "balanced" && t("settingsModal.readOnlyToolsAutoAllow")}
+                        {approvalMode === "auto" && t("settingsModal.allToolsAutoAllowWithin")}
                       </p>
                     </>
                   )}
 
                   {/* Custom rules */}
                   <div className="stack mt-8">
-                    <h5>Custom Rules</h5>
+                    <h5>{t("settingsModal.customRules")}</h5>
                     {approvalLoading ? (
-                      <SkeletonRows rows={2} label="Loading custom approval rules…" />
+                      <SkeletonRows rows={2} label={t("settingsModal.loadingCustomApprovalRules")} />
                     ) : approvalRules.length === 0 ? (
-                      <p className="text-muted text-sm">No custom rules. Default mode behavior applies.</p>
+                      <p className="text-muted text-sm">{t("settingsModal.noCustomRulesDefaultMode")}</p>
                     ) : (
                       <div className="stack">
                         {approvalRules.map((rule) => (
@@ -892,7 +894,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                             <button
                               className="btn btn-sm"
                               type="button"
-                              title="Remove this rule"
+                              title={t("settingsModal.removeThisRule")}
                               onClick={() => void removeApprovalRule(rule.id).then(() => projectPath && void refreshApproval(projectPath))}
                             >
                               <Trash2 size={12} />
@@ -907,33 +909,33 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                       <div className="row gap-sm align-center flex-wrap">
                         <input
                           className="input input-w-140"
-                          placeholder="tool name"
+                          placeholder={t("settingsModal.toolName")}
                           value={newRuleTool}
-                          title="Tool name (e.g. run_command, edit_file)"
+                          title={t("settingsModal.toolNameEGRun")}
                           onChange={(e) => setNewRuleTool(e.target.value)}
                         />
                         <input
                           className="input input-w-140"
-                          placeholder="command prefix (optional)"
+                          placeholder={t("settingsModal.commandPrefixOptional")}
                           value={newRulePrefix}
-                          title="Only apply to commands starting with this prefix"
+                          title={t("settingsModal.onlyApplyToCommandsStarting")}
                           onChange={(e) => setNewRulePrefix(e.target.value)}
                         />
                         <OptionList
-                          label="Decision for this rule"
+                          label={t("settingsModal.decisionForThisRule")}
                           value={newRuleDecision}
                           compact
                           onChange={setNewRuleDecision}
                           options={[
-                            { id: "ask", label: "Ask", title: "Ask before each action" },
-                            { id: "allow", label: "Allow", title: "Allow automatically" },
-                            { id: "deny", label: "Deny", title: "Deny automatically" },
+                            { id: "ask", label: t("settingsModal.ask"), title: t("settingsModal.askBeforeEachAction") },
+                            { id: "allow", label: t("settingsModal.allow"), title: t("settingsModal.allowAutomatically") },
+                            { id: "deny", label: t("settingsModal.deny"), title: t("settingsModal.denyAutomatically") },
                           ]}
                         />
                         <button
                           className="btn btn-sm btn-primary"
                           type="button"
-                          title="Add custom approval rule"
+                          title={t("settingsModal.addCustomApprovalRule")}
                           onClick={() => {
                             if (!newRuleTool.trim() || !projectPath) return;
                             void addApprovalRule({
@@ -950,7 +952,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                             });
                           }}
                         >
-                          Add Rule
+                          {t("settingsModal.addRule")}
                         </button>
                       </div>
                     ) : null}
@@ -959,20 +961,20 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                   {/* Audit trail */}
                   <div className="stack mt-12">
                     <div className="row align-center justify-between">
-                      <h5>Audit Trail</h5>
+                      <h5>{t("settingsModal.auditTrail")}</h5>
                       <button
                         className="btn btn-sm"
                         type="button"
-                        title="Clear audit trail"
+                        title={t("settingsModal.clearAuditTrail")}
                         onClick={() => void clearAuditTrail().then(() => void refreshApproval(projectPath))}
                       >
-                        <Trash2 size={12} /> Clear
+                        <Trash2 size={12} /> {t("settingsModal.clear")}
                       </button>
                     </div>
                     {approvalLoading ? (
-                      <SkeletonRows rows={3} label="Loading audit trail…" />
+                      <SkeletonRows rows={3} label={t("settingsModal.loadingAuditTrail")} />
                     ) : auditTrail.length === 0 ? (
-                      <p className="text-muted text-sm">No audit entries yet.</p>
+                      <p className="text-muted text-sm">{t("settingsModal.noAuditEntriesYet")}</p>
                     ) : (
                       <div className="stack scroll-y-200">
                         {auditTrail.map((entry) => (
@@ -984,7 +986,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                             {entry.scope ? <code className="text-muted"> {entry.scope}</code> : null}
                             {entry.sourceWorkflow ? <span className="text-muted"> ({entry.sourceWorkflow})</span> : null}
                             {" "}
-                            <span className="text-muted text-xs">{new Date(entry.createdAt * 1000).toLocaleString()}</span>
+                            <span className="text-muted text-xs">{formatDateTime(new Date(entry.createdAt * 1000))}</span>
                           </div>
                         ))}
                       </div>
@@ -997,72 +999,71 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
             {/* ─── Privacy ─── */}
             {tab === "analytics" ? (
               <div className="stack">
-                <h3>Analytics &amp; Usage</h3>
+                <h3>{t("settingsModal.analyticsUsage")}</h3>
                 <p className="text-muted text-sm">
-                  Basebuild is local-first. Local feature analytics are off by default. No privacy setting
-                  permits prompt text, chat content, source code, terminal output, secrets, or raw file paths.
+                  {t("settingsModal.basebuildIsLocalFirstLocal")}
                 </p>
 
                 <UsageSyncPanel />
 
 
                 {consentLoading ? (
-                  <LoadingBlock label="Loading analytics consent…" />
+                  <LoadingBlock label={t("settingsModal.loadingAnalyticsConsent")} />
                 ) : consent ? (
                   <>
                     <label className="row gap-sm mt-4">
                       <input
                         type="checkbox"
-                        title="Enable local usage analytics — stored on this device only"
+                        title={t("settingsModal.enableLocalUsageAnalyticsStored")}
                         checked={consent.collectionEnabled}
                         onChange={(e) => void saveConsent({ ...consent, collectionEnabled: e.target.checked })}
                       />
-                      <span className="text-sm">Enable local usage analytics</span>
+                      <span className="text-sm">{t("settingsModal.enableLocalUsageAnalytics")}</span>
                     </label>
                     <p className="text-muted text-sm mt-n4">
-                      Stores privacy-safe metadata (event name, feature area, outcome, duration) on this device only.
+                      {t("settingsModal.storesPrivacySafeMetadataEvent")}
                     </p>
 
                     <label className="row gap-sm mt-4">
                       <input
                         type="checkbox"
-                        title="Share anonymous aggregate model and usage counters with basebuild.net"
+                        title={t("settingsModal.shareAnonymousAggregateModelAnd")}
                         checked={consent.uploadEnabled}
                         onChange={(e) => void saveConsent({ ...consent, uploadEnabled: e.target.checked })}
                       />
-                      <span className="text-sm">Share anonymous aggregate usage</span>
+                      <span className="text-sm">{t("settingsModal.shareAnonymousAggregateUsage")}</span>
                     </label>
                     <p className="text-muted text-sm mt-n4">
-                      Independent of local feature analytics. Includes provider, model, tokens, cost, and timing only.
+                      {t("settingsModal.independentOfLocalFeatureAnalytics")}
                     </p>
 
                     <div className="mt-8">
-                      <h4 className="text-sm text-muted mb-6">Local analytics data</h4>
+                      <h4 className="text-sm text-muted mb-6">{t("settingsModal.localAnalyticsData")}</h4>
                       <div className="row gap-sm">
-                        <span className="text-sm mono">{eventCount} events stored</span>
+                        <span className="text-sm mono">{t("settingsModal.eventsStored", { eventCount: eventCount })}</span>
                         <button
                           className="btn btn-sm"
                           type="button"
-                          title="Export local analytics data as JSON"
+                          title={t("settingsModal.exportLocalAnalyticsDataAs")}
                           onClick={() => void exportAnalytics()}
                           disabled={eventCount === 0}
                         >
-                          <Download size={12} /> Export
+                          <Download size={12} /> {t("settingsModal.export")}
                         </button>
                         <button
                           className="btn btn-sm"
                           type="button"
-                          title="Delete all local analytics events"
+                          title={t("settingsModal.deleteAllLocalAnalyticsEvents")}
                           onClick={() => void deleteAnalytics()}
                           disabled={eventCount === 0}
                         >
-                          <Trash2 size={12} /> Delete
+                          <Trash2 size={12} /> {t("settingsModal.delete")}
                         </button>
                       </div>
                     </div>
 
                     <div className="mt-8">
-                      <h4 className="text-sm text-muted mb-6">Execution recommendation feedback</h4>
+                      <h4 className="text-sm text-muted mb-6">{t("settingsModal.executionRecommendationFeedback")}</h4>
                       <label className="row gap-sm">
                         {/* Its own fetch, independent of the consent block
                             above. Unchecked-and-disabled reads as "opted
@@ -1070,56 +1071,54 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                         {advisorFeedbackConsent ? (
                           <input
                             type="checkbox"
-                            title="Separately opt in to fixed-field execution recommendation feedback"
+                            title={t("settingsModal.separatelyOptInToFixed")}
                             checked={advisorFeedbackConsent.enabled}
                             onChange={(event) => void saveAdvisorFeedbackConsent(event.target.checked)}
                           />
                         ) : (
-                          <SkeletonControl label="the recommendation feedback setting" />
+                          <SkeletonControl label={t("settingsModal.theRecommendationFeedbackSetting")} />
                         )}
-                        <span className="text-sm">Collect recommendation choices</span>
+                        <span className="text-sm">{t("settingsModal.collectRecommendationChoices")}</span>
                       </label>
                       <p className="text-muted text-sm mt-n4">
-                        Off by default. Stores only model/provider ids, role, fixed estimate buckets,
-                        confidence, and accepted/overridden outcome. No free text, project content, paths,
-                        account ids, credentials, or raw usage.
+                        {t("settingsModal.offByDefaultStoresOnly")}
                       </p>
                       <p className="text-muted text-sm">
-                        Remote upload additionally requires anonymous upload above; queued choices remain local until both gates are enabled.
+                        {t("settingsModal.remoteUploadAdditionallyRequiresAnonymous")}
                       </p>
                       <div className="row gap-sm">
-                        <span className="text-sm mono">{advisorFeedbackCount} choices stored</span>
+                        <span className="text-sm mono">{t("settingsModal.choicesStored", { advisorFeedbackCount: advisorFeedbackCount })}</span>
                         <button
                           className="btn btn-sm"
                           type="button"
-                          title="Inspect execution recommendation feedback by exporting its fixed-field JSON"
+                          title={t("settingsModal.inspectExecutionRecommendationFeedbackBy")}
                           onClick={() => void exportAdvisorFeedback()}
                           disabled={advisorFeedbackCount === 0}
                         >
-                          <Download size={12} /> Export
+                          <Download size={12} /> {t("settingsModal.export")}
                         </button>
                         <button
                           className="btn btn-sm"
                           type="button"
-                          title="Delete all local execution recommendation feedback"
+                          title={t("settingsModal.deleteAllLocalExecutionRecommendation")}
                           onClick={() => void deleteAdvisorFeedback()}
                           disabled={advisorFeedbackCount === 0}
                         >
-                          <Trash2 size={12} /> Delete
+                          <Trash2 size={12} /> {t("settingsModal.delete")}
                         </button>
                       </div>
                     </div>
                   </>
                 ) : (
-                  <p className="text-muted text-sm">Analytics settings are unavailable right now.</p>
+                  <p className="text-muted text-sm">{t("settingsModal.analyticsSettingsAreUnavailableRight")}</p>
                 )}
 
                 {consent && !consent.collectionEnabled ? (
                   <div className="requirement-row is-ok mt-8">
                     <span className="requirement-badge is-ok">✓</span>
                     <div>
-                      <div className="requirement-name">Analytics disabled</div>
-                      <div className="text-muted text-sm">No data leaves this device.</div>
+                      <div className="requirement-name">{t("settingsModal.analyticsDisabled")}</div>
+                      <div className="text-muted text-sm">{t("settingsModal.noDataLeavesThisDevice")}</div>
                     </div>
                   </div>
                 ) : null}
@@ -1136,20 +1135,20 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
             {tab === "mcp" ? (
               <div className="stack">
                 <div className="settings-section-header">
-                  <h3>MCP Servers</h3>
+                  <h3>{t("settingsModal.mCPServers")}</h3>
                   <button
                     className="btn btn-sm"
                     type="button"
-                    title="Reload MCP server configs from disk"
+                    title={t("settingsModal.reloadMcpServerConfigsFrom")}
                     disabled={mcpLoading || !projectPath}
                     onClick={() => void refreshMcp()}
                   >
                     <RefreshCw size={14} />
-                    Reload
+                    {t("settingsModal.reload")}
                   </button>
                 </div>
                 <p className="text-muted text-sm">
-                  MCP servers are defined in <code>.omp/mcp.json</code> (project) or <code>~/.omp/agent/mcp.json</code> (user). Configure once — shared with oh-my-pi.
+                  {t("settingsModal.mCPServersAreDefinedIn")} <code>{t("settingsModal.ompMcpJson")}</code> {t("settingsModal.projectOr")} <code>{t("settingsModal.ompAgentMcpJson")}</code> {t("settingsModal.userConfigureOnceSharedWith")}
                 </p>
                 {mcpErrors.length > 0 ? (
                   <div className="callout callout-warn">
@@ -1159,9 +1158,9 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                   </div>
                 ) : null}
                 {projectPath && !mcpLoaded ? (
-                  <SkeletonRows rows={3} label="Loading MCP servers…" />
+                  <SkeletonRows rows={3} label={t("settingsModal.loadingMcpServers")} />
                 ) : mcpServers.length === 0 ? (
-                  <p className="text-muted text-sm">No MCP servers configured.</p>
+                  <p className="text-muted text-sm">{t("settingsModal.noMcpServersConfigured")}</p>
                 ) : (
                   <div className="stack">
                     {mcpServers.map((s) => (
@@ -1170,9 +1169,9 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                           <div className="settings-row-label">{s.name}</div>
                           <div className="text-muted text-sm">
                             {s.source} · {s.state}
-                            {s.toolCount > 0 ? ` · ${s.toolCount} tools` : ""}
-                            {s.promptCount > 0 ? ` · ${s.promptCount} prompts` : ""}
-                            {s.error ? ` · ${s.error}` : ""}
+                            {s.toolCount > 0 ? t("settingsModal.tools", { toolCount: s.toolCount }) : ""}
+                            {s.promptCount > 0 ? t("settingsModal.prompts", { promptCount: s.promptCount }) : ""}
+                            {s.error ? t("settingsModal.text", { error: s.error }) : ""}
                           </div>
                         </div>
                         <div className="settings-row-actions">
@@ -1180,7 +1179,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                             <button
                               className="btn btn-sm"
                               type="button"
-                              title="Disconnect this server"
+                              title={t("settingsModal.disconnectThisServer")}
                               disabled={!projectPath}
                               onClick={() => {
                                 if (!projectPath) return;
@@ -1188,18 +1187,18 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                               }}
                             >
                               <Unplug size={14} />
-                              Disconnect
+                              {t("settingsModal.disconnect")}
                             </button>
                           ) : (
                             <button
                               className="btn btn-sm"
                               type="button"
-                              title="Reconnect this server"
+                              title={t("settingsModal.reconnectThisServer")}
                               disabled={mcpLoading || !projectPath}
                               onClick={() => void refreshMcp()}
                             >
                               <RefreshCw size={14} />
-                              Connect
+                              {t("settingsModal.connect")}
                             </button>
                           )}
                         </div>
@@ -1248,15 +1247,14 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
             {/* ─── About ─── */}
             {tab === "about" ? (
               <div className="stack">
-                <h3>Basebuild</h3>
-                <p className="text-muted">Version {version || "…"}</p>
+                <h3>{t("settingsModal.basebuild")}</h3>
+                <p className="text-muted">{t("settingsModal.version", { version: version || "…" })}</p>
                 <p className="text-muted text-sm">
-                  Desktop application for managing OMP terminals, source control,
-                  ideas, and plans.
+                  {t("settingsModal.desktopApplicationForManagingOmp")}
                 </p>
                 <div className="stack-sm mt-8">
-                  <a className="text-sm" href="https://basebuild.net" target="_blank" rel="noopener noreferrer" title="Visit basebuild.net">basebuild.net</a>
-                  <a className="text-sm" href="https://github.com/basebuild-net/basebuild" target="_blank" rel="noopener noreferrer" title="Visit GitHub repository">github.com/basebuild-net/basebuild</a>
+                  <a className="text-sm" href="https://basebuild.net" target="_blank" rel="noopener noreferrer" title={t("settingsModal.visitBasebuildNet")}>{t("settingsModal.basebuildNet")}</a>
+                  <a className="text-sm" href="https://github.com/basebuild-net/basebuild" target="_blank" rel="noopener noreferrer" title={t("settingsModal.visitGithubRepository")}>{t("settingsModal.githubComBasebuildNetBasebuild")}</a>
                 </div>
               </div>
             ) : null}
@@ -1283,9 +1281,9 @@ function PermissionSelect({ label, title, value, onChange }: {
         compact
         onChange={onChange}
         options={[
-          { id: "ask", label: "Ask before each action", title: "Ask before each action" },
-          { id: "allow", label: "Allow automatically", title: "Allow automatically" },
-          { id: "deny", label: "Deny automatically", title: "Deny automatically" },
+          { id: "ask", label: t("settingsModal.askBeforeEachAction"), title: t("settingsModal.askBeforeEachAction") },
+          { id: "allow", label: t("settingsModal.allowAutomatically"), title: t("settingsModal.allowAutomatically") },
+          { id: "deny", label: t("settingsModal.denyAutomatically"), title: t("settingsModal.denyAutomatically") },
         ]}
       />
     </label>

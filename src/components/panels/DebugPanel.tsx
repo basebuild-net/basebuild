@@ -18,6 +18,8 @@ import {
 import { OmpPanel } from "./OmpPanel";
 import { useOmpState } from "../../state/omp";
 import { LoadingBlock, SkeletonRows } from "../layout/Loading";
+import { t } from "../../i18n";
+import { formatDateTime, formatNumber } from "../../i18n/format";
 
 type DebugData = {
   appVersion: string;
@@ -30,7 +32,7 @@ type DebugData = {
 function formatTimestamp(ts: number): string {
   if (!ts) return "-";
   const date = new Date(ts * 1000);
-  return date.toLocaleTimeString();
+  return formatDateTime(date, { timeStyle: "medium" });
 }
 
 function formatDuration(ts: number): string {
@@ -120,7 +122,7 @@ export function DebugPanel() {
   const ompState = useOmpState();
 
   if (error) return <p className="text-danger">{error}</p>;
-  if (!data) return <LoadingBlock label="Loading debug data…" />;
+  if (!data) return <LoadingBlock label={t("debugPanel.loadingDebugData")} />;
 
   const stats = data.context?.stats as { overall?: { totalRequests?: number; totalCost?: number; avgTtft?: number; avgTokensPerSecond?: number } } | undefined;
   const overall = stats?.overall;
@@ -129,10 +131,10 @@ export function DebugPanel() {
     <div className="stack">
       <div className="debug-section">
         <div className="row-between">
-          <h3>App</h3>
+          <h3>{t("debugPanel.app")}</h3>
           <button
             className="btn-icon btn-icon-sm"
-            title="Refresh debug data"
+            title={t("debugPanel.refreshDebugData")}
             onClick={() => void loadAll()}
             disabled={loading}
             type="button"
@@ -143,18 +145,18 @@ export function DebugPanel() {
         {/* Version — compiled in at build time. "0.0.0" in dev; real version in
             release builds (set by .github/workflows/windows.yml). */}
         <div className="debug-grid">
-          <div className="debug-item"><span>Version</span><strong>{data.appVersion}</strong></div>
-          <div className="debug-item"><span>Platform</span><strong>{data.platform}</strong></div>
+          <div className="debug-item"><span>{t("debugPanel.version")}</span><strong>{data.appVersion}</strong></div>
+          <div className="debug-item"><span>{t("debugPanel.platform")}</span><strong>{data.platform}</strong></div>
         </div>
       </div>
 
       {/* Terminal sessions */}
       <div className="debug-section">
         <div className="row-between">
-          <h3>Terminal Sessions ({terminals.length})</h3>
+          <h3>{t("debugPanel.terminalSessions", { terminalsCount: terminals.length })}</h3>
           <button
             className="btn-icon btn-icon-sm"
-            title="Refresh terminals"
+            title={t("debugPanel.refreshTerminals")}
             onClick={() => void refreshTerminals()}
             type="button"
           >
@@ -162,28 +164,28 @@ export function DebugPanel() {
           </button>
         </div>
         {loading && terminals.length === 0 ? (
-          <SkeletonRows rows={2} label="Loading terminal sessions…" />
+          <SkeletonRows rows={2} label={t("debugPanel.loadingTerminalSessions")} />
         ) : terminals.length === 0 ? (
-          <p className="text-muted text-sm pad">No active terminals.</p>
+          <p className="text-muted text-sm pad">{t("debugPanel.noActiveTerminals")}</p>
         ) : (
           <div className="terminal-debug-list">
-            {terminals.map((t) => (
-              <div className="terminal-debug-card" key={t.id}>
+            {terminals.map((terminal) => (
+              <div className="terminal-debug-card" key={terminal.id}>
                 <div className="terminal-debug-card-header">
                   <span className="terminal-debug-card-title">
                     <TerminalSquare size={12} className="icon-inline-mr" />
-                    #{t.id} · {t.shell}
+                    #{terminal.id} · {terminal.shell}
                   </span>
-                  <span className={`terminal-debug-card-status ${t.alive ? "is-active" : "is-dead"}`}>
-                    {t.alive ? "Active" : "Dead"}
+                  <span className={`terminal-debug-card-status ${terminal.alive ? "is-active" : "is-dead"}`}>
+                    {terminal.alive ? t("debugPanel.active") : t("debugPanel.dead")}
                   </span>
                 </div>
                 <div className="terminal-debug-grid">
-                  <span>PID: {t.pid ?? "-"}</span>
-                  <span>Size: {t.rows}×{t.cols}</span>
-                  <span>Started: {formatTimestamp(t.startedAt)}</span>
-                  <span>Uptime: {formatDuration(t.startedAt)}</span>
-                  {t.cwd ? <span className="grid-span-2" title={t.cwd}>CWD: {t.cwd}</span> : null}
+                  <span>{t("debugPanel.pID", { pid: terminal.pid ?? "-" })}</span>
+                  <span>{t("debugPanel.size", { rows: terminal.rows, cols: terminal.cols })}</span>
+                  <span>{t("debugPanel.started", { startedAt: formatTimestamp(terminal.startedAt) })}</span>
+                  <span>{t("debugPanel.uptime", { uptime: formatDuration(terminal.startedAt) })}</span>
+                  {terminal.cwd ? <span className="grid-span-2" title={terminal.cwd}>{t("debugPanel.cWD", { cwd: terminal.cwd })}</span> : null}
                 </div>
               </div>
             ))}
@@ -192,13 +194,13 @@ export function DebugPanel() {
       </div>
 
       <div className="debug-section">
-        <h3>Requirements</h3>
+        <h3>{t("debugPanel.requirements")}</h3>
         <div className="debug-grid">
           {data.requirements.map((req) => (
             <div className="debug-item" key={req.id}>
               <span>{req.label}</span>
               <strong className={req.installed ? "text-ok" : "text-danger"}>
-                {req.installed ? `Installed${req.version ? ` (${req.version})` : ""}` : "Missing"}
+                {req.installed ? t("debugPanel.installed2", { value: req.version ? ` (${req.version})` : "" }) : t("debugPanel.missing")}
               </strong>
             </div>
           ))}
@@ -207,56 +209,56 @@ export function DebugPanel() {
 
       {data.omp ? (
         <div className="debug-section">
-          <h3>OMP</h3>
+          <h3>{t("debugPanel.oMP")}</h3>
           <div className="debug-grid">
             <div className="debug-item">
-              <span>Status</span>
+              <span>{t("debugPanel.status")}</span>
               <strong className={data.omp.installed ? "text-ok" : "text-danger"}>
-                {data.omp.installed ? "Installed" : "Not installed"}
+                {data.omp.installed ? t("debugPanel.installed") : t("debugPanel.notInstalled")}
               </strong>
             </div>
-            {data.omp.version ? <div className="debug-item"><span>Version</span><strong>{data.omp.version}</strong></div> : null}
-            {data.omp.configPath ? <div className="debug-item"><span>Config</span><strong className="mono text-sm">{data.omp.configPath}</strong></div> : null}
+            {data.omp.version ? <div className="debug-item"><span>{t("debugPanel.version")}</span><strong>{data.omp.version}</strong></div> : null}
+            {data.omp.configPath ? <div className="debug-item"><span>{t("debugPanel.config")}</span><strong className="mono text-sm">{data.omp.configPath}</strong></div> : null}
           </div>
         </div>
       ) : null}
 
       {overall ? (
         <div className="debug-section">
-          <h3>OMP Stats</h3>
+          <h3>{t("debugPanel.oMPStats")}</h3>
           <div className="debug-stats-grid">
-            <div className="debug-stat-card"><Activity size={16} /><div><span>Requests</span><strong>{overall.totalRequests?.toLocaleString() ?? "-"}</strong></div></div>
-            <div className="debug-stat-card"><DollarSign size={16} /><div><span>Cost</span><strong>${overall.totalCost?.toFixed(2) ?? "-"}</strong></div></div>
-            <div className="debug-stat-card"><Cpu size={16} /><div><span>Tokens/s</span><strong>{overall.avgTokensPerSecond?.toFixed(1) ?? "-"}</strong></div></div>
-            <div className="debug-stat-card"><Settings size={16} /><div><span>Avg TTFT</span><strong>{overall.avgTtft ? `${(overall.avgTtft / 1000).toFixed(1)}s` : "-"}</strong></div></div>
+            <div className="debug-stat-card"><Activity size={16} /><div><span>{t("debugPanel.requests")}</span><strong>{formatNumber(overall.totalRequests) ?? "-"}</strong></div></div>
+            <div className="debug-stat-card"><DollarSign size={16} /><div><span>{t("debugPanel.cost")}</span><strong>${overall.totalCost?.toFixed(2) ?? "-"}</strong></div></div>
+            <div className="debug-stat-card"><Cpu size={16} /><div><span>{t("debugPanel.tokensS")}</span><strong>{overall.avgTokensPerSecond?.toFixed(1) ?? "-"}</strong></div></div>
+            <div className="debug-stat-card"><Settings size={16} /><div><span>{t("debugPanel.avgTtft")}</span><strong>{overall.avgTtft ? t("debugPanel.s", { value: (overall.avgTtft / 1000).toFixed(1) }) : "-"}</strong></div></div>
           </div>
         </div>
       ) : null}
 
       {data.context ? (
         <div className="debug-section">
-          <h3>Raw context</h3>
-          <details><summary>Stats JSON</summary><pre className="pre">{JSON.stringify(data.context.stats, null, 2)}</pre></details>
-          <details><summary>Usage JSON</summary><pre className="pre">{JSON.stringify(data.context.usage, null, 2)}</pre></details>
-          <details><summary>Config JSON</summary><pre className="pre">{JSON.stringify(data.context.config, null, 2)}</pre></details>
+          <h3>{t("debugPanel.rawContext")}</h3>
+          <details><summary>{t("debugPanel.statsJson")}</summary><pre className="pre">{JSON.stringify(data.context.stats, null, 2)}</pre></details>
+          <details><summary>{t("debugPanel.usageJson")}</summary><pre className="pre">{JSON.stringify(data.context.usage, null, 2)}</pre></details>
+          <details><summary>{t("debugPanel.configJson")}</summary><pre className="pre">{JSON.stringify(data.context.config, null, 2)}</pre></details>
         </div>
       ) : null}
 
       <div className="debug-section">
-        <h3>OMP Console</h3>
+        <h3>{t("debugPanel.oMPConsole")}</h3>
         <OmpPanel state={ompState} />
       </div>
 
       {/* ─── Stability Reports ─── */}
       <div className="debug-section">
         <h3>
-          <AlertTriangle size={14} /> Crash & Freeze Reports
-          {unseenCount > 0 ? <span className="badge badge-error">{unseenCount} new</span> : null}
+          <AlertTriangle size={14} /> {t("debugPanel.crashAndFreezeReports")}
+          {unseenCount > 0 ? <span className="badge badge-error">{t("debugPanel.new", { unseenCount: unseenCount })}</span> : null}
         </h3>
         {stabilityLoading && reports.length === 0 ? (
-          <SkeletonRows rows={2} label="Loading crash and freeze reports…" />
+          <SkeletonRows rows={2} label={t("debugPanel.loadingCrashAndFreezeReports")} />
         ) : reports.length === 0 ? (
-          <p className="text-muted text-sm">No crash or freeze reports.</p>
+          <p className="text-muted text-sm">{t("debugPanel.noCrashOrFreezeReports")}</p>
         ) : (
           <div className="stack">
             {reports.map((rpt) => (
@@ -265,33 +267,33 @@ export function DebugPanel() {
                   <span>
                     <span className={`badge badge-${rpt.kind === "panic" ? "error" : rpt.kind === "freeze" ? "warning" : "info"}`}>{rpt.kind}</span>
                     {" "}{rpt.summary.slice(0, 80)}{rpt.summary.length > 80 ? "…" : ""}
-                    {" "}<span className="text-muted text-xs">{new Date(rpt.timestamp * 1000).toLocaleString()}</span>
+                    {" "}<span className="text-muted text-xs">{formatDateTime(new Date(rpt.timestamp * 1000))}</span>
                   </span>
                   <div className="row gap-sm">
                     <button
                       className="btn btn-sm"
                       type="button"
-                      title="View full report"
+                      title={t("debugPanel.viewFullReport")}
                       onClick={() => { setSelectedReport(rpt); if (!rpt.seen) void stabilityMarkSeen(rpt.id).then(() => void refreshStability()); }}
                     >
-                      View
+                      {t("debugPanel.view")}
                     </button>
                     <button
                       className="btn btn-sm"
                       type="button"
-                      title="Delete this report"
+                      title={t("debugPanel.deleteThisReport")}
                       onClick={() => void stabilityDeleteReport(rpt.id).then(() => void refreshStability())}
                     >
                       <Trash2 size={12} />
                     </button>
                     <a
                       className="btn btn-sm"
-                      title="File a GitHub issue with this report"
+                      title={t("debugPanel.fileAGithubIssueWith")}
                       href={`https://github.com/basebuild-net/basebuild/issues/new?title=${encodeURIComponent(rpt.summary)}&body=${encodeURIComponent(rpt.details)}`}
                       target="_blank"
                       rel="noopener noreferrer"
                     >
-                      File Issue
+                      {t("debugPanel.fileIssue")}
                     </a>
                   </div>
                 </div>
@@ -308,32 +310,32 @@ export function DebugPanel() {
 
       {/* ─── Slow Commands ─── */}
       <div className="debug-section">
-        <h3><Activity size={14} /> Command Telemetry</h3>
+        <h3><Activity size={14} /> {t("debugPanel.commandTelemetry")}</h3>
         {violations.length > 0 ? (
           <div className="stack mb-8">
-            <h4 className="text-danger text-sm">Violations (sync &gt;50ms)</h4>
+            <h4 className="text-danger text-sm">{t("debugPanel.violationsSync50ms")}</h4>
             {violations.slice(0, 10).map((v, i) => (
               <div key={i} className="debug-item">
                 <span className="mono text-sm">{v.command}</span>
-                <strong className="text-danger">{v.durationMs}ms</strong>
+                <strong className="text-danger">{t("debugPanel.ms", { durationMs: v.durationMs })}</strong>
               </div>
             ))}
           </div>
         ) : null}
         {telemetry.length > 0 ? (
           <div className="stack">
-            <h4 className="text-muted text-sm">Recent (slowest first)</h4>
-            {telemetry.slice(0, 10).map((t, i) => (
+            <h4 className="text-muted text-sm">{t("debugPanel.recentSlowestFirst")}</h4>
+            {telemetry.slice(0, 10).map((entry, i) => (
               <div key={i} className="debug-item">
-                <span className="mono text-sm">{t.command}</span>
-                <strong className={t.violation ? "text-danger" : ""}>{t.durationMs}ms</strong>
+                <span className="mono text-sm">{entry.command}</span>
+                <strong className={entry.violation ? "text-danger" : ""}>{t("debugPanel.ms2", { durationMs: entry.durationMs })}</strong>
               </div>
             ))}
           </div>
         ) : stabilityLoading ? (
-          <SkeletonRows rows={3} label="Loading command telemetry…" />
+          <SkeletonRows rows={3} label={t("debugPanel.loadingCommandTelemetry")} />
         ) : (
-          <p className="text-muted text-sm">No telemetry yet.</p>
+          <p className="text-muted text-sm">{t("debugPanel.noTelemetryYet")}</p>
         )}
       </div>
     </div>

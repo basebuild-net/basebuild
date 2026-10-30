@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { appVersion } from "../../lib/app";
 import { LogoPulse } from "./LogoPulse";
+import { t } from "../../i18n";
 
 export type RestorePhase = "starting" | "detecting" | "restoring" | "resolving" | "ready";
 
@@ -9,13 +10,15 @@ type WorkspaceSplashProps = {
   onDismissed?: () => void;
 };
 
-const PHASE_LABELS: Record<RestorePhase, string> = {
-  starting: "Starting up…",
-  detecting: "Detecting projects…",
-  restoring: "Restoring workspace…",
-  resolving: "Resolving providers…",
-  ready: "Ready",
-};
+function PHASE_LABELS(): Record<RestorePhase, string> {
+  return {
+    starting: t("workspaceSplash.startingUp"),
+    detecting: t("workspaceSplash.detectingProjects"),
+    restoring: t("workspaceSplash.restoringWorkspace"),
+    resolving: t("workspaceSplash.resolvingProviders"),
+    ready: t("workspaceSplash.ready"),
+  };
+}
 
 export function WorkspaceSplash({ phase, onDismissed }: WorkspaceSplashProps) {
   const [version, setVersion] = useState("");
@@ -41,10 +44,10 @@ export function WorkspaceSplash({ phase, onDismissed }: WorkspaceSplashProps) {
   return (
     <div className={`splash-overlay workspace-splash${fading ? " workspace-splash-fading" : ""}`} role="status" aria-live="polite">
       <div className="splash-card">
-        <div className="splash-brand">BASEBUILD</div>
-        <div className="splash-version mono">v{version || "0.0.0"}</div>
+        <div className="splash-brand">{t("workspaceSplash.bASEBUILD")}</div>
+        <div className="splash-version mono">{t("workspaceSplash.v", { version: version || "0.0.0" })}</div>
         <LogoPulse size={28} className="splash-spinner" />
-        <div className="splash-status">{PHASE_LABELS[phase]}</div>
+        <div className="splash-status">{PHASE_LABELS()[phase]}</div>
       </div>
     </div>
   );

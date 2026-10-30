@@ -1,6 +1,7 @@
 import { memo, useMemo, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { parseMarkdown, highlightCode, type MdBlock, type MdInline, type HighlightToken } from "../../lib/markdown";
+import { t } from "../../i18n";
 
 type MarkdownViewProps = {
   text: string;
@@ -70,17 +71,17 @@ function FenceBlock({ lang, content }: { lang: string; content: string }) {
   );
 
   return (
-    <div className="md-code-block" title={lang ? `Code block: ${lang}` : "Code block"}>
+    <div className="md-code-block" title={lang ? t("markdownView.codeBlock2", { lang: lang }) : t("markdownView.codeBlock")}>
       <div className="md-code-header">
-        <span className="md-code-lang">{lang || "text"}</span>
+        <span className="md-code-lang">{lang || t("markdownView.text")}</span>
         <button
           type="button"
           className="md-code-copy btn btn-ghost btn-icon-sm"
-          title={copied ? "Copied to clipboard" : "Copy code to clipboard"}
+          title={copied ? t("markdownView.copiedToClipboard") : t("markdownView.copyCodeToClipboard")}
           onClick={() => void handleCopy()}
         >
           {copied ? <Check size={11} /> : <Copy size={11} />}
-          <span>{copied ? "Copied" : "Copy"}</span>
+          <span>{copied ? t("markdownView.copied") : t("markdownView.copy")}</span>
         </button>
       </div>
       <pre className="md-code-pre">

@@ -4,6 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { TerminalSquare } from "lucide-react";
 import { listenTerminalOutput, listTerminals, resizeTerminal, terminalReplay, writeTerminal } from "../../lib/terminal";
+import { t } from "../../i18n";
 
 type TerminalPanelProps = {
   /** Existing terminal ID to connect to. If null, shows empty state. */
@@ -18,7 +19,7 @@ type TerminalPanelProps = {
 };
 
 const defaultShell =
-  typeof window !== "undefined" && window.navigator.platform.startsWith("Win") ? "powershell.exe" : "bash";
+  typeof window !== "undefined" && window.navigator.platform.startsWith("Win" /* i18n-exempt: platform detection id */) ? "powershell.exe" : "bash";
 
 export function TerminalPanel({ terminalId, cwd, onOutput, onReconnect }: TerminalPanelProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -59,13 +60,13 @@ export function TerminalPanel({ terminalId, cwd, onOutput, onReconnect }: Termin
 
       const terminal = new Terminal({
         cursorBlink: true,
-        fontFamily: "JetBrains Mono, Consolas, monospace",
+        fontFamily: t("terminalPanel.jetbrainsMonoConsolasMonospace"),
         fontSize: 12,
         theme: {
           background: "#101211",
           foreground: "#eef2ef",
           cursor: "#6ea97a",
-          selectionBackground: "rgba(110, 169, 122, 0.3)",
+          selectionBackground: t("terminalPanel.rgba11016912203"),
           black: "#0c0e0d",
           red: "#cf7373",
           green: "#6ea97a",
@@ -157,7 +158,7 @@ export function TerminalPanel({ terminalId, cwd, onOutput, onReconnect }: Termin
       terminal.onData((data) => {
         void writeTerminal(id, data).catch(() => {
           setConnected(false);
-          terminal.writeln("\r\n\x1b[31m[terminal closed — click Reconnect]\x1b[0m");
+          terminal.writeln("\r\n\x1b[31m[terminal closed: click Reconnect]\x1b[0m" /* i18n-exempt: terminal output escape sequence */);
         });
       });
 
@@ -228,8 +229,8 @@ export function TerminalPanel({ terminalId, cwd, onOutput, onReconnect }: Termin
     return (
       <div className="empty-state">
         <TerminalSquare size={32} className="text-muted" />
-        <h3>No terminal</h3>
-        <p>Create a terminal tab from the + menu to start a shell.</p>
+        <h3>{t("terminalPanel.noTerminal")}</h3>
+        <p>{t("terminalPanel.createATerminalTabFrom")}</p>
       </div>
     );
   }
@@ -241,21 +242,21 @@ export function TerminalPanel({ terminalId, cwd, onOutput, onReconnect }: Termin
     >
       <div className="terminal-toolbar">
         <span className="terminal-status">
-          {connected ? `● Terminal #${terminalId}` : error ? "Error" : "Connecting..."}
+          {connected ? t("terminalPanel.terminal", { terminalId: terminalId ?? "" }) : error ? t("terminalPanel.error") : t("terminalPanel.connecting")}
         </span>
       </div>
       {error ? <div className="terminal-error">{error}</div> : null}
       <div className="terminal-viewport" ref={containerRef} />
       {!connected && !error && terminalId != null ? (
         <div className="terminal-reconnect-overlay">
-          <p>Terminal session ended</p>
+          <p>{t("terminalPanel.terminalSessionEnded")}</p>
           <button
             className="btn btn-primary btn-sm"
             type="button"
-            title="Create a new terminal session"
+            title={t("terminalPanel.createANewTerminalSession")}
             onClick={onReconnect}
           >
-            Reconnect
+            {t("terminalPanel.reconnect")}
           </button>
         </div>
       ) : null}

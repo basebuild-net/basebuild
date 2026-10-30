@@ -1,4 +1,5 @@
 import type { RuntimeDefaults, RuntimeProfile, ProfileValidation } from "../../lib/settings";
+import { t } from "../../i18n";
 
 type RuntimeDefaultsFieldsProps = {
   defaults: RuntimeDefaults;
@@ -18,10 +19,10 @@ export function RuntimeDefaultsFields({
   return (
     <>
       <label className="stack-sm">
-        <span className="text-sm text-muted">Default chat adapter</span>
+        <span className="text-sm text-muted">{t("runtimeDefaultsFields.defaultChatAdapter")}</span>
         <select
           className="input"
-          title="Select default chat adapter"
+          title={t("runtimeDefaultsFields.selectDefaultChatAdapter")}
           value={defaults.defaultChatProfileId ?? ""}
           onChange={(e) => onChange({ ...defaults, defaultChatProfileId: e.target.value || null })}
         >
@@ -29,7 +30,7 @@ export function RuntimeDefaultsFields({
             const v = profileValidations[p.id];
             return (
               <option key={p.id} value={p.id}>
-                {p.label}{v && !v.valid ? " (unavailable)" : ""}
+                {p.label}{v && !v.valid ? t("runtimeDefaultsFields.unavailable") : ""}
               </option>
             );
           })}
@@ -37,10 +38,10 @@ export function RuntimeDefaultsFields({
       </label>
 
       <label className="stack-sm">
-        <span className="text-sm text-muted">Default terminal</span>
+        <span className="text-sm text-muted">{t("runtimeDefaultsFields.defaultTerminal")}</span>
         <select
           className="input"
-          title="Select default terminal"
+          title={t("runtimeDefaultsFields.selectDefaultTerminal")}
           value={defaults.defaultTerminalProfileId ?? ""}
           onChange={(e) => onChange({ ...defaults, defaultTerminalProfileId: e.target.value || null })}
         >

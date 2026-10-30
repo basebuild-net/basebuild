@@ -3,6 +3,7 @@ import { ErrorBoundary } from "./components/layout/ErrorBoundary";
 import { AppShell } from "./components/layout/AppShell";
 import { StartupSplash } from "./components/layout/StartupSplash";
 import { LogProvider } from "./state/log";
+import { useLocale } from "./state/locale";
 import { useUpdater } from "./state/updater";
 import { startupLaunchMode, type LaunchMode } from "./lib/startup";
 
@@ -10,6 +11,8 @@ export default function App() {
   const [splashDone, setSplashDone] = useState(import.meta.env.DEV);
   const updates = useUpdater();
   const [launchMode, setLaunchMode] = useState<LaunchMode>("foreground");
+  // Subscribe the root so a language switch re-renders the whole tree.
+  useLocale();
 
   useEffect(() => {
     void startupLaunchMode()

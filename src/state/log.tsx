@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import { t } from "../i18n";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
@@ -60,6 +61,6 @@ export function LogProvider({ children }: { children: React.ReactNode }) {
 
 export function useLogs(): LogContextValue {
   const ctx = useContext(LogContext);
-  if (!ctx) throw new Error("useLogs must be used within LogProvider");
+  if (!ctx) throw new Error("useLogs must be used within LogProvider" /* i18n-exempt: developer error */);
   return ctx;
 }

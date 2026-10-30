@@ -15,6 +15,7 @@ import {
 } from "../lib/sessions";
 import type { ChatGrid } from "../lib/gridMath";
 import { setLastActiveSession as setLastActiveSessionApi } from "../lib/projects";
+import { t } from "../i18n";
 export function useSessionState(projectPath: string | null, lastActiveSessionId?: string | null) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -90,7 +91,7 @@ export function useSessionState(projectPath: string | null, lastActiveSessionId?
     async (title?: string) => {
       if (!projectPath) return null;
       const ts = new Date().toLocaleString();
-      const session = await createSessionApi(projectPath, title ?? `Session ${ts}`);
+      const session = await createSessionApi(projectPath, title ?? `Session ${ts}` /* i18n-exempt: persisted default session name */);
       await refreshSessions();
       setActiveSessionId(session.id);
       return session;

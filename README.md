@@ -101,6 +101,16 @@ Usage sync never includes prompts, responses, source code, terminal output,
 secrets, or credentials. It is controlled by separate local collection and
 anonymous upload settings.
 
+## Language
+
+Basebuild's interface is available in English and Simplified Chinese (简体中文).
+Pick a language on the first-run screen or in Settings > Appearance > Language.
+The default follows your system language, and any Chinese system language uses
+Simplified Chinese. Changes apply immediately, including the tray menu. When the
+interface is Simplified Chinese, the assistant replies in Simplified Chinese
+unless you write in another language. Code, commands, and file contents keep
+their original language.
+
 ## Build from source
 
 Requires Node.js 20+, stable Rust, and the native C or C++ toolchain for your

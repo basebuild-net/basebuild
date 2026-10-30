@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { AlertCircle, Check, GitPullRequest, X } from "lucide-react";
 import { prCreate, type PrRecommendation } from "../../lib/pullRequests";
+import { t } from "../../i18n";
 
 /** Pull-request recommendation card (`plan-final-touches`).
  *
@@ -29,12 +30,12 @@ export function PrRecommendationCard({ projectPath, recommendation, onDismiss, o
     setCreating(true);
     setError(null);
     try {
-      const res = await prCreate(projectPath, recommendation.branch, "Automated PR", "");
+      const res = await prCreate(projectPath, recommendation.branch, t("prRecommendationCard.automatedPr"), "");
       if (res.success) {
         setResult({ url: res.url, method: res.method });
         onCreated?.(res.url);
       } else {
-        setError(res.error ?? "Failed to create pull request");
+        setError(res.error ?? t("prRecommendationCard.failedToCreatePullRequest"));
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -48,7 +49,7 @@ export function PrRecommendationCard({ projectPath, recommendation, onDismiss, o
       <div className="pr-recommendation-card" role="status">
         <div className="pr-recommendation-header">
           <Check size={12} />
-          <span>Pull request {result.method === "gh" ? "created" : "opened"}</span>
+          <span>{result.method === "gh" ? t("prRecommendationCard.pullRequestCreated") : t("prRecommendationCard.pullRequestOpened")}</span>
         </div>
         {result.url ? (
           <a className="chat-link-btn" href={result.url} target="_blank" rel="noreferrer" title={result.url}>
@@ -56,8 +57,8 @@ export function PrRecommendationCard({ projectPath, recommendation, onDismiss, o
           </a>
         ) : null}
         <div className="pr-recommendation-actions">
-          <button className="btn btn-sm" type="button" title="Dismiss" onClick={onDismiss}>
-            Dismiss
+          <button className="btn btn-sm" type="button" title={t("prRecommendationCard.dismiss")} onClick={onDismiss}>
+            {t("prRecommendationCard.dismiss")}
           </button>
         </div>
       </div>
@@ -68,45 +69,44 @@ export function PrRecommendationCard({ projectPath, recommendation, onDismiss, o
     <div className="pr-recommendation-card" role="status">
       <div className="pr-recommendation-header">
         <GitPullRequest size={12} />
-        <span>Pull request ready</span>
+        <span>{t("prRecommendationCard.pullRequestReady")}</span>
         <button
           className="btn-icon btn-icon-sm"
           type="button"
-          title="Dismiss — the branch is kept locally"
+          title={t("prRecommendationCard.dismissTheBranchIsKept")}
           onClick={onDismiss}
         >
           <X size={11} />
         </button>
       </div>
       <div className="pr-recommendation-meta">
-        <span title={`Branch: ${recommendation.branch}`}>⎇ {recommendation.branch}</span>
-        <span title="Commits ahead/behind the default branch">+{recommendation.ahead} / −{recommendation.behind}</span>
-        <span title="Changed files vs the default branch">{recommendation.changedFiles} files</span>
+        <span title={t("prRecommendationCard.branch", { branch: recommendation.branch })}>⎇ {recommendation.branch}</span>
+        <span title={t("prRecommendationCard.commitsAheadBehindTheDefault")}>+{recommendation.ahead} / −{recommendation.behind}</span>
+        <span title={t("prRecommendationCard.changedFilesVsTheDefault")}>{t("prRecommendationCard.files", { changedFiles: recommendation.changedFiles })}</span>
       </div>
       {recommendation.ghAvailable && !recommendation.ghAuthed ? (
-        <div className="text-sm text-muted" title="gh is installed but not authenticated">
-          <AlertCircle size={11} /> gh not authenticated — will open the browser compare URL.
+        <div className="text-sm text-muted" title={t("prRecommendationCard.ghIsInstalledButNot")}>
+          <AlertCircle size={11} /> {t("prRecommendationCard.ghNotAuthenticatedWillOpen")}
         </div>
       ) : null}
       {confirming ? (
         <div className="pr-recommendation-confirm">
           <p className="text-sm">
-            This will push <strong>{recommendation.branch}</strong> to origin
-            {recommendation.ghAvailable && recommendation.ghAuthed ? " and create a pull request via gh" : " and open the compare URL in your browser"}.
+            {t(recommendation.ghAvailable && recommendation.ghAuthed ? "prRecommendationCard.confirmPushCreate" : "prRecommendationCard.confirmPushCompare", { branch: recommendation.branch })}
           </p>
           {error ? <p className="text-danger text-sm">{error}</p> : null}
           <div className="pr-recommendation-actions">
             <button
               className="btn btn-primary btn-sm"
               type="button"
-              title="Confirm: push and create the pull request"
+              title={t("prRecommendationCard.confirmPushAndCreateThe")}
               disabled={creating}
               onClick={() => void handleCreate()}
             >
-              {creating ? "Creating…" : "Confirm & create"}
+              {creating ? t("prRecommendationCard.creating") : t("prRecommendationCard.confirmCreate")}
             </button>
-            <button className="btn btn-sm" type="button" title="Cancel" onClick={() => setConfirming(false)}>
-              Cancel
+            <button className="btn btn-sm" type="button" title={t("prRecommendationCard.cancel")} onClick={() => setConfirming(false)}>
+              {t("prRecommendationCard.cancel")}
             </button>
           </div>
         </div>
@@ -115,10 +115,10 @@ export function PrRecommendationCard({ projectPath, recommendation, onDismiss, o
           <button
             className="btn btn-primary btn-sm"
             type="button"
-            title="Create a pull request (confirm-gated)"
+            title={t("prRecommendationCard.createAPullRequestConfirm")}
             onClick={() => setConfirming(true)}
           >
-            <GitPullRequest size={11} /> Create pull request
+            <GitPullRequest size={11} /> {t("prRecommendationCard.createPullRequest")}
           </button>
         </div>
       )}

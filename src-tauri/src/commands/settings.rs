@@ -42,6 +42,14 @@ pub fn reset_runtime_defaults() -> Result<(), String> {
     SettingsService::reset_defaults()
 }
 
+/// Persist the UI language and relabel native tray items to match.
+#[tauri::command]
+pub fn set_ui_locale(app: tauri::AppHandle, preference: String, effective: String) -> Result<(), String> {
+    let locale = SettingsService::set_ui_locale(&preference, &effective)?;
+    crate::apply_tray_locale(&app, &locale.effective);
+    Ok(())
+}
+
 #[tauri::command]
 pub fn get_permission_rules() -> Result<PermissionRules, String> {
     SettingsService::get_permission_rules()

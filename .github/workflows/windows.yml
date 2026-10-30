@@ -44,11 +44,16 @@ jobs:
 
       - name: UI invariant checks
         run: npm run check:ui-invariants
+      - name: i18n key and placeholder checks
+        run: npm run check:i18n
       - name: Release-config integrity check
         run: npm run check:release-config
 
       - name: Updater manifest tests
         run: npm run test:release-manifest
+
+      - name: Catalog decoder tests
+        run: npm run test:catalog
   check-rust:
     runs-on: ubuntu-latest
     steps:

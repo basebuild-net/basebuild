@@ -14,6 +14,7 @@ import {
   type ConcurrencyLimits,
 } from "../../../lib/runConcurrency";
 import { LoadingBlock } from "../Loading";
+import { t } from "../../../i18n";
 
 export function ConcurrencyTab({ projectPath }: { projectPath: string | null }) {
   const projectPathNonNull = projectPath ?? "";
@@ -83,34 +84,34 @@ export function ConcurrencyTab({ projectPath }: { projectPath: string | null }) 
   if (loading) {
     return (
       <div className="stack">
-        <h3>Run Concurrency</h3>
-        <LoadingBlock label="Loading run concurrency…" />
+        <h3>{t("concurrencyTab.runConcurrency")}</h3>
+        <LoadingBlock label={t("concurrencyTab.loadingRunConcurrency")} />
       </div>
     );
   }
 
   const allProviders = providers.length > 0
     ? providers
-    : [{ id: "basebuild-local", label: "None" }, { id: "basebuild-native", label: "Basebuild Native" }];
+    : [{ id: "basebuild-local", label: t("concurrencyTab.none") }, { id: "basebuild-native", label: t("concurrencyTab.basebuildNative") }];
 
   return (
     <div className="stack">
-      <h3>Run Concurrency</h3>
+      <h3>{t("concurrencyTab.runConcurrency")}</h3>
       <div className="settings-concurrency-limits">
-        <h4 className="settings-concurrency-limits-heading">Category Limits</h4>
-        <p className="text-muted text-sm" title="Global caps across all providers; planning cap reserves slots for non-planning work">
-          Global caps across all providers. Planning cap reserves slots for non-planning work (background agents, etc.).
+        <h4 className="settings-concurrency-limits-heading">{t("concurrencyTab.categoryLimits")}</h4>
+        <p className="text-muted text-sm" title={t("concurrencyTab.globalCapsAcrossAllProviders2")}>
+          {t("concurrencyTab.globalCapsAcrossAllProviders")}
         </p>
         <div className="settings-concurrency-limits-row">
-          <label className="settings-concurrency-limit-field" title="Max concurrent runs across all providers (plan + pipeline). Default 4.">
-            <span className="settings-concurrency-limit-label">Global max</span>
+          <label className="settings-concurrency-limit-field" title={t("concurrencyTab.maxConcurrentRunsAcrossAll")}>
+            <span className="settings-concurrency-limit-label">{t("concurrencyTab.globalMax")}</span>
             <input
               type="number"
               min={1}
               max={16}
               value={concurrencyLimits.globalMax}
               disabled={savingLimits}
-              title="Max concurrent runs across all providers (plan + pipeline). Default 4."
+              title={t("concurrencyTab.maxConcurrentRunsAcrossAll")}
               onChange={(e) => {
                 const v = Math.max(1, Math.min(16, Number(e.target.value) || 4));
                 setConcurrencyLimitsState((prev) => ({ ...prev, globalMax: v }));
@@ -118,15 +119,15 @@ export function ConcurrencyTab({ projectPath }: { projectPath: string | null }) 
               onBlur={() => void saveConcurrencyLimits(concurrencyLimits)}
             />
           </label>
-          <label className="settings-concurrency-limit-field" title="Max concurrent planning runs. Default 3 (reserves 1 slot for non-planning).">
-            <span className="settings-concurrency-limit-label">Planning max</span>
+          <label className="settings-concurrency-limit-field" title={t("concurrencyTab.maxConcurrentPlanningRunsDefault")}>
+            <span className="settings-concurrency-limit-label">{t("concurrencyTab.planningMax")}</span>
             <input
               type="number"
               min={1}
               max={16}
               value={concurrencyLimits.planningMax}
               disabled={savingLimits}
-              title="Max concurrent planning runs. Default 3 (reserves 1 slot for non-planning)."
+              title={t("concurrencyTab.maxConcurrentPlanningRunsDefault")}
               onChange={(e) => {
                 const v = Math.max(1, Math.min(16, Number(e.target.value) || 3));
                 setConcurrencyLimitsState((prev) => ({ ...prev, planningMax: v }));
@@ -137,18 +138,17 @@ export function ConcurrencyTab({ projectPath }: { projectPath: string | null }) 
           {savingLimits ? <Loader2 size={12} className="is-spinning" /> : null}
         </div>
       </div>
-      <h4 className="settings-concurrency-limits-heading">Per-Provider Limits</h4>
+      <h4 className="settings-concurrency-limits-heading">{t("concurrencyTab.perProviderLimits")}</h4>
       <p className="text-muted text-sm">
-        Per-provider max concurrency for plan runs + subagents. Default is 1 (most providers meter concurrency).
-        Project overrides take precedence over global defaults. Subagents are off by default.
+        {t("concurrencyTab.perProviderMaxConcurrencyFor")}
       </p>
       <div className="settings-table">
         <div className="settings-table-header">
-          <span>Provider</span>
-          <span>Global max</span>
-          <span>Project max</span>
-          <span>Subagents</span>
-          <span>Subagent cap</span>
+          <span>{t("concurrencyTab.provider")}</span>
+          <span>{t("concurrencyTab.globalMax")}</span>
+          <span>{t("concurrencyTab.projectMax")}</span>
+          <span>{t("concurrencyTab.subagents")}</span>
+          <span>{t("concurrencyTab.subagentCap")}</span>
         </div>
         {allProviders.map((p) => {
           const global = globalLimits[p.id] ?? DEFAULT_RUN_CONCURRENCY_ENTRY;
@@ -162,7 +162,7 @@ export function ConcurrencyTab({ projectPath }: { projectPath: string | null }) 
                 type="number"
                 min={1}
                 max={16}
-                title={`Global max concurrency for ${p.label} (default 1)`}
+                title={t("concurrencyTab.globalMaxConcurrencyForDefault1", { label: p.label })}
                 value={global.maxConcurrency}
                 disabled={saving === p.id}
                 onChange={(e) => {
@@ -175,7 +175,7 @@ export function ConcurrencyTab({ projectPath }: { projectPath: string | null }) 
                 type="number"
                 min={0}
                 max={16}
-                title={`Project override for ${p.label} (empty = use global; set 0 to disable)`}
+                title={t("concurrencyTab.projectOverrideForEmptyUseGlobal", { label: p.label })}
                 value={project?.maxConcurrency ?? ""}
                 placeholder={String(global.maxConcurrency)}
                 disabled={saving === p.id}
@@ -184,7 +184,7 @@ export function ConcurrencyTab({ projectPath }: { projectPath: string | null }) 
                   void saveProvider(p.id, { ...effective, maxConcurrency: v || global.maxConcurrency }, true);
                 }}
               />
-              <label className="settings-checkbox" title={`Enable subagents for ${p.label}`}>
+              <label className="settings-checkbox" title={t("concurrencyTab.enableSubagentsFor", { label: p.label })}>
                 <input
                   type="checkbox"
                   checked={effective.subagentsEnabled}
@@ -193,14 +193,14 @@ export function ConcurrencyTab({ projectPath }: { projectPath: string | null }) 
                     void saveProvider(p.id, next, !!project || e.target.checked);
                   }}
                 />
-                <span className="text-sm">{effective.subagentsEnabled ? "on" : "off"}</span>
+                <span className="text-sm">{effective.subagentsEnabled ? t("concurrencyTab.on") : t("concurrencyTab.off")}</span>
               </label>
               <input
                 className="input"
                 type="number"
                 min={0}
                 max={8}
-                title={`Max concurrent subagents for ${p.label} (counted against the provider limit)`}
+                title={t("concurrencyTab.maxConcurrentSubagentsForCountedAgainst", { label: p.label })}
                 value={effective.subagentMaxCount}
                 disabled={!effective.subagentsEnabled || saving === p.id}
                 onChange={(e) => {
@@ -212,8 +212,8 @@ export function ConcurrencyTab({ projectPath }: { projectPath: string | null }) 
           );
         })}
       </div>
-      <p className="text-muted text-sm" title="Effective value = project override else global default">
-        Effective value shown at the point of use when a run is queued.
+      <p className="text-muted text-sm" title={t("concurrencyTab.effectiveValueProjectOverrideElse")}>
+        {t("concurrencyTab.effectiveValueShownAtThe")}
       </p>
     </div>
   );

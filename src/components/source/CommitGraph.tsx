@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { GitCommit } from "../../lib/git";
+import { t } from "../../i18n";
 
 /** Lane assignment for a single commit row. */
 type GraphRow = {
@@ -146,7 +147,7 @@ export function CommitGraph({ commits }: { commits: GitCommit[] }) {
                 {row.commit.refs.map((ref) => (
                   <span
                     key={ref}
-                    className={`commit-ref${ref.includes("HEAD") ? " is-head" : ""}${ref.startsWith("tag:") ? " is-tag" : ""}`}
+                    className={`commit-ref${ref.includes("HEAD" /* i18n-exempt: git ref name */) ? " is-head" : ""}${ref.startsWith("tag:") ? " is-tag" : ""}`}
                   >
                     {ref.replace(/^tag:\s*/, "").replace(/^refs\/(heads|remotes|tags)\//, "")}
                   </span>

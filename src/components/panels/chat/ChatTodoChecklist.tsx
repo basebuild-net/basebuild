@@ -1,5 +1,6 @@
 import { CheckCircle2, Circle, CircleDot } from "lucide-react";
 import type { NativeTodoItem } from "../../../lib/native-chat";
+import { t } from "../../../i18n";
 
 type ChatTodoChecklistProps = {
   todos: NativeTodoItem[];
@@ -9,9 +10,9 @@ type ChatTodoChecklistProps = {
 export function ChatTodoChecklist({ todos }: ChatTodoChecklistProps) {
   const completed = todos.filter((todo) => todo.status === "completed").length;
   return (
-    <section className="chat-todo-checklist" aria-label="Agent checklist" title="Checklist the agent keeps for this chat">
+    <section className="chat-todo-checklist" aria-label={t("chatTodoChecklist.agentChecklist")} title={t("chatTodoChecklist.checklistTheAgentKeepsForThis")}>
       <header className="chat-todo-header">
-        Checklist {completed}/{todos.length}
+        {t("chatTodoChecklist.checklist")} {completed}/{todos.length}
       </header>
       <ul className="chat-todo-list">
         {todos.map((todo, index) => (

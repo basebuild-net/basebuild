@@ -5,6 +5,7 @@ import { parseImplementationAssessment, type ImplementationAssessment } from "..
 import { IdeaAssessmentSummary } from "../planning/IdeaAssessmentSummary";
 import { ExecutionAdvisorCard } from "../planning/ExecutionAdvisorCard";
 import { WorkbenchShell } from "./WorkbenchShell";
+import { t } from "../../i18n";
 
 export type ProposedIdea = {
   title: string;
@@ -80,10 +81,10 @@ function findPersistedIdea(proposal: ProposedIdea, ideas: Idea[]): Idea | undefi
 }
 
 function statusLabel(status: Idea["status"]): string {
-  if (status === "picked") return "Plan started";
-  if (status === "rejected") return "Passed";
-  if (status === "archived") return "Deferred";
-  return "Needs review";
+  if (status === "picked") return t("ideaReviewWorkbench.planStarted");
+  if (status === "rejected") return t("ideaReviewWorkbench.passed");
+  if (status === "archived") return t("ideaReviewWorkbench.deferred");
+  return t("ideaReviewWorkbench.needsReview");
 }
 
 export function IdeaBatchPreview({ proposals, status, ideas, onOpen }: IdeaBatchPreviewProps) {
@@ -102,21 +103,21 @@ export function IdeaBatchPreview({ proposals, status, ideas, onOpen }: IdeaBatch
     <button
       type="button"
       className="chat-idea-batch-preview idea-history-preview"
-      title={isRunning ? "Open the active idea generation workbench" : "Open this idea batch in the review workbench"}
+      title={isRunning ? t("ideaReviewWorkbench.openTheActiveIdeaGeneration") : t("ideaReviewWorkbench.openThisIdeaBatchIn")}
       onClick={onOpen}
     >
       <span className="chat-idea-batch-preview-icon" aria-hidden="true">
         {isRunning ? <Loader2 size={15} className="is-spinning" /> : <Lightbulb size={15} />}
       </span>
       <span className="chat-idea-batch-preview-copy">
-        <strong>{isRunning ? "Building a grounded idea batch…" : isReviewed ? `${ideaLabel} reviewed` : `${ideaLabel} ready for review`}</strong>
+        <strong>{isRunning ? t("ideaReviewWorkbench.buildingAGroundedIdeaBatch") : isReviewed ? t("ideaReviewWorkbench.reviewed", { ideaLabel: ideaLabel }) : t("ideaReviewWorkbench.readyForReview", { ideaLabel: ideaLabel })}</strong>
         <span>
           {isRunning
-            ? `${proposals.length} received so far · open to follow progress`
-            : `${counts.picked} planned · ${counts.passed} passed · ${counts.deferred} deferred · ${counts.remaining} remaining`}
+            ? t("ideaReviewWorkbench.receivedSoFarOpenToFollow", { proposalsCount: proposals.length })
+            : t("ideaReviewWorkbench.plannedPassedDeferredRemaining", { picked: counts.picked, passed: counts.passed, deferred: counts.deferred, remaining: counts.remaining })}
         </span>
       </span>
-      <span className="chat-idea-batch-preview-action">{isRunning ? "View progress" : isReviewed ? "View history" : "Review batch"}</span>
+      <span className="chat-idea-batch-preview-action">{isRunning ? t("ideaReviewWorkbench.viewProgress") : isReviewed ? t("ideaReviewWorkbench.viewHistory") : t("ideaReviewWorkbench.reviewBatch")}</span>
     </button>
   );
 }
@@ -198,47 +199,47 @@ export function IdeaReviewWorkbench({
   };
 
   const headerActions = (
-    <button className="btn-icon" type="button" title={readOnly ? "Close idea history" : "Minimize idea review"} onClick={onMinimize}>
+    <button className="btn-icon" type="button" title={readOnly ? t("ideaReviewWorkbench.closeIdeaHistory") : t("ideaReviewWorkbench.minimizeIdeaReview")} onClick={onMinimize}>
       {readOnly ? <X size={16} /> : <Minus size={16} />}
     </button>
   );
   const footer = (
     <>
       <div className="interaction-page-actions">
-        <button className="btn btn-sm" type="button" title="Previous idea" disabled={boundedIndex === 0 || busyAction !== null} onClick={() => onCurrentIndexChange(boundedIndex - 1)}>
-          <ChevronLeft size={14} /> Back
+        <button className="btn btn-sm" type="button" title={t("ideaReviewWorkbench.previousIdea")} disabled={boundedIndex === 0 || busyAction !== null} onClick={() => onCurrentIndexChange(boundedIndex - 1)}>
+          <ChevronLeft size={14} /> {t("ideaReviewWorkbench.back")}
         </button>
-        <button className="btn btn-sm" type="button" title="Next idea" disabled={boundedIndex >= proposals.length - 1 || busyAction !== null} onClick={() => onCurrentIndexChange(boundedIndex + 1)}>
-          Next <ChevronRight size={14} />
+        <button className="btn btn-sm" type="button" title={t("ideaReviewWorkbench.nextIdea")} disabled={boundedIndex >= proposals.length - 1 || busyAction !== null} onClick={() => onCurrentIndexChange(boundedIndex + 1)}>
+          {t("ideaReviewWorkbench.next")} <ChevronRight size={14} />
         </button>
       </div>
       {idea?.status === "concept" ? (
-        <div className="idea-review-actions" aria-label="Idea decision actions">
-          <button className="btn btn-sm btn-ghost" type="button" title={`Defer ${proposal?.title ?? "this idea"} for later`} disabled={busyAction !== null} onClick={() => void runAction("defer")}>
-            {busyAction === "defer" ? <Loader2 size={12} className="is-spinning" /> : <Archive size={12} />} Defer
+        <div className="idea-review-actions" aria-label={t("ideaReviewWorkbench.ideaDecisionActions")}>
+          <button className="btn btn-sm btn-ghost" type="button" title={t("ideaReviewWorkbench.deferForLater", { title: proposal?.title ?? t("ideaReviewWorkbench.thisIdea") })} disabled={busyAction !== null} onClick={() => void runAction("defer")}>
+            {busyAction === "defer" ? <Loader2 size={12} className="is-spinning" /> : <Archive size={12} />} {t("ideaReviewWorkbench.defer")}
           </button>
-          <button className="btn btn-sm" type="button" title={`Pass on ${proposal?.title ?? "this idea"}`} disabled={busyAction !== null} onClick={() => void runAction("reject")}>
-            {busyAction === "reject" ? <Loader2 size={12} className="is-spinning" /> : <X size={12} />} Pass
+          <button className="btn btn-sm" type="button" title={t("ideaReviewWorkbench.passOn", { title: proposal?.title ?? t("ideaReviewWorkbench.thisIdea2") })} disabled={busyAction !== null} onClick={() => void runAction("reject")}>
+            {busyAction === "reject" ? <Loader2 size={12} className="is-spinning" /> : <X size={12} />} {t("ideaReviewWorkbench.pass")}
           </button>
-          <button className="btn btn-sm btn-primary" type="button" title={`Create and prepare an OpenSpec plan for ${proposal?.title ?? "this idea"}`} disabled={busyAction !== null} onClick={() => void runAction("promote")}>
-            {busyAction === "promote" ? <Loader2 size={12} className="is-spinning" /> : <Rocket size={12} />} {busyAction === "promote" ? "Preparing…" : "Make plan"}
+          <button className="btn btn-sm btn-primary" type="button" title={t("ideaReviewWorkbench.createAndPrepareAnOpenSpecPlan", { title: proposal?.title ?? t("ideaReviewWorkbench.thisIdea3") })} disabled={busyAction !== null} onClick={() => void runAction("promote")}>
+            {busyAction === "promote" ? <Loader2 size={12} className="is-spinning" /> : <Rocket size={12} />} {busyAction === "promote" ? t("ideaReviewWorkbench.preparing") : t("ideaReviewWorkbench.makePlan")}
           </button>
         </div>
       ) : !isRunning && !readOnly && !idea && proposal && onCapture ? (
-        <div className="idea-review-actions" aria-label="Idea recovery actions">
+        <div className="idea-review-actions" aria-label={t("ideaReviewWorkbench.ideaRecoveryActions")}>
           <button
             className="btn btn-sm btn-primary"
             type="button"
-            title={`This proposal was not saved to the idea catalog (its capture failed). Save "${proposal.title}" to unlock Make plan / Pass / Defer.`}
+            title={t("ideaReviewWorkbench.thisProposalWasNotSavedTo", { title: proposal.title })}
             disabled={busyAction !== null}
             onClick={() => void runCapture()}
           >
-            {busyAction === "capture" ? <Loader2 size={12} className="is-spinning" /> : <Lightbulb size={12} />} {busyAction === "capture" ? "Saving…" : "Save to ideas"}
+            {busyAction === "capture" ? <Loader2 size={12} className="is-spinning" /> : <Lightbulb size={12} />} {busyAction === "capture" ? t("ideaReviewWorkbench.saving") : t("ideaReviewWorkbench.saveToIdeas")}
           </button>
         </div>
       ) : allReviewed && showContinue ? (
-        <button className="btn btn-sm btn-primary" type="button" title="Generate another grounded idea batch" onClick={() => onContinue?.(categoryId)}>
-          <Sparkles size={12} /> More ideas
+        <button className="btn btn-sm btn-primary" type="button" title={t("ideaReviewWorkbench.generateAnotherGroundedIdeaBatch")} onClick={() => onContinue?.(categoryId)}>
+          <Sparkles size={12} /> {t("ideaReviewWorkbench.moreIdeas")}
         </button>
       ) : idea ? (
         <span className={`idea-review-decision is-${idea.status}`}>{statusLabel(idea.status)}</span>
@@ -248,13 +249,13 @@ export function IdeaReviewWorkbench({
 
   return (
     <WorkbenchShell
-      ariaLabel={readOnly ? `${proposals.length} reviewed ideas` : `${proposals.length} generated ideas`}
-      eyebrow={<><Lightbulb size={14} /> {readOnly ? "Idea history" : "Idea Studio review"}</>}
-      title={readOnly ? "Review completed decisions" : isRunning ? "Finding ideas worth your time" : "Choose what deserves a plan"}
-      description={readOnly ? "These decisions are read-only because the planning workflow has already consumed them." : isRunning ? "The batch stays focused here while the model grounds each option." : "Review one option at a time. Estimates are advisory and always show their evidence."}
+      ariaLabel={readOnly ? t("ideaReviewWorkbench.reviewedIdeas", { length: proposals.length }) : t("ideaReviewWorkbench.generatedIdeas", { length: proposals.length })}
+      eyebrow={<><Lightbulb size={14} /> {readOnly ? t("ideaReviewWorkbench.ideaHistory") : t("ideaReviewWorkbench.ideaStudioReview")}</>}
+      title={readOnly ? t("ideaReviewWorkbench.reviewCompletedDecisions") : isRunning ? t("ideaReviewWorkbench.findingIdeasWorthYourTime") : t("ideaReviewWorkbench.chooseWhatDeservesAPlan")}
+      description={readOnly ? t("ideaReviewWorkbench.theseDecisionsAreReadOnlyBecause") : isRunning ? t("ideaReviewWorkbench.theBatchStaysFocusedHereWhile") : t("ideaReviewWorkbench.reviewOneOptionAtATime")}
       headerActions={headerActions}
-      progressLabel={proposals.length > 0 ? `Idea ${boundedIndex + 1} of ${proposals.length}` : "Preparing batch"}
-      progressTitle={readOnly ? `${decidedCount} completed decisions` : proposals.length > 0 ? `${decidedCount} decided · ${proposals.length - decidedCount} remaining` : "Waiting for grounded proposals"}
+      progressLabel={proposals.length > 0 ? t("ideaReviewWorkbench.ideaOf", { v1: boundedIndex + 1, length: proposals.length }) : t("ideaReviewWorkbench.preparingBatch")}
+      progressTitle={readOnly ? t("ideaReviewWorkbench.completedDecisions", { decidedCount }) : proposals.length > 0 ? t("ideaReviewWorkbench.decidedRemaining", { decidedCount, value2: proposals.length - decidedCount }) : t("ideaReviewWorkbench.waitingForGroundedProposals")}
       footer={proposals.length > 0 ? footer : undefined}
       className="idea-review-workbench"
     >
@@ -262,7 +263,7 @@ export function IdeaReviewWorkbench({
         <article className="idea-review-card idea-proposal-card" data-tool-id={toolId}>
           <div className="idea-review-title-row">
             <div>
-              <span className="idea-review-sequence">Option {boundedIndex + 1}</span>
+              <span className="idea-review-sequence">{t("ideaReviewWorkbench.option", { value: boundedIndex + 1 })}</span>
               <h3>{proposal.title}</h3>
             </div>
             {idea && idea.status !== "concept" ? <span className={`idea-review-decision is-${idea.status}`}>{statusLabel(idea.status)}</span> : null}
@@ -274,8 +275,8 @@ export function IdeaReviewWorkbench({
             anchor={idea?.anchor ?? proposal.anchor}
           />
           {!isRunning && !readOnly && !idea ? (
-            <p className="text-sm text-muted" title="The propose_ideas capture failed, so this option has no saved idea record yet.">
-              Not saved to the idea catalog yet — use Save to ideas below to unlock decisions.
+            <p className="text-sm text-muted" title={t("ideaReviewWorkbench.theProposeIdeasCaptureFailed")}>
+              {t("ideaReviewWorkbench.notSavedToTheIdea")}
             </p>
           ) : null}
           {projectPath && idea?.assessment ? (
@@ -285,7 +286,7 @@ export function IdeaReviewWorkbench({
       ) : (
         <div className="idea-review-loading" role="status">
           <Loader2 size={18} className="is-spinning" />
-          <span>The model is checking the project, earlier decisions, and duplicates.</span>
+          <span>{t("ideaReviewWorkbench.theModelIsCheckingThe")}</span>
         </div>
       )}
     </WorkbenchShell>

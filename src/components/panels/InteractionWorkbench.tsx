@@ -9,6 +9,7 @@ import {
   type QuestionAnswer,
 } from "../../lib/interactions";
 import { WorkbenchShell } from "./WorkbenchShell";
+import { t } from "../../i18n";
 
 type InteractionWorkbenchProps = {
   interaction: PendingInteraction;
@@ -88,7 +89,7 @@ export function formatInteractionAnswer(question: Question, source: unknown): st
   if (answer.selected?.length) parts.push(answer.selected.join(", "));
   if (answer.text?.trim()) parts.push(answer.text.trim());
   if (typeof answer.value === "number") parts.push(String(answer.value));
-  return parts.length ? parts.join(" — ") : "—";
+  return parts.length ? parts.join(" · ") : "—";
 }
 
 export function QuestionControls({
@@ -128,11 +129,11 @@ export function QuestionControls({
                 type="button"
                 className={`interaction-option${active ? " is-selected" : ""}${recommended ? " is-recommended" : ""}`}
                 aria-pressed={active}
-                title={option.description ?? `Choose ${option.label}`}
+                title={option.description ?? t("interactionWorkbench.choose", { label: option.label })}
                 onClick={() => setSelected(option.label)}
               >
                 <span>{option.label}</span>
-                {recommended ? <span className="interaction-option-recommended">Recommended</span> : null}
+                {recommended ? <span className="interaction-option-recommended">{t("interactionWorkbench.recommended")}</span> : null}
                 {option.description ? <span className="interaction-option-description">{option.description}</span> : null}
               </button>
             );
@@ -152,13 +153,13 @@ export function QuestionControls({
                 <label
                   key={value}
                   className={`interaction-rating-choice${answer.value === value ? " is-selected" : ""}`}
-                  title={`Rate ${value} of ${max}`}
+                  title={t("interactionWorkbench.rateOf", { value: value, max: max })}
                 >
                   <input
                     type="radio"
                     name={`rating-${question.id}`}
-                    aria-label={`${value} of ${max}`}
-                    title={`Rate ${value} of ${max}`}
+                    aria-label={t("interactionWorkbench.of", { value: value, max: max })}
+                    title={t("interactionWorkbench.rateOf2", { value: value, max: max })}
                     checked={answer.value === value}
                     onChange={() => onChange({ ...answer, value })}
                   />
@@ -176,15 +177,15 @@ export function QuestionControls({
 
       {question.kind === "text" || hasOptions ? (
         <label className="interaction-text-answer">
-          <span>{hasOptions ? "Or write your own answer" : "Your answer"}</span>
+          <span>{hasOptions ? t("interactionWorkbench.orWriteYourOwnAnswer") : t("interactionWorkbench.yourAnswer")}</span>
           {question.multiline ? (
             <textarea
               autoFocus={autoFocus}
               className="input interaction-answer-input"
               rows={4}
               value={answer.text ?? ""}
-              placeholder="Type your answer…"
-              title={`Answer for: ${question.prompt}`}
+              placeholder={t("interactionWorkbench.typeYourAnswer")}
+              title={t("interactionWorkbench.answerFor", { prompt: question.prompt })}
               onChange={(event) => onChange({ ...answer, text: event.target.value })}
             />
           ) : (
@@ -193,8 +194,8 @@ export function QuestionControls({
               className="input interaction-answer-input"
               type="text"
               value={answer.text ?? ""}
-              placeholder="Type your answer…"
-              title={`Answer for: ${question.prompt}`}
+              placeholder={t("interactionWorkbench.typeYourAnswer")}
+              title={t("interactionWorkbench.answerFor2", { prompt: question.prompt })}
               onChange={(event) => onChange({ ...answer, text: event.target.value })}
             />
           )}
@@ -240,7 +241,7 @@ export function InteractionWorkbench({
     void nativeInteractionSaveDraft(interaction.id, Object.values(answersRef.current), pageRef.current)
       .catch((cause: unknown) => {
         const message = cause instanceof Error ? cause.message : String(cause);
-        onAction?.("Questionnaire draft save failed", message);
+        onAction?.(t("interactionWorkbench.questionnaireDraftSaveFailed"), message);
         setError(message);
       });
   };
@@ -266,7 +267,7 @@ export function InteractionWorkbench({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
-      onAction?.("Questionnaire minimized", `interaction=${interaction.id}; source=escape`);
+      onAction?.(t("interactionWorkbench.questionnaireMinimized"), `interaction=${interaction.id}; source=escape`);
       persistDraft();
       onMinimize();
     };
@@ -286,8 +287,8 @@ export function InteractionWorkbench({
   const validate = (questions: Question[]) => {
     const missing = questions.find((question) => question.required && !hasAnswer(question, answers[question.id]));
     if (missing) {
-      setError(`Answer required: ${missing.prompt}`);
-      onAction?.("Questionnaire navigation blocked", `interaction=${interaction.id}; missing=${missing.id}`);
+      setError(t("interactionWorkbench.answerRequired", { prompt: missing.prompt }));
+      onAction?.(t("interactionWorkbench.questionnaireNavigationBlocked"), `interaction=${interaction.id}; missing=${missing.id}`);
       return false;
     }
     return true;
@@ -297,35 +298,35 @@ export function InteractionWorkbench({
     const bounded = Math.max(0, Math.min(next, pages.length - 1));
     setPageIndex(bounded);
     onDraftChange?.(Object.values(answersRef.current), bounded);
-    onAction?.("Questionnaire page changed", `interaction=${interaction.id}; page=${bounded}`);
+    onAction?.(t("interactionWorkbench.questionnairePageChanged"), `interaction=${interaction.id}; page=${bounded}`);
   };
   const submit = async () => {
     if (!validate(interaction.questions)) return;
-    onAction?.("Questionnaire submit requested", `interaction=${interaction.id}; answers=${Object.keys(answers).length}`);
+    onAction?.(t("interactionWorkbench.questionnaireSubmitRequested"), `interaction=${interaction.id}; answers=${Object.keys(answers).length}`);
     setBusy(true);
     setError(null);
     try {
       const resolved = await nativeInteractionResolve(interaction.id, Object.values(answers));
       onResolved?.(resolved);
-      onAction?.("Questionnaire submitted", `interaction=${interaction.id}`);
+      onAction?.(t("interactionWorkbench.questionnaireSubmitted"), `interaction=${interaction.id}`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
-      onAction?.("Questionnaire submit failed", cause instanceof Error ? cause.message : String(cause));
+      onAction?.(t("interactionWorkbench.questionnaireSubmitFailed"), cause instanceof Error ? cause.message : String(cause));
     } finally {
       setBusy(false);
     }
   };
   const cancel = async () => {
-    onAction?.("Questionnaire cancel requested", `interaction=${interaction.id}`);
+    onAction?.(t("interactionWorkbench.questionnaireCancelRequested"), `interaction=${interaction.id}`);
     setBusy(true);
     setError(null);
     try {
       await nativeInteractionCancel(interaction.id);
       onCancelled?.(interaction.id);
-      onAction?.("Questionnaire cancelled", `interaction=${interaction.id}`);
+      onAction?.(t("interactionWorkbench.questionnaireCancelled"), `interaction=${interaction.id}`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
-      onAction?.("Questionnaire cancel failed", cause instanceof Error ? cause.message : String(cause));
+      onAction?.(t("interactionWorkbench.questionnaireCancelFailed"), cause instanceof Error ? cause.message : String(cause));
     } finally {
       setBusy(false);
     }
@@ -334,12 +335,12 @@ export function InteractionWorkbench({
   const headerActions = (
     <>
       {onMinimize && !readOnly ? (
-        <button className="btn-icon" type="button" title="Minimize questionnaire" onClick={() => { onAction?.("Questionnaire minimized", `interaction=${interaction.id}; source=button`); persistDraft(); onMinimize(); }}>
+        <button className="btn-icon" type="button" title={t("interactionWorkbench.minimizeQuestionnaire")} onClick={() => { onAction?.(t("interactionWorkbench.questionnaireMinimized"), `interaction=${interaction.id}; source=button`); persistDraft(); onMinimize(); }}>
           <Minus size={16} />
         </button>
       ) : null}
       {onClose ? (
-        <button className="btn-icon" type="button" title="Close questionnaire detail" onClick={onClose}>
+        <button className="btn-icon" type="button" title={t("interactionWorkbench.closeQuestionnaireDetail")} onClick={onClose}>
           <X size={16} />
         </button>
       ) : null}
@@ -348,29 +349,29 @@ export function InteractionWorkbench({
   const footer = (
     <>
       <div className="interaction-page-actions">
-        <button className="btn btn-sm" type="button" title="Previous questionnaire page" disabled={pageIndex === 0 || busy} onClick={() => goToPage(pageIndex - 1)}>
-          <ChevronLeft size={14} /> Back
+        <button className="btn btn-sm" type="button" title={t("interactionWorkbench.previousQuestionnairePage")} disabled={pageIndex === 0 || busy} onClick={() => goToPage(pageIndex - 1)}>
+          <ChevronLeft size={14} /> {t("interactionWorkbench.back")}
         </button>
         {pageIndex < pages.length - 1 ? (
-          <button className="btn btn-sm btn-primary" type="button" title="Continue to the next questionnaire page" disabled={busy} onClick={() => goToPage(pageIndex + 1)}>
-            Next <ChevronRight size={14} />
+          <button className="btn btn-sm btn-primary" type="button" title={t("interactionWorkbench.continueToTheNextQuestionnaire")} disabled={busy} onClick={() => goToPage(pageIndex + 1)}>
+            {t("interactionWorkbench.next")} <ChevronRight size={14} />
           </button>
         ) : !readOnly ? (
-          <button className="btn btn-sm btn-primary" type="button" title="Submit answers and resume the agent" disabled={busy} onClick={() => void submit()}>
-            <Check size={14} /> Submit answers
+          <button className="btn btn-sm btn-primary" type="button" title={t("interactionWorkbench.submitAnswersAndResumeThe")} disabled={busy} onClick={() => void submit()}>
+            <Check size={14} /> {t("interactionWorkbench.submitAnswers")}
           </button>
         ) : null}
       </div>
       {!readOnly ? (
         confirmCancel ? (
-          <div className="interaction-cancel-confirm" role="group" aria-label="Confirm questionnaire cancellation">
-            <span>Cancel and tell the agent to stop waiting?</span>
-            <button className="btn btn-sm" type="button" title="Keep answering the questionnaire" disabled={busy} onClick={() => setConfirmCancel(false)}>Keep answering</button>
-            <button className="btn btn-sm" type="button" title="Confirm questionnaire cancellation" disabled={busy} onClick={() => void cancel()}>Confirm cancel</button>
+          <div className="interaction-cancel-confirm" role="group" aria-label={t("interactionWorkbench.confirmQuestionnaireCancellation")}>
+            <span>{t("interactionWorkbench.cancelAndTellTheAgent")}</span>
+            <button className="btn btn-sm" type="button" title={t("interactionWorkbench.keepAnsweringTheQuestionnaire")} disabled={busy} onClick={() => setConfirmCancel(false)}>{t("interactionWorkbench.keepAnswering")}</button>
+            <button className="btn btn-sm" type="button" title={t("interactionWorkbench.confirmQuestionnaireCancellation")} disabled={busy} onClick={() => void cancel()}>{t("interactionWorkbench.confirmCancel")}</button>
           </div>
         ) : (
-          <button className="btn btn-sm btn-ghost" type="button" title="Cancel this questionnaire" disabled={busy} onClick={() => setConfirmCancel(true)}>
-            <X size={14} /> Cancel
+          <button className="btn btn-sm btn-ghost" type="button" title={t("interactionWorkbench.cancelThisQuestionnaire")} disabled={busy} onClick={() => setConfirmCancel(true)}>
+            <X size={14} /> {t("interactionWorkbench.cancel")}
           </button>
         )
       ) : null}
@@ -379,12 +380,12 @@ export function InteractionWorkbench({
 
   return (
     <WorkbenchShell
-      ariaLabel={interaction.title ?? "Agent questionnaire"}
-      eyebrow={<><HelpCircle size={14} /> {readOnly ? "Questionnaire history" : "Your input is needed"}</>}
-      title={interaction.title ?? "Agent question"}
+      ariaLabel={interaction.title ?? t("interactionWorkbench.agentQuestionnaire")}
+      eyebrow={<><HelpCircle size={14} /> {readOnly ? t("interactionWorkbench.questionnaireHistory") : t("interactionWorkbench.yourInputIsNeeded")}</>}
+      title={interaction.title ?? t("interactionWorkbench.agentQuestion")}
       description={interaction.description}
       headerActions={headerActions}
-      progressLabel={`Page ${pageIndex + 1} of ${pages.length}`}
+      progressLabel={t("interactionWorkbench.pageOf", { v1: pageIndex + 1, length: pages.length })}
       progressTitle={page?.title}
       footer={footer}
       readOnly={readOnly}
@@ -398,9 +399,9 @@ export function InteractionWorkbench({
             <div className="interaction-question" key={question.id}>
               <div className="interaction-question-heading">
                 <span>{question.prompt}</span>
-                {question.required ? <span className="interaction-required">Required</span> : null}
+                {question.required ? <span className="interaction-required">{t("interactionWorkbench.required")}</span> : null}
               </div>
-              {question.detail ? <pre className="interaction-question-detail" title="Read-only context for this question">{question.detail}</pre> : null}
+              {question.detail ? <pre className="interaction-question-detail" title={t("interactionWorkbench.readOnlyContextForThis")}>{question.detail}</pre> : null}
               <QuestionControls
                 question={question}
                 answer={answer}

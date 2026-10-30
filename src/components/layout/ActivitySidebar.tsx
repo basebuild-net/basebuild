@@ -42,10 +42,11 @@ import {
 import { parsePanelGrid } from "../../lib/panelGrid";
 import { panelGridToWorkspaceState } from "../../lib/workspaceBridge";
 import { buildSidebarUnits } from "../../lib/sidebarLayout";
-import { formatRelativeTime } from "../../lib/timing";
 import type { AccountState } from "../../state/account";
 import type { UpdaterState } from "../../state/updater";
 import type { RecentProject } from "../../lib/projects";
+import { t } from "../../i18n";
+import { formatRelativeTime } from "../../i18n/format";
 
 const PINNED_PROJECTS_KEY = "basebuild.pinned-projects.v1";
 
@@ -77,17 +78,19 @@ const surfaceKindIcon: Record<SurfaceKind, LucideIcon> = {
   terminal: TerminalSquare,
 };
 
-const surfaceKindLabel: Record<SurfaceKind, string> = {
-  chat: "Chat",
-  "omp-chat": "Oh My Pi Chat",
-  terminal: "Terminal",
-};
+function surfaceKindLabel(): Record<SurfaceKind, string> {
+  return {
+    chat: t("activitySidebar.kindChat"),
+    "omp-chat": t("activitySidebar.kindOmpChat"),
+    terminal: t("activitySidebar.kindTerminal"),
+  };
+}
 
 /** A neutral, non-decorative display title for a surface. Honors manual title
  *  lock by using `title` as-is; falls back to a kind-labeled placeholder. */
 function surfaceDisplayTitle(surface: SurfaceRecord): string {
   if (surface.title) return humanizeChatTitle(surface.title);
-  return `Untitled ${surfaceKindLabel[surface.kind]}`;
+  return t("activitySidebar.untitled", { v1: surfaceKindLabel()[surface.kind] });
 }
 
 /** Disambiguate identical display titles across a set of surfaces by
@@ -142,12 +145,12 @@ function surfaceStatusText(
   isGrouped: boolean,
   isFocused: boolean,
 ): string {
-  if (visibility === "stashed") return "stashed";
-  if (isFocused) return "active";
-  if (isGrouped) return "linked";
+  if (visibility === "stashed") return t("activitySidebar.statusStashed");
+  if (isFocused) return t("activitySidebar.statusActive");
+  if (isGrouped) return t("activitySidebar.statusLinked");
   const ageSec = Math.floor((Date.now() - surface.createdAt) / 1000);
-  if (ageSec < 30) return "new";
-  return "standby";
+  if (ageSec < 30) return t("activitySidebar.statusNew");
+  return t("activitySidebar.statusStandby");
 }
 
 
@@ -229,58 +232,58 @@ function ProjectMenuButton({
   const items: ActionMenuItem[] = [];
   if (onNewChat) items.push({
     key: "new-chat",
-    label: "Add chat window",
-    title: "Add a chat window to this project",
+    label: t("activitySidebar.addChatWindow2"),
+    title: t("activitySidebar.addAChatWindowToThis"),
     icon: <Plus size={11} />,
     onSelect: () => onNewChat(projectPath),
   });
   if (onOpenFiles) items.push({
     key: "files",
-    label: "Files",
-    title: "Browse files in this project",
+    label: t("activitySidebar.files"),
+    title: t("activitySidebar.browseFilesInThisProject"),
     icon: <FileText size={11} />,
     onSelect: () => onOpenFiles(projectPath),
   });
   if (onOpenChanges) items.push({
     key: "changes",
-    label: "Changes",
-    title: "View git changes in this project",
+    label: t("activitySidebar.changes"),
+    title: t("activitySidebar.viewGitChangesInThisProject"),
     icon: <GitBranch size={11} />,
     onSelect: () => onOpenChanges(projectPath),
   });
   if (onCopyPath) items.push({
     key: "copy-path",
-    label: "Copy project path",
-    title: "Copy the project folder path",
+    label: t("activitySidebar.copyProjectPath"),
+    title: t("activitySidebar.copyTheProjectFolderPath"),
     icon: <Copy size={11} />,
     onSelect: () => onCopyPath(projectPath),
   });
   if (onOpenInExplorer) items.push({
     key: "explorer",
-    label: "Open in Explorer",
-    title: "Open this project folder in the file explorer",
+    label: t("activitySidebar.openInExplorer"),
+    title: t("activitySidebar.openThisProjectFolderInThe"),
     icon: <FolderPlus size={11} />,
     onSelect: () => onOpenInExplorer(projectPath),
   });
   if (onTogglePin) items.push({
     key: "pin",
-    label: isPinned ? "Unpin" : "Pin",
-    title: isPinned ? "Unpin project from top of list" : "Pin project to top of list",
+    label: isPinned ? t("activitySidebar.unpin") : t("activitySidebar.pin"),
+    title: isPinned ? t("activitySidebar.unpinProjectFromTopOfList") : t("activitySidebar.pinProjectToTopOfList"),
     icon: <Pin size={11} />,
     onSelect: () => onTogglePin(projectPath),
   });
   if (onClearChats) items.push({
     key: "clear-chats",
-    label: "Clear chats",
-    title: "Clear all chats for this project",
+    label: t("activitySidebar.clearChats"),
+    title: t("activitySidebar.clearAllChatsForThisProject"),
     icon: <TerminalSquare size={11} />,
     danger: true,
     onSelect: () => onClearChats(projectPath),
   });
   if (onRemoveProject) items.push({
     key: "remove",
-    label: "Remove project",
-    title: `Remove ${projectName} from the sidebar (does not delete files)`,
+    label: t("activitySidebar.removeProject"),
+    title: t("activitySidebar.removeFromTheSidebarDoesNot", { projectName }),
     icon: <Trash2 size={11} />,
     danger: true,
     onSelect: () => onRemoveProject(projectPath),
@@ -291,7 +294,7 @@ function ProjectMenuButton({
     <span className="project-menu-wrap">
       <ActionMenu
         items={items}
-        triggerTitle={`Manage ${projectName}`}
+        triggerTitle={t("activitySidebar.manage", { projectName })}
         triggerClassName="project-menu-btn"
         icon={<MoreVertical size={12} />}
       />
@@ -313,7 +316,7 @@ function SurfaceActionButtons({
       <button
         className="surface-row-action-btn is-danger"
         type="button"
-        title="Close to History"
+        title={t("activitySidebar.closeToHistory")}
         onClick={(e) => { e.stopPropagation(); onClose(surfaceId); }}
       >
         <X size={11} />
@@ -362,7 +365,7 @@ function SurfaceRow({
       data-surface-id={surface.id}
       data-surface-visibility={visibility}
       style={groupColor ? ({ "--group-color": groupColor } as React.CSSProperties) : undefined}
-      title={`${title} — ${statusText}${isFocused ? ", focused" : ""} · ${time}`}
+      title={t((isFocused ? "activitySidebar.text.focused" : "activitySidebar.text.none"), { title: title, statusText: statusText, time: time })}
       onClick={onActivate}
       onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onActivate(); } }}
       onDragStart={draggable ? (event) => {
@@ -409,7 +412,7 @@ function HistoryRow({
   return (
     <div
       className="surface-row is-history"
-      title={`${title} — closed ${formatRelativeTime(record.closedAt)}`}
+      title={t("activitySidebar.closed", { title: title, closedAt: formatRelativeTime(record.closedAt) })}
     >
       <Icon size={11} className="surface-row-icon" />
       <span className="surface-row-title">{title}</span>
@@ -417,7 +420,7 @@ function HistoryRow({
         <button
           className="surface-row-action-btn"
           type="button"
-          title="Reopen as active hidden (preserves current layout)"
+          title={t("activitySidebar.reopenAsActiveHiddenPreserves")}
           onClick={(e) => { e.stopPropagation(); onReopen(record.id); }}
         >
           <RotateCcw size={11} />
@@ -425,7 +428,7 @@ function HistoryRow({
         <button
           className="surface-row-action-btn is-danger"
           type="button"
-          title="Permanently delete from history"
+          title={t("activitySidebar.permanentlyDeleteFromHistory")}
           onClick={(e) => { e.stopPropagation(); onDelete(record.id); }}
         >
           <Trash2 size={11} />
@@ -587,36 +590,36 @@ export function ActivitySidebar({
 
   if (collapsed) {
     return (
-      <aside className="project-chat-sidebar is-collapsed" aria-label="Activity sidebar (collapsed)">
+      <aside className="project-chat-sidebar is-collapsed" aria-label={t("activitySidebar.activitySidebarCollapsed")}>
         <div className="sidebar-top-actions">
-          <button className="btn-icon" type="button" title="Add chat window" onClick={onCreateChat} disabled={!activeProjectPath}>
+          <button className="btn-icon" type="button" title={t("activitySidebar.addChatWindow")} onClick={onCreateChat} disabled={!activeProjectPath}>
             <Plus size={14} />
           </button>
-          <button className="btn-icon" type="button" title="History" onClick={onOpenHistory}>
+          <button className="btn-icon" type="button" title={t("activitySidebar.history")} onClick={onOpenHistory}>
             <Clock size={14} />
           </button>
-          <button className="btn-icon" type="button" title={pickerInFlight ? "Opening folder picker…" : "Add project folder"} onClick={onOpenFolder} disabled={pickerInFlight}>
+          <button className="btn-icon" type="button" title={pickerInFlight ? t("activitySidebar.openingFolderPicker") : t("activitySidebar.addProjectFolder")} onClick={onOpenFolder} disabled={pickerInFlight}>
             <FolderPlus size={14} />
           </button>
           {onTestRunMode ? (
-            <button className="btn-icon" type="button" title="Test Run Mode: create a test project and run the full plan lifecycle" onClick={onTestRunMode}>
+            <button className="btn-icon" type="button" title={t("activitySidebar.testRunModeCreateA")} onClick={onTestRunMode}>
               <FlaskConical size={14} />
             </button>
           ) : null}
-          <button className="btn-icon" type="button" title="Expand sidebar" onClick={onToggleCollapse}>
+          <button className="btn-icon" type="button" title={t("activitySidebar.expandSidebar")} onClick={onToggleCollapse}>
             <ChevronRight size={14} />
           </button>
         </div>
         <div className="sidebar-collapsed-spacer" />
         <div className="sidebar-bottom-account">
-          <button className="btn-icon" type="button" title="Settings" onClick={onOpenSettings}>
+          <button className="btn-icon" type="button" title={t("activitySidebar.settings")} onClick={onOpenSettings}>
             <Settings2 size={14} />
           </button>
           {updates.status === "downloaded" || updates.status === "installing" ? (
             <button
               className="update-taskbar-btn"
               type="button"
-              title={`Basebuild ${updates.info?.version ?? ""} is downloaded — click to restart and apply it`}
+              title={t("activitySidebar.basebuildIsDownloadedClickToRestart", { version: updates.info?.version ?? "" })}
               onClick={() => void updates.restartToApply()}
               disabled={updates.status === "installing"}
             >
@@ -631,25 +634,25 @@ export function ActivitySidebar({
   // ── Expanded sidebar ──────────────────────────────────────────────────────
 
   const activeIdentity = activeProjectPath ? repoIdentities.get(activeProjectPath) : undefined;
-  const activeName = activeIdentity?.name ?? projects.find((p) => p.path === activeProjectPath)?.name ?? activeProjectPath?.split(/[\\/]/).pop() ?? "Project";
+  const activeName = activeIdentity?.name ?? projects.find((p) => p.path === activeProjectPath)?.name ?? activeProjectPath?.split(/[\\/]/).pop() ?? t("activitySidebar.project");
   const activeBranch = activeIdentity?.branch ?? null;
   const activeHost = activeIdentity?.host ?? "folder";
 
   return (
-    <aside className="project-chat-sidebar" aria-label="Activity sidebar">
+    <aside className="project-chat-sidebar" aria-label={t("activitySidebar.activitySidebar")}>
       <div className="sidebar-top-actions">
-        <button className="btn btn-ghost btn-sm" type="button" title="Add chat window" onClick={onCreateChat} disabled={!activeProjectPath}>
-          <Plus size={12} /> Add chat window
+        <button className="btn btn-ghost btn-sm" type="button" title={t("activitySidebar.addChatWindow")} onClick={onCreateChat} disabled={!activeProjectPath}>
+          <Plus size={12} /> {t("activitySidebar.addChatWindow")}
         </button>
-        <button className="btn-icon" type="button" title={pickerInFlight ? "Opening folder picker…" : "Add project folder"} onClick={onOpenFolder} disabled={pickerInFlight}>
+        <button className="btn-icon" type="button" title={pickerInFlight ? t("activitySidebar.openingFolderPicker") : t("activitySidebar.addProjectFolder")} onClick={onOpenFolder} disabled={pickerInFlight}>
           <FolderPlus size={14} />
         </button>
         {onTestRunMode ? (
-          <button className="btn-icon" type="button" title="Test Run Mode: create a test project and run the full plan lifecycle" onClick={onTestRunMode}>
+          <button className="btn-icon" type="button" title={t("activitySidebar.testRunModeCreateA")} onClick={onTestRunMode}>
             <FlaskConical size={14} />
           </button>
         ) : null}
-        <button className="btn-icon" type="button" title="Collapse sidebar" onClick={onToggleCollapse}>
+        <button className="btn-icon" type="button" title={t("activitySidebar.collapseSidebar")} onClick={onToggleCollapse}>
           <ChevronLeft size={14} />
         </button>
       </div>
@@ -657,10 +660,10 @@ export function ActivitySidebar({
       <div className="activity-sidebar">
         <div className="activity-sidebar-list">
           {!projectsReady && projects.length === 0 ? (
-            <SkeletonRows rows={4} label="Loading projects…" />
+            <SkeletonRows rows={4} label={t("activitySidebar.loadingProjects")} />
           ) : projects.length === 0 ? (
             <div className="sidebar-empty text-muted text-sm">
-              No projects yet. <button className="chat-link-btn" type="button" title="Add a project folder" onClick={onOpenFolder}>Add a folder</button>.
+              {t("activitySidebar.noProjectsYet")} <button className="chat-link-btn" type="button" title={t("activitySidebar.addAProjectFolder")} onClick={onOpenFolder}>{t("activitySidebar.addAFolder")}</button>.
             </div>
           ) : (
             [...projects].sort((a, b) => {
@@ -696,13 +699,13 @@ export function ActivitySidebar({
                     <RepoIcon host={host} size={isActive ? 14 : 11} />
                     <span className={isActive ? "activity-sidebar-project-name" : "activity-sidebar-row-title"}>{name}</span>
                     {pinnedPaths.has(project.path) ? (
-                      <Pin size={9} className="activity-sidebar-pin-indicator" aria-label="Pinned" />
+                      <Pin size={9} className="activity-sidebar-pin-indicator" aria-label={t("activitySidebar.pinned")} />
                     ) : null}
                     {isActive ? (
                       <button
                         className="project-add-chat-btn"
                         type="button"
-                        title="Add a new unlinked chat"
+                        title={t("activitySidebar.addANewUnlinkedChat")}
                         onClick={(e) => { e.stopPropagation(); onNewChat?.(project.path); }}
                       >
                         <Plus size={11} />
@@ -723,7 +726,7 @@ export function ActivitySidebar({
                     />
                   </div>
                   {branch ? (
-                    <span className="activity-sidebar-project-branch" title={`Branch: ${branch}`} onClick={() => onSelectProject(project.path)}>
+                    <span className="activity-sidebar-project-branch" title={t("activitySidebar.branch", { branch: branch })} onClick={() => onSelectProject(project.path)}>
                       {branch}
                     </span>
                   ) : null}
@@ -770,11 +773,11 @@ export function ActivitySidebar({
                           <button
                             className="surface-add-linked-btn"
                             type="button"
-                            title="Add a new chat linked to this group"
+                            title={t("activitySidebar.addANewChatLinked")}
                             onClick={(e) => { e.stopPropagation(); onAddLinkedChat(); }}
                           >
                             <Plus size={10} />
-                            <span>Add linked chat</span>
+                            <span>{t("activitySidebar.addLinkedChat")}</span>
                           </button>
                         ) : null}
                       </div>
@@ -786,7 +789,7 @@ export function ActivitySidebar({
                     <div
                       className="surface-unlink-dropzone"
                       data-surface-unlink-dropzone
-                      title="Drop a linked chat here to make it a separate active chat"
+                      title={t("activitySidebar.dropALinkedChatHere")}
                       onDragOver={(event) => { if (event.dataTransfer.types.includes("text/plain")) event.preventDefault(); }}
                       onDrop={(event) => {
                         event.preventDefault();
@@ -796,14 +799,14 @@ export function ActivitySidebar({
                       }}
                     >
                       <Unlink size={10} />
-                      <span>Drop here to unlink</span>
+                      <span>{t("activitySidebar.dropHereToUnlink")}</span>
                     </div>
                   ) : null}
 
                   {/* Empty state — active project only. */}
                   {isActive && units.length === 0 ? (
                     <div className="sidebar-empty text-muted text-sm">
-                      No active surfaces. <button className="chat-link-btn" type="button" title="Start a new chat" onClick={onCreateChat}>Start a chat</button>.
+                      {t("activitySidebar.noActiveSurfaces")} <button className="chat-link-btn" type="button" title={t("activitySidebar.startANewChat")} onClick={onCreateChat}>{t("activitySidebar.startAChat")}</button>.
                     </div>
                   ) : null}
                 </div>
@@ -818,13 +821,13 @@ export function ActivitySidebar({
             <button
               className="surface-history-header"
               type="button"
-              title={historyExpanded ? "Collapse history" : `Expand history (${workspaceState.history.length} closed surface${workspaceState.history.length === 1 ? "" : "s"})`}
+              title={historyExpanded ? t("activitySidebar.collapseHistory") : t((workspaceState.history.length === 1 ? "activitySidebar.expandHistoryClosedSurface.none" : "activitySidebar.expandHistoryClosedSurface.s"), { historyCount: workspaceState.history.length })}
               aria-expanded={historyExpanded}
               onClick={() => setHistoryExpanded((v) => !v)}
             >
               <ChevronDown size={11} className={historyExpanded ? "surface-history-chevron" : "surface-history-chevron is-collapsed"} />
               <Clock size={11} />
-              <span>History</span>
+              <span>{t("activitySidebar.history")}</span>
               <span className="surface-history-badge">{workspaceState.history.length}</span>
             </button>
             {historyExpanded ? (
@@ -845,11 +848,11 @@ export function ActivitySidebar({
         <button
           className="activity-sidebar-history-btn"
           type="button"
-          title={`History drawer (${workspaceState.history.length} closed surface${workspaceState.history.length === 1 ? "" : "s"})`}
+          title={t((workspaceState.history.length === 1 ? "activitySidebar.historyDrawerClosedSurface.none" : "activitySidebar.historyDrawerClosedSurface.s"), { historyCount: workspaceState.history.length })}
           onClick={onOpenHistory}
         >
           <Clock size={11} />
-          <span>History</span>
+          <span>{t("activitySidebar.history")}</span>
           {workspaceState.history.length > 0 ? (
             <span className="activity-sidebar-history-badge">{workspaceState.history.length}</span>
           ) : null}
@@ -864,12 +867,12 @@ export function ActivitySidebar({
 
       <ConfirmDialog
         open={deleteConfirmId !== null}
-        title="Delete from history"
+        title={t("activitySidebar.deleteFromHistory")}
         message={deleteTarget
-          ? `Permanently delete "${surfaceDisplayTitle(deleteTarget)}" from history? The backing session or PTY is not deleted by this action.`
-          : "Permanently delete this surface from history?"}
-        confirmLabel="Delete"
-        cancelLabel="Cancel"
+          ? t("activitySidebar.permanentlyDeleteFromHistoryTheBacking", { v1: surfaceDisplayTitle(deleteTarget) })
+          : t("activitySidebar.permanentlyDeleteThisSurfaceFromHistory")}
+        confirmLabel={t("activitySidebar.delete")}
+        cancelLabel={t("activitySidebar.cancel")}
         destructive={true}
         onConfirm={handleConfirmDelete}
         onCancel={() => setDeleteConfirmId(null)}

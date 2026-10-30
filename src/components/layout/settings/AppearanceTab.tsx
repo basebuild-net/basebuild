@@ -9,22 +9,27 @@ import {
   UI_SCALE_STEPS,
   type UiScale,
 } from "../../../lib/uiScale";
+import { t } from "../../../i18n";
+import { LanguagePicker } from "../LanguagePicker";
 
 export function AppearanceTab() {
   const { theme, setTheme } = useTheme();
   const [scale, setScale] = useState<UiScale>(() => getUiScale());
   useEffect(() => subscribeUiScale(setScale), []);
   const themes: { id: AppTheme; label: string; icon: typeof Sun; title: string }[] = [
-    { id: "dark", label: "Dark", icon: Moon, title: "Black/grey/silver canvas with green accents — the default Basebuild theme." },
-    { id: "dark-green", label: "Dark Green", icon: Moon, title: "Graphite-green canvas with a richer green palette throughout." },
-    { id: "light", label: "Light", icon: Sun, title: "Soft neutral canvas with deeper accent for contrast." },
+    { id: "dark", label: t("appearanceTab.dark"), icon: Moon, title: t("appearanceTab.blackGreySilverCanvasWithGreen") },
+    { id: "dark-green", label: t("appearanceTab.darkGreen"), icon: Moon, title: t("appearanceTab.graphiteGreenCanvasWithARicher") },
+    { id: "light", label: t("appearanceTab.light"), icon: Sun, title: t("appearanceTab.softNeutralCanvasWithDeeperAccent") },
   ];
   const minScale = UI_SCALE_STEPS[0];
   const maxScale = UI_SCALE_STEPS[UI_SCALE_STEPS.length - 1];
   return (
     <div className="stack">
-      <h3>Theme</h3>
-      <p className="text-muted text-sm">Choose the color scheme for the Basebuild interface. The theme is stored locally and applied before the app paints to avoid flash.</p>
+      <h3>{t("localePicker.label")}</h3>
+      <p className="text-muted text-sm">{t("localePicker.hint")}</p>
+      <LanguagePicker />
+      <h3>{t("appearanceTab.theme")}</h3>
+      <p className="text-muted text-sm">{t("appearanceTab.chooseTheColorSchemeFor")}</p>
       <div className="theme-picker">
         {themes.map((t) => {
           const Icon = t.icon;
@@ -44,26 +49,25 @@ export function AppearanceTab() {
           );
         })}
       </div>
-      <h3>UI scale</h3>
+      <h3>{t("appearanceTab.uIScale")}</h3>
       <p className="text-muted text-sm">
-        Scales the whole interface proportionally — text, padding, and layout together.
-        Keyboard: CTRL+= to zoom in, CTRL+- to zoom out, CTRL+0 to reset. Stored locally.
+        {t("appearanceTab.scalesTheWholeInterfaceProportionally")}
       </p>
-      <div className="row ui-scale-control" role="group" aria-label="UI scale">
+      <div className="row ui-scale-control" role="group" aria-label={t("appearanceTab.uIScale")}>
         <button
           className="btn btn-sm"
           type="button"
-          title="Decrease UI scale (CTRL+-)"
+          title={t("appearanceTab.decreaseUiScaleCtrl")}
           disabled={scale <= minScale}
           onClick={() => stepUiScale(-1)}
         >
           −
         </button>
-        <span className="mono ui-scale-value" title={`Current UI scale: ${scale}%`}>{scale}%</span>
+        <span className="mono ui-scale-value" title={t("appearanceTab.currentUIScale", { scale: scale })}>{scale}%</span>
         <button
           className="btn btn-sm"
           type="button"
-          title="Increase UI scale (CTRL+=)"
+          title={t("appearanceTab.increaseUiScaleCtrl")}
           disabled={scale >= maxScale}
           onClick={() => stepUiScale(1)}
         >
@@ -72,11 +76,11 @@ export function AppearanceTab() {
         <button
           className="btn btn-sm btn-ghost"
           type="button"
-          title="Reset UI scale to 100% (CTRL+0)"
+          title={t("appearanceTab.resetUiScaleTo100")}
           disabled={scale === 100}
           onClick={() => resetUiScale()}
         >
-          Reset
+          {t("appearanceTab.reset")}
         </button>
       </div>
     </div>

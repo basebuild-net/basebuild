@@ -4,6 +4,7 @@ import App from "./App";
 import "./styles/globals.css";
 import { initUiScale } from "./lib/uiScale";
 import { applyPlatformAttribute } from "./lib/platform";
+import { LocaleProvider } from "./state/locale";
 
 applyPlatformAttribute();
 
@@ -22,6 +23,8 @@ document.addEventListener("contextmenu", (e) => {
 });
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <App />
+    <LocaleProvider>
+      <App />
+    </LocaleProvider>
   </React.StrictMode>,
 );

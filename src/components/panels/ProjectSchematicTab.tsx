@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Sparkles, Wand2 } from "lucide-react";
 import { useProjectSchematic } from "../../state/schematic";
 import type { SchematicReport, SectionReport } from "../../lib/schematic";
+import { t } from "../../i18n";
 
 export type ProjectSchematicTabProps = {
   projectPath: string | null;
@@ -11,25 +12,25 @@ export type ProjectSchematicTabProps = {
   onOpenRaw: () => void;
 };
 
-const SECTION_GUIDE: Record<string, string> = {
-  Purpose: "What the project does, for whom, and why it exists.",
-  Vision: "What the project should become — steers idea generation.",
-  Blueprint: "Archetype, team size, and stage — scopes planning.",
-  "End goals": "Time-boxed goals (year-end, month-end) keep work on track.",
-  "Target users": "Primary users and their top jobs.",
-  "Tech stack": "Runtime, framework, languages, key dependencies.",
-  "Architecture notes": "Major layers, data model, invariants, key folders.",
-  "Design constraints": "Hard visual/system rules — core project rules.",
-  "Development conventions": "Naming, errors, testing, docs — core project rules.",
-  "Current priorities": "Top 3–5 open concerns, ranked.",
-  "Open questions": "What is unclear; decisions needing a human.",
-};
+const sectionGuide = (): Record<string, string> => ({
+  Purpose: t("projectSchematicTab.whatTheProjectDoesForWhom"),
+  Vision: t("projectSchematicTab.whatTheProjectShouldBecomeSteers"),
+  Blueprint: t("projectSchematicTab.archetypeTeamSizeAndStageScopes"),
+  "End goals": t("projectSchematicTab.timeBoxedGoalsYearEndMonth"),
+  "Target users": t("projectSchematicTab.primaryUsersAndTheirTopJobs"),
+  "Tech stack": t("projectSchematicTab.runtimeFrameworkLanguagesKeyDependencies"),
+  "Architecture notes": t("projectSchematicTab.majorLayersDataModelInvariantsKey"),
+  "Design constraints": t("projectSchematicTab.hardVisualSystemRulesCoreProject"),
+  "Development conventions": t("projectSchematicTab.namingErrorsTestingDocsCoreProject"),
+  "Current priorities": t("projectSchematicTab.top35OpenConcernsRanked"),
+  "Open questions": t("projectSchematicTab.whatIsUnclearDecisionsNeedingA"),
+});
 
-const HEALTH_LABEL: Record<string, string> = {
-  complete: "Complete",
-  partial: "Partial",
-  missing: "Missing",
-};
+const healthLabel = (): Record<string, string> => ({
+  complete: t("projectSchematicTab.complete"),
+  partial: t("projectSchematicTab.partial"),
+  missing: t("projectSchematicTab.missing"),
+});
 
 export function ProjectSchematicTab({ projectPath, onStartWizard, onOpenRaw }: ProjectSchematicTabProps) {
   const schematic = useProjectSchematic(projectPath);
@@ -38,8 +39,8 @@ export function ProjectSchematicTab({ projectPath, onStartWizard, onOpenRaw }: P
   if (!projectPath) {
     return (
       <div className="empty-state">
-        <h3>No project</h3>
-        <p>Open a project to view its schematic and plan context.</p>
+        <h3>{t("projectSchematicTab.noProject")}</h3>
+        <p>{t("projectSchematicTab.openAProjectToView")}</p>
       </div>
     );
   }
@@ -47,7 +48,7 @@ export function ProjectSchematicTab({ projectPath, onStartWizard, onOpenRaw }: P
   if (schematic.loading) {
     return (
       <div className="empty-state">
-        <p>Loading schematic...</p>
+        <p>{t("projectSchematicTab.loadingSchematic")}</p>
       </div>
     );
   }
@@ -55,13 +56,13 @@ export function ProjectSchematicTab({ projectPath, onStartWizard, onOpenRaw }: P
   if (!schematic.exists) {
     return (
       <div className="empty-state">
-        <h3>Project description missing</h3>
-        <p>This project has no <code>.basebuild/project-schematic.md</code> yet.</p>
+        <h3>{t("projectSchematicTab.projectDescriptionMissing")}</h3>
+        <p>{t("projectSchematicTab.thisProjectHasNo")} <code>{t("projectSchematicTab.basebuildProjectSchematicMd")}</code> {t("projectSchematicTab.yet")}</p>
         <div className="empty-state-actions">
-          <button className="btn btn-primary" type="button" title="Start project description wizard" onClick={() => onStartWizard()}>
-            <Sparkles size={12} /> Start wizard
+          <button className="btn btn-primary" type="button" title={t("projectSchematicTab.startProjectDescriptionWizard")} onClick={() => onStartWizard()}>
+            <Sparkles size={12} /> {t("projectSchematicTab.startWizard")}
           </button>
-          <button className="btn" type="button" title="Edit project description raw file" onClick={onOpenRaw}>Edit raw</button>
+          <button className="btn" type="button" title={t("projectSchematicTab.editProjectDescriptionRawFile")} onClick={onOpenRaw}>{t("projectSchematicTab.editRaw")}</button>
         </div>
       </div>
     );
@@ -73,35 +74,35 @@ export function ProjectSchematicTab({ projectPath, onStartWizard, onOpenRaw }: P
   return (
     <div className="project-schematic-tab">
       <div className="project-schematic-toolbar">
-        <span className="project-schematic-toolbar-title">.basebuild/project-schematic.md</span>
+        <span className="project-schematic-toolbar-title">{t("projectSchematicTab.basebuildProjectSchematicMd")}</span>
         {report && (
           <button
             className={`schematic-health-badge is-${report.health}`}
             type="button"
-            title={`Schematic ${report.health}: ${report.health === "complete" ? "all core sections filled" : report.sections.filter((s) => s.state !== "filled").map((s) => s.name).join(", ") || "all filled"} — click for raw view`}
+            title={t("projectSchematicTab.schematicClickForRawView", { health: report.health, value: report.health === "complete" ? t("projectSchematicTab.allCoreSectionsFilled") : report.sections.filter((s) => s.state !== "filled").map((s) => s.name).join(", ") || t("projectSchematicTab.allFilled") })}
             onClick={onOpenRaw}
           >
-            {HEALTH_LABEL[report.health]}
+            {healthLabel()[report.health]}
           </button>
         )}
         <button
           className="btn btn-sm btn-primary"
           type="button"
-          title="Start the guided schematic wizard — asks questions one at a time, prefills from the repo, and writes only after approval"
+          title={t("projectSchematicTab.startTheGuidedSchematicWizard")}
           onClick={() => onStartWizard()}
         >
-          <Wand2 size={11} /> Start wizard
+          <Wand2 size={11} /> {t("projectSchematicTab.startWizard")}
         </button>
         <button
           className="btn btn-sm"
           type="button"
-          title={raw ? "Show structured section cards" : "Show raw markdown source"}
+          title={raw ? t("projectSchematicTab.showStructuredSectionCards") : t("projectSchematicTab.showRawMarkdownSource")}
           onClick={() => setRaw((v) => !v)}
         >
-          {raw ? "Cards" : "Raw"}
+          {raw ? t("projectSchematicTab.cards") : t("projectSchematicTab.raw")}
         </button>
-        <button className="btn btn-sm" type="button" title="Edit the raw schematic markdown" onClick={onOpenRaw}>
-          Edit
+        <button className="btn btn-sm" type="button" title={t("projectSchematicTab.editTheRawSchematicMarkdown")} onClick={onOpenRaw}>
+          {t("projectSchematicTab.edit")}
         </button>
       </div>
 
@@ -109,20 +110,20 @@ export function ProjectSchematicTab({ projectPath, onStartWizard, onOpenRaw }: P
         <div className="schematic-nudge">
           <span className="text-sm">
             {report!.missingYearGoal && report!.missingMonthGoal
-              ? "Set a year-end and a month-end goal to keep things on track."
+              ? t("projectSchematicTab.setAYearEndAnd")
               : report!.missingYearGoal
-                ? "Set a year-end goal to keep things on track."
+                ? t("projectSchematicTab.setAYearEndGoal")
                 : report!.missingMonthGoal
-                  ? "Set a month-end goal to keep things on track."
-                  : "An end goal's period has passed — refresh it."}
+                  ? t("projectSchematicTab.setAMonthEndGoal")
+                  : t("projectSchematicTab.anEndGoalSPeriod")}
           </span>
           <button
             className="btn btn-sm"
             type="button"
-            title="Open the schematic wizard to fix this"
-            onClick={() => onStartWizard("End goals")}
+            title={t("projectSchematicTab.openTheSchematicWizardTo")}
+            onClick={() => onStartWizard(t("projectSchematicTab.endGoals"))}
           >
-            Fix
+            {t("projectSchematicTab.fix")}
           </button>
         </div>
       )}
@@ -156,7 +157,7 @@ function SectionCard({
     <div className={`schematic-section-card is-${section.state}`}>
       <div className="schematic-section-header">
         <span className="schematic-section-title">{section.name}</span>
-        <span className={`schematic-section-state is-${section.state}`} title={`Section ${section.state}`}>
+        <span className={`schematic-section-state is-${section.state}`} title={t("projectSchematicTab.section", { state: section.state })}>
           {section.state}
         </span>
         {!isFilled && (
@@ -164,10 +165,10 @@ function SectionCard({
             <button
               className="btn btn-sm"
               type="button"
-              title={`Run the wizard for the ${section.name} section — asks one question at a time, prefills from the repo`}
+              title={t("projectSchematicTab.runTheWizardForTheSection", { name: section.name })}
               onClick={() => onFill(section.name)}
             >
-              Fill
+              {t("projectSchematicTab.fill")}
             </button>
           </div>
         )}
@@ -179,13 +180,13 @@ function SectionCard({
               <div key={i} className="schematic-end-goal-row">
                 <span className="schematic-end-goal-period">{goal.period}</span>
                 <span>{goal.statement}</span>
-                {goal.stale && <span className="schematic-end-goal-stale" title="This goal's period has passed">stale</span>}
+                {goal.stale && <span className="schematic-end-goal-stale" title={t("projectSchematicTab.thisGoalSPeriodHas")}>{t("projectSchematicTab.stale")}</span>}
               </div>
             ))}
           </div>
         ) : null
       ) : (
-        <p className="schematic-section-placeholder">{SECTION_GUIDE[section.name] ?? "Fill in this section."}</p>
+        <p className="schematic-section-placeholder">{sectionGuide()[section.name] ?? t("projectSchematicTab.fillInThisSection")}</p>
       )}
     </div>
   );

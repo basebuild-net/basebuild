@@ -10,6 +10,7 @@ import {
   type UpdateInfo,
   type UpdateProgress,
 } from "../lib/updater";
+import { t } from "../i18n";
 
 const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -67,7 +68,7 @@ function parseChannelExplanation(message: string): string {
   if (idx >= 0 && idx + 3 < message.length) {
     return message.slice(idx + 3);
   }
-  return "An update-channel error occurred. See the raw message for details.";
+  return t("updater.anUpdateChannelErrorOccurredSee");
 }
 
 function errorInfo(message: string): UpdateInfo {
@@ -145,7 +146,7 @@ export function useUpdater(): UpdaterState {
       setError(message);
       setInfo((current) => ({
         ...(current ?? errorInfo(message)),
-        notes: `Download failed: ${message}`,
+        notes: t("updater.downloadFailed", { message }),
       }));
       setStatus("error");
     } finally {
@@ -167,7 +168,7 @@ export function useUpdater(): UpdaterState {
       setError(message);
       setInfo((current) => ({
         ...(current ?? errorInfo(message)),
-        notes: `Install failed: ${message}`,
+        notes: t("updater.installFailed", { message }),
       }));
       // The payload stays staged backend-side; keep the restart CTA visible.
       setStatus("downloaded");
@@ -214,7 +215,7 @@ export function useUpdater(): UpdaterState {
     if (import.meta.env.DEV && !import.meta.env.BASEBUILD_E2E) return;
     // Releases are Windows-only (NSIS). Skip the check on other platforms to
     // avoid a guaranteed "platform missing" error every 5 minutes.
-    if (!navigator.platform.includes("Win")) return;
+    if (!navigator.platform.includes("Win" /* i18n-exempt: platform detection id */)) return;
     void checkNow();
     const id = window.setInterval(() => void checkNow(), UPDATE_CHECK_INTERVAL_MS);
     return () => window.clearInterval(id);
