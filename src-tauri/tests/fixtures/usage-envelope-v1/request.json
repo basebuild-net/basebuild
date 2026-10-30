@@ -1,6 +1,7 @@
 {
   "version": 1,
   "generatedAt": 1784678400,
+  "client": {"name": "basebuild-app", "version": "0.0.0", "platform": "macos"},
   "batches": [
     {
       "source": "native",
