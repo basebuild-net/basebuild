@@ -42,4 +42,28 @@ pub mod test {
         let guard = lock_db(&dir);
         (dir, guard)
     }
+
+    /// Minimal UTC ISO-8601 formatter (`YYYY-MM-DDTHH:MM:SSZ`) for fixtures
+    /// that must stay inside a "recent" window relative to the wall clock.
+    /// The crate has no chrono dependency; this is Howard Hinnant's
+    /// civil-from-days, the inverse of the harness reader's parser.
+    pub fn iso_utc(epoch_secs: i64) -> String {
+        let days = epoch_secs.div_euclid(86_400);
+        let rem = epoch_secs.rem_euclid(86_400);
+        let z = days + 719_468;
+        let era = z.div_euclid(146_097);
+        let doe = z - era * 146_097;
+        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        let mp = (5 * doy + 2) / 153;
+        let day = doy - (153 * mp + 2) / 5 + 1;
+        let month = if mp < 10 { mp + 3 } else { mp - 9 };
+        let year = era * 400 + yoe + i64::from(month <= 2);
+        format!(
+            "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+            rem / 3600,
+            (rem % 3600) / 60,
+            rem % 60
+        )
+    }
 }
