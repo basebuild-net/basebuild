@@ -9,13 +9,15 @@
  *  2. Every t("key", { params }) call passes exactly the placeholders the
  *     English message declares.
  *  3. Every catalog key is referenced by a t() call or appears as a string literal in source (no dead keys).
- *  4. zh-CN covers the same keys as en (also enforced by the type system).
+ *  4. zh-CN and zh-TW cover the same keys as en, with the same {placeholders}.
+ *  5. zh-TW matches what scripts/generate-zh-hant.mjs produces from zh-CN; run `npm run i18n:zh-hant` to regenerate.
  *
  * Exits 0 if clean, 1 if any violation is found.
  */
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import ts from "typescript";
+import { generateZhTW, ZH_TW_DIR } from "./generate-zh-hant.mjs";
 
 const ROOT = join(import.meta.dirname, "..");
 const SRC = join(ROOT, "src");
@@ -249,14 +251,36 @@ function placeholdersOf(value) {
 }
 
 const en = parseCatalog(EN_DIR);
-const zh = parseCatalog(ZH_DIR);
+const locales = [
+  { name: "zh-CN", dir: ZH_DIR, catalog: parseCatalog(ZH_DIR) },
+  { name: "zh-TW", dir: ZH_TW_DIR, catalog: parseCatalog(ZH_TW_DIR) },
+];
 
-// 4. Key parity.
-for (const key of en.keys()) {
-  if (!zh.has(key)) report(join(ZH_DIR, "index.ts"), 1, `zh-CN is missing key "${key}"`);
+// 4. Key and placeholder parity.
+for (const { name, dir, catalog } of locales) {
+  for (const key of en.keys()) {
+    if (!catalog.has(key)) report(join(dir, "index.ts"), 1, `${name} is missing key "${key}"`);
+  }
+  for (const key of catalog.keys()) {
+    if (!en.has(key)) report(join(EN_DIR, "index.ts"), 1, `${name} has key "${key}" that en does not`);
+  }
+  for (const [key, entry] of catalog) {
+    if (!en.has(key)) continue;
+    const want = [...placeholdersOf(en.get(key).value)].sort().join(",");
+    const got = [...placeholdersOf(entry.value)].sort().join(",");
+    if (want !== got) report(entry.file, 1, `${name} placeholders for "${key}" are {${got}}, en has {${want}}`);
+  }
 }
-for (const key of zh.keys()) {
-  if (!en.has(key)) report(join(EN_DIR, "index.ts"), 1, `zh-CN has key "${key}" that en does not`);
+
+// 5. zh-TW is generated from zh-CN; the committed files must match the generator.
+const generated = generateZhTW();
+for (const [name, content] of generated) {
+  const path = join(ZH_TW_DIR, name);
+  const current = existsSync(path) ? readFileSync(path, "utf8") : null;
+  if (current !== content) report(path, 1, "zh-TW is stale; run `npm run i18n:zh-hant`");
+}
+for (const name of readdirSync(ZH_TW_DIR)) {
+  if (!generated.has(name)) report(join(ZH_TW_DIR, name), 1, "zh-TW has a file the generator does not produce; run `npm run i18n:zh-hant`");
 }
 
 // 2 and 3: call sites.

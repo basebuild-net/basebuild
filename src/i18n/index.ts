@@ -1,37 +1,41 @@
 import { en, type MessageKey } from "./en";
 import { zhCN } from "./zh-CN";
+import { zhTW } from "./zh-TW";
 
 export type { MessageKey };
 
 /** What the user picked in Settings. `system` follows the OS language. */
-export const LOCALE_PREFERENCES = ["system", "en", "zh-CN"] as const;
+export const LOCALE_PREFERENCES = ["system", "en", "zh-CN", "zh-TW"] as const;
 export type LocalePreference = (typeof LOCALE_PREFERENCES)[number];
 
 /** A concrete catalog the UI can render. */
-export type ResolvedLocale = "en" | "zh-CN";
+export type ResolvedLocale = "en" | "zh-CN" | "zh-TW";
 
 type Catalog = Record<MessageKey, string>;
 
 const CATALOGS: Record<ResolvedLocale, Catalog> = {
   en,
   "zh-CN": zhCN,
+  "zh-TW": zhTW,
 };
 
 let activeLocale: ResolvedLocale = "en";
 
 /** Parse an untrusted stored value. Unknown values fall back to `system`. */
 export function parseLocalePreference(value: string | null | undefined): LocalePreference {
-  return value === "en" || value === "zh-CN" ? value : "system";
+  return LOCALE_PREFERENCES.includes(value as LocalePreference) ? (value as LocalePreference) : "system";
 }
 
 /**
- * Resolve a preference to a catalog. `system` maps any Chinese language tag
- * (zh, zh-CN, zh-Hans, zh-TW, ...) to zh-CN because the only Chinese catalog
- * is Simplified; every other language falls back to English.
+ * Resolve a preference to a catalog. `system` maps Traditional Chinese tags
+ * (zh-TW, zh-HK, zh-MO, zh-Hant, ...) to zh-TW and every other Chinese tag to
+ * zh-CN; any other language falls back to English.
  */
 export function resolveLocale(preference: LocalePreference, systemLanguage: string): ResolvedLocale {
-  if (preference === "en" || preference === "zh-CN") return preference;
-  return systemLanguage.toLowerCase().startsWith("zh") ? "zh-CN" : "en";
+  if (preference !== "system") return preference;
+  const tag = systemLanguage.toLowerCase();
+  if (/^zh-(tw|hk|mo|hant)/.test(tag)) return "zh-TW";
+  return tag.startsWith("zh") ? "zh-CN" : "en";
 }
 
 /** Set the catalog `t()` reads. Called by LocaleProvider before children render. */

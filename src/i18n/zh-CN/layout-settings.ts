@@ -270,6 +270,8 @@ export const layoutSettingsZhCN = {
   "localePicker.englishTitle": "使用英文",
   "localePicker.simplifiedChinese": "简体中文",
   "localePicker.simplifiedChineseTitle": "使用简体中文",
+  "localePicker.traditionalChinese": "繁体中文",
+  "localePicker.traditionalChineseTitle": "使用繁体中文",
   "firstRunModal.chooseYourLanguage": "选择语言",
   "firstRunModal.languageHint": "之后可以在设置中更改。",
 } as const;

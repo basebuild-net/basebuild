@@ -106,11 +106,12 @@ anonymous upload settings.
 
 ## Language
 
-Basebuild's interface is available in English and Simplified Chinese (简体中文).
-Pick a language on the first-run screen or in Settings > Appearance > Language.
-The default follows your system language, and any Chinese system language uses
-Simplified Chinese. Changes apply immediately, including the tray menu. When the
-interface is Simplified Chinese, the assistant replies in Simplified Chinese
+Basebuild's interface is available in English, Simplified Chinese (简体中文), and
+Traditional Chinese (繁體中文). Pick a language on the first-run screen or in
+Settings > Appearance > Language. The default follows your system language:
+Traditional Chinese for zh-TW, zh-HK, and zh-MO; Simplified Chinese for other
+Chinese languages; English otherwise. Changes apply immediately, including the
+tray menu. When the interface is Chinese, the assistant replies in that script
 unless you write in another language. Code, commands, and file contents keep
 their original language.
 

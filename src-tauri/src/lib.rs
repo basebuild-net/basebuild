@@ -200,17 +200,19 @@ pub struct TrayMenuItems {
     exit: tauri::menu::MenuItem<tauri::Wry>,
 }
 
-/// Tray label for a menu item id. `locale` is `en` or `zh-CN`.
+/// Tray label for a menu item id. `locale` is `en`, `zh-CN`, or `zh-TW`.
 fn tray_label(locale: &str, item: &str) -> &'static str {
     match (locale, item) {
         ("zh-CN", "show") => "显示 Basebuild",
         ("zh-CN", _) => "退出",
+        ("zh-TW", "show") => "顯示 Basebuild",
+        ("zh-TW", _) => "結束",
         (_, "show") => "Show Basebuild",
         _ => "Exit",
     }
 }
 
-/// Relabel the native tray menu for `locale` (`en` or `zh-CN`).
+/// Relabel the native tray menu for `locale` (`en`, `zh-CN`, or `zh-TW`).
 pub fn apply_tray_locale(app: &AppHandle, locale: &str) {
     use tauri::Manager;
     if let Some(items) = app.try_state::<TrayMenuItems>() {

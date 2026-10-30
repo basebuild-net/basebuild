@@ -6,6 +6,7 @@ const LOCALE_OPTION_ITEMS = (): OptionListOption<LocalePreference>[] => [
   { id: "system", label: t("localePicker.system"), title: t("localePicker.systemTitle") },
   { id: "en", label: t("localePicker.english"), title: t("localePicker.englishTitle") },
   { id: "zh-CN", label: t("localePicker.simplifiedChinese"), title: t("localePicker.simplifiedChineseTitle") },
+  { id: "zh-TW", label: t("localePicker.traditionalChinese"), title: t("localePicker.traditionalChineseTitle") },
 ];
 
 /** UI language choice shared by Settings and first run. Switching is live. */
