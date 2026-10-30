@@ -6,7 +6,7 @@ pub mod services;
 #[cfg(test)]
 pub mod test_util;
 use std::sync::{LazyLock, Mutex};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 static APP_HANDLE: LazyLock<Mutex<Option<AppHandle>>> = LazyLock::new(|| Mutex::new(None));
 
@@ -715,10 +715,11 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building Basebuild")
-        .run(|_app, event| {
+        .run(|app, event| {
             if let tauri::RunEvent::ExitRequested { .. } = event {
                 eprintln!("[APP] ExitRequested — running final sync before exit");
-                crate::services::sync_service::sync_on_exit();
+                let client_version = app.package_info().version.to_string();
+                crate::services::sync_service::sync_on_exit(&client_version);
                 eprintln!("[APP] final sync done — exiting");
             }
         });

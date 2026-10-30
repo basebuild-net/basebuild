@@ -101,12 +101,13 @@ pub struct ClientAttribution {
 /// Wire name of this client. The server rejects any other value.
 pub const CLIENT_NAME: &str = "basebuild-app";
 
-/// Attribution for this build. The version is the crate version, the same
-/// value `app_version` reports and sync sends as `appVersion`.
-pub fn client_attribution() -> ClientAttribution {
+/// Attribution for this build. `version` is the runtime package version
+/// (`app.package_info().version`), which CI stamps into `tauri.conf.json` for
+/// each release. It is the same value sync sends as `appVersion`.
+pub fn client_attribution(version: &str) -> ClientAttribution {
     ClientAttribution {
         name: CLIENT_NAME.to_string(),
-        version: env!("CARGO_PKG_VERSION").to_string(),
+        version: version.to_string(),
         platform: client_platform().map(str::to_string),
     }
 }
@@ -775,6 +776,7 @@ pub struct RejectedV2Batch {
 pub fn assemble_v2_envelope(
     batches: Vec<V2UsageBatch>,
     generated_at: i64,
+    client_version: &str,
 ) -> (Option<V2UsageEnvelope>, Vec<RejectedV2Batch>) {
     let mut accepted: Vec<V2UsageBatch> = Vec::with_capacity(batches.len());
     let mut rejected = Vec::new();
@@ -812,7 +814,7 @@ pub fn assemble_v2_envelope(
             version: ENVELOPE_VERSION_V2,
             generated_at,
             batches: accepted,
-            client: Some(client_attribution()),
+            client: Some(client_attribution(client_version)),
         }),
         rejected,
     )
@@ -908,6 +910,7 @@ pub struct RejectedBatch {
 pub fn assemble_envelope(
     batches: Vec<UsageBatch>,
     generated_at: i64,
+    client_version: &str,
 ) -> (Option<UsageEnvelope>, Vec<RejectedBatch>) {
     let mut accepted: Vec<UsageBatch> = Vec::with_capacity(batches.len());
     let mut rejected = Vec::new();
@@ -947,7 +950,7 @@ pub fn assemble_envelope(
             version: ENVELOPE_VERSION,
             generated_at,
             batches: accepted,
-            client: Some(client_attribution()),
+            client: Some(client_attribution(client_version)),
         }),
         rejected,
     )
@@ -999,6 +1002,7 @@ mod tests {
 
     /// Anchored near the fixture epoch so window checks have a stable `now`.
     const NOW: i64 = 1784678400;
+    const CLIENT_VERSION: &str = "0.0.39";
 
     fn batch(rows: Vec<Value>) -> UsageBatch {
         UsageBatch {
@@ -1168,7 +1172,8 @@ mod tests {
 
     #[test]
     fn assemble_envelope_ships_valid_batches() {
-        let (envelope, rejected) = assemble_envelope(vec![batch(vec![safe_row()])], NOW);
+        let (envelope, rejected) =
+            assemble_envelope(vec![batch(vec![safe_row()])], NOW, CLIENT_VERSION);
         assert!(rejected.is_empty());
         assert_eq!(envelope.unwrap().batches.len(), 1);
     }
@@ -1197,7 +1202,8 @@ mod tests {
         poisoned.source = SourceKind::ClaudeCode;
         poisoned.idempotency_key = "claude-code:1784592000:v1".to_string();
 
-        let (envelope, rejected) = assemble_envelope(vec![batch(vec![safe_row()]), poisoned], NOW);
+        let (envelope, rejected) =
+            assemble_envelope(vec![batch(vec![safe_row()]), poisoned], NOW, CLIENT_VERSION);
         let envelope = envelope.expect("native batch must still ship");
         assert_eq!(envelope.batches.len(), 1);
         assert_eq!(envelope.batches[0].source, SourceKind::Native);
@@ -1224,6 +1230,7 @@ mod tests {
                 big(SourceKind::ClaudeCode, "claude-code:budget:v1"),
             ],
             NOW,
+            CLIENT_VERSION,
         );
         let envelope = envelope.unwrap();
         assert_eq!(envelope.batches.len(), 2);
@@ -1236,7 +1243,7 @@ mod tests {
     fn assemble_envelope_returns_none_when_nothing_is_shippable() {
         let mut bad = batch(vec![safe_row()]);
         bad.idempotency_key = "!".to_string();
-        let (envelope, rejected) = assemble_envelope(vec![bad], NOW);
+        let (envelope, rejected) = assemble_envelope(vec![bad], NOW, CLIENT_VERSION);
         assert!(envelope.is_none());
         assert_eq!(rejected.len(), 1);
     }
@@ -1360,7 +1367,7 @@ mod tests {
         // refused.
         let mut batch = v2_batch(vec![request_span()]);
         batch.window_end = batch.window_start;
-        let (envelope, rejected) = assemble_v2_envelope(vec![batch], NOW);
+        let (envelope, rejected) = assemble_v2_envelope(vec![batch], NOW, CLIENT_VERSION);
         assert!(envelope.is_none());
         assert_eq!(rejected.len(), 1);
         assert!(!rejected[0].deferred);
@@ -1445,7 +1452,8 @@ mod tests {
 
     #[test]
     fn v2_envelope_assembly_sets_version_two() {
-        let (envelope, rejected) = assemble_v2_envelope(vec![v2_batch(vec![request_span()])], NOW);
+        let (envelope, rejected) =
+            assemble_v2_envelope(vec![v2_batch(vec![request_span()])], NOW, CLIENT_VERSION);
         assert!(rejected.is_empty());
         let envelope = envelope.unwrap();
         assert_eq!(envelope.version, ENVELOPE_VERSION_V2);
@@ -1455,7 +1463,7 @@ mod tests {
     #[test]
     fn v2_batch_limit_is_enforced() {
         let rows = vec![request_span(); MAX_ROWS_PER_BATCH + 1];
-        let (envelope, rejected) = assemble_v2_envelope(vec![v2_batch(rows)], NOW);
+        let (envelope, rejected) = assemble_v2_envelope(vec![v2_batch(rows)], NOW, CLIENT_VERSION);
         assert!(envelope.is_none());
         assert_eq!(rejected.len(), 1);
         assert!(!rejected[0].deferred);
@@ -1500,7 +1508,7 @@ mod tests {
 
     #[test]
     fn client_attribution_matches_the_server_client_schema() {
-        let client = client_attribution();
+        let client = client_attribution(CLIENT_VERSION);
         assert_eq!(client.name, "basebuild-app");
         assert!((1..=32).contains(&client.version.len()));
         assert!(client
@@ -1515,10 +1523,18 @@ mod tests {
 
     #[test]
     fn envelope_carries_client_attribution_on_the_wire() {
-        let (envelope, _) = assemble_envelope(vec![batch(vec![safe_row()])], NOW);
+        let (envelope, _) = assemble_envelope(vec![batch(vec![safe_row()])], NOW, CLIENT_VERSION);
         let wire = serde_json::to_value(envelope.unwrap()).unwrap();
         assert_eq!(wire["client"]["name"], "basebuild-app");
-        assert_eq!(wire["client"]["version"], env!("CARGO_PKG_VERSION"));
+        assert_eq!(wire["client"]["version"], CLIENT_VERSION);
+    }
+
+    #[test]
+    fn v2_envelope_carries_the_passed_client_version() {
+        let (envelope, _) =
+            assemble_v2_envelope(vec![v2_batch(vec![request_span()])], NOW, CLIENT_VERSION);
+        let wire = serde_json::to_value(envelope.unwrap()).unwrap();
+        assert_eq!(wire["client"]["version"], CLIENT_VERSION);
     }
 
     #[test]
