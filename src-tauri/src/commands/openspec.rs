@@ -133,20 +133,30 @@ pub fn openspec_runtime_status(
     Ok(OpenSpecRuntimeService::status(project_path.as_deref()))
 }
 
-/// Install OpenSpec (stub until a distribution source is configured).
-/// No network call; returns an actionable error.
+/// Install OpenSpec from npm. Runs on a blocking thread and streams progress
+/// events. The frontend must confirm with the user before calling this.
 #[tauri::command]
-pub fn openspec_runtime_install(
+pub async fn openspec_runtime_install(
+    app: AppHandle,
     project_path: Option<String>,
 ) -> Result<OpenSpecRuntimeStatus, String> {
-    OpenSpecRuntimeService::install(project_path.as_deref())
+    tauri::async_runtime::spawn_blocking(move || {
+        OpenSpecRuntimeService::install(&app, project_path.as_deref())
+    })
+    .await
+    .map_err(|e| format!("OpenSpec install task failed: {e}"))?
 }
 
-/// Update OpenSpec (stub until a distribution source is configured).
-/// No network call; returns an actionable error.
+/// Update OpenSpec from npm. Runs on a blocking thread and streams progress
+/// events. The frontend must confirm with the user before calling this.
 #[tauri::command]
-pub fn openspec_runtime_update(
+pub async fn openspec_runtime_update(
+    app: AppHandle,
     project_path: Option<String>,
 ) -> Result<OpenSpecRuntimeStatus, String> {
-    OpenSpecRuntimeService::update(project_path.as_deref())
+    tauri::async_runtime::spawn_blocking(move || {
+        OpenSpecRuntimeService::update(&app, project_path.as_deref())
+    })
+    .await
+    .map_err(|e| format!("OpenSpec update task failed: {e}"))?
 }

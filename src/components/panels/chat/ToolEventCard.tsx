@@ -3,6 +3,7 @@ import type { NativeToolEvent } from "../../../lib/native-chat";
 import type { Idea } from "../../../lib/ideas";
 import { IdeaBatchPreview, parseIdeaBatch } from "../IdeaReviewWorkbench";
 import { formatElapsed } from "./chatFormat";
+import { SubagentTaskCard } from "./SubagentTaskCard";
 import { t } from "../../../i18n";
 import { formatDateTime } from "../../../i18n/format";
 
@@ -78,6 +79,10 @@ export function ToolEventCard({
         onOpen={() => onOpenIdeaBatch?.(event.id)}
       />
     );
+  }
+
+  if (event.kind === "task") {
+    return <SubagentTaskCard event={event} />;
   }
 
   // Extract key fields from parsed args depending on tool kind.

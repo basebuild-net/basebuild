@@ -8,8 +8,11 @@ changes. Changes live in `openspec/changes/<change-name>/`.
 OpenSpec is a first-class planning engine. Its runtime health is managed from
 **Settings → OpenSpec**, which detects the `openspec` executable, reports
 version/path/schema, validates project readiness (`openspec/` directory), and
-provides install/update affordances (stubs until a distribution source is
-configured). Plans that use `engine: openspec` are gated: if the runtime is
+provides install and update actions. Install appears when no `openspec`
+executable is found; Update appears when one is. Both run
+`npm install -g @fission-ai/openspec@latest` (npm must be on PATH) after a
+confirm dialog, stream npm output into the tab, and report `installing` while
+the run is active. Plans that use `engine: openspec` are gated: if the runtime is
 `missing` or `error`, the PlanPanel and PlanningInspector show a setup-required
 card linking to Settings → OpenSpec and block promotion/launch.
 

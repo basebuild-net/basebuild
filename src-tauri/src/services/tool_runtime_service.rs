@@ -587,6 +587,38 @@ pub fn registry() -> Vec<ToolDef> {
         },
         ToolDef {
             schema: ToolSchema {
+                name: "task".to_string(),
+                description: "Delegate independent, self-contained work to subagents that run concurrently and report back. Use it for investigation across several areas or for separable edits that touch different files. Each entry starts a fresh agent with the same tools that sees only its assignment, not this chat, so every assignment must carry the facts it needs. Subagents cannot ask the user questions; their approval requests appear on the task card. The result lists each subagent's final report in order.".to_string(),
+                parameters: json!({
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "tasks": {
+                            "type": "array",
+                            "minItems": 1,
+                            "maxItems": 8,
+                            "description": "Independent assignments. They run at the same time, so no entry may depend on another entry's output.",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "properties": {
+                                    "name": { "type": "string", "minLength": 1, "maxLength": 60, "description": "Short label shown on the task card." },
+                                    "assignment": { "type": "string", "minLength": 1, "maxLength": 8000, "description": "Complete, self-contained instructions: goal, relevant paths, constraints, and the form the final report should take." }
+                                },
+                                "required": ["name", "assignment"]
+                            }
+                        }
+                    },
+                    "required": ["tasks"]
+                }),
+            },
+            // Intercepted by the agent loop, which runs each entry as a child
+            // chat session. This fallback is never called directly.
+            kind: ToolKind::ReadOnly,
+            execute: task_fallback,
+        },
+        ToolDef {
+            schema: ToolSchema {
                 name: "web_fetch".to_string(),
                 description: "Fetch a public web page and return its readable text. Only http and https URLs to public hosts are allowed; localhost and private network addresses are refused. HTML is converted to plain text and the response is size-capped.".to_string(),
                 parameters: json!({
@@ -1740,6 +1772,15 @@ fn ask_user_fallback(_workspace_root: &Path, _args: &Value) -> ToolResult {
 fn todo_write_fallback(_workspace_root: &Path, _args: &Value) -> ToolResult {
     ToolResult::failure(
         "todo_write must be intercepted by the agent loop. This fallback should never be called."
+            .to_string(),
+    )
+}
+
+/// `task` is intercepted by the agent loop, which runs each entry as a child
+/// chat session; this fallback never runs.
+fn task_fallback(_workspace_root: &Path, _args: &Value) -> ToolResult {
+    ToolResult::failure(
+        "task must be intercepted by the agent loop. This fallback should never be called."
             .to_string(),
     )
 }

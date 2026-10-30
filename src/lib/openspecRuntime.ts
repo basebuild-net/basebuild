@@ -1,3 +1,4 @@
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 
 export type OpenSpecRuntimeStatus = {
@@ -7,6 +8,15 @@ export type OpenSpecRuntimeStatus = {
   schema: string | null;
   projectReady: boolean;
   message: string | null;
+};
+
+export type OpenSpecRuntimeAction = "install" | "update";
+
+/** One progress step from the backend. `phase` is started, output, or finished. */
+export type OpenSpecRuntimeProgress = {
+  action: OpenSpecRuntimeAction;
+  phase: "started" | "output" | "finished";
+  message: string;
 };
 
 export async function openspecRuntimeStatus(
@@ -30,5 +40,14 @@ export async function openspecRuntimeUpdate(
 ): Promise<OpenSpecRuntimeStatus> {
   return invoke<OpenSpecRuntimeStatus>("openspec_runtime_update", {
     projectPath,
+  });
+}
+
+/** Subscribe to install/update progress events. Returns the unlisten function. */
+export async function listenOpenSpecRuntimeProgress(
+  handler: (progress: OpenSpecRuntimeProgress) => void,
+): Promise<UnlistenFn> {
+  return listen<OpenSpecRuntimeProgress>("openspec://runtime-progress", (event) => {
+    handler(event.payload);
   });
 }

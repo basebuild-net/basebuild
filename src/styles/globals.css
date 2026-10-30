@@ -1926,6 +1926,21 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .tool-card-approval-detail { margin-bottom: 4px; }
 .tool-card-approval-label { font-size: 9px; font-weight: 600; text-transform: uppercase; color: var(--bb-muted); }
 .tool-card-approval-args { font-family: var(--bb-mono); font-size: 10px; white-space: pre-wrap; word-break: break-word; margin: 2px 0 0; color: var(--bb-text); max-height: 150px; overflow-y: auto; }
+.subagent-task-toggle { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; background: none; border: 0; padding: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.tool-card-summary-inline { flex: 1; min-width: 0; font-size: 10px; color: var(--bb-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subagent-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.subagent-row { border-left: 2px solid var(--bb-border); padding: 2px 0 2px 8px; font-size: 11px; }
+.subagent-row.subagent-completed { border-left-color: var(--bb-success); }
+.subagent-row.subagent-failed, .subagent-row.subagent-cancelled { border-left-color: var(--bb-danger); }
+.subagent-row.subagent-awaiting_approval { border-left-color: var(--bb-warning); }
+.subagent-row-head { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.subagent-index { font-family: var(--bb-mono); font-size: 10px; color: var(--bb-muted); }
+.subagent-name { min-width: 0; font-weight: 600; color: var(--bb-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subagent-activity { margin-top: 2px; font-family: var(--bb-mono); font-size: 10px; color: var(--bb-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subagent-approval { padding: 4px 0 0; }
+.subagent-approval-call { font-family: var(--bb-mono); font-size: 10px; white-space: pre-wrap; word-break: break-word; max-width: 100%; }
+.subagent-report { margin-top: 2px; }
+.subagent-report summary { cursor: pointer; font-size: 10px; color: var(--bb-muted); }
 .tool-card-arg-value { font-family: var(--bb-mono); font-size: 10px; color: var(--bb-info); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tool-card-arg-detail { margin-bottom: 4px; display: flex; gap: 4px; align-items: baseline; }
 .tool-card-arg-label { font-size: 9px; font-weight: 600; text-transform: uppercase; color: var(--bb-muted); flex-shrink: 0; }
@@ -3254,6 +3269,7 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .update-raw-error summary { cursor: pointer; user-select: none; }
 .update-raw-error pre { margin-top: 4px; white-space: pre-wrap; word-break: break-word; color: var(--bb-muted); }
 .update-version-grid { display: flex; gap: 12px; margin-bottom: 8px; }
+.openspec-progress-log { margin: 4px 0 0; padding: 6px 8px; max-height: 160px; overflow-y: auto; background: var(--bb-surface); border: 1px solid var(--bb-border); font-family: var(--bb-mono); font-size: 11px; white-space: pre-wrap; word-break: break-word; }
 .update-version-cell {
   flex: 1; padding: 6px 8px;
   border: 1px solid var(--bb-border); background: var(--bb-surface);
