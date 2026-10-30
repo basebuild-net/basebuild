@@ -279,6 +279,22 @@ A compact, ~100px-tall block pinned to the top-right of the chat surface. It
 The block is collapsible; when folded it shows just the branch name and a
 health dot. It floats above the transcript and never pushes chat content.
 
+### First run and get started
+
+- **First run** is one sheet (`FirstRunModal`): language, theme, Windows
+  sign-in (only where supported, on by default), and opt-in anonymous usage
+  sharing (off by default). Skip and Get started are the only actions. Provider,
+  project, and terminal setup stay in Settings and the get-started home.
+- **Get started home** (`GetStartedHome`) fills the center when no project is
+  open or the open project has no surfaces. Three step cards: connect a model
+  provider, open a project folder, start a first chat. Progress reads
+  "N of 3 done". The chat step stays disabled until a project is open. The
+  panel grid is hidden while the home shows.
+- **Usage banner** (`UsageSharingBanner`) is one compact 32px row. It appears
+  only after first run completes and only when usage sharing needs consent.
+- **Status bar** is hidden unless there is a warning or error. It then shows the
+  latest message and opens the log panel on click.
+
 ### Workspace surfaces
 
 The center workspace is a split tree of independent surfaces, not tabs. Each

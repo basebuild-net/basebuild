@@ -75,7 +75,7 @@ test.describe("chat steering: talk to the agent while it works", () => {
     // The local coordinator streams without an agent loop, so the composer
     // must not promise steering it cannot deliver.
     await expect(page.getByTitle(STEER_SEND_TITLE)).toHaveCount(0);
-    await expect(page.getByTitle(/Chat input/).first()).toHaveAttribute("placeholder", /Type a message/);
+    await expect(page.getByTitle(/Chat input/).first()).toHaveAttribute("placeholder", /Ask anything/);
   });
 
   test("with no run in flight the composer sends normally", async ({ page }) => {
@@ -85,7 +85,7 @@ test.describe("chat steering: talk to the agent while it works", () => {
 
     const input = page.getByTitle(/Chat input/).first();
     await input.waitFor({ state: "visible", timeout: 10_000 });
-    await expect(input).toHaveAttribute("placeholder", /Type a message/);
+    await expect(input).toHaveAttribute("placeholder", /Ask anything/);
     await expect(page.getByTitle("Send message")).toBeVisible();
 
     await sendMessage(page, "hello");

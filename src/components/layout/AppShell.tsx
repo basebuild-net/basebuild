@@ -55,6 +55,7 @@ import { panelGridToWorkspaceState, surfaceIdToPanelId } from "../../lib/workspa
 import { buildDisplayTitles } from "./ActivitySidebar";
 import { FirstRunModal } from "./FirstRunModal";
 import { UsageSharingBanner } from "./UsageSharingBanner";
+import { GetStartedHome } from "./GetStartedHome";
 import { useFirstRun } from "../../state/first-run";
 import { getLastGrounding } from "../../state/grounding";
 import { createTerminal } from "../../lib/terminal";
@@ -159,7 +160,7 @@ export function AppShell({ updates }: AppShellProps) {
   const [plansModalTab, setPlansModalTab] = useState<PlanningTab>("plans");
   const [schematicModalOpen, setSchematicModalOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsInitialTab, setSettingsInitialTab] = useState<"analytics" | undefined>(undefined);
+  const [settingsInitialTab, setSettingsInitialTab] = useState<"analytics" | "providers" | undefined>(undefined);
   const [logPanelOpen, setLogPanelOpen] = useState(false);
   const [debugPanelOpen, setDebugPanelOpen] = useState(false);
   const [testRunModalOpen, setTestRunModalOpen] = useState(false);
@@ -1728,6 +1729,15 @@ export function AppShell({ updates }: AppShellProps) {
     () => panelGridToWorkspaceState(panelGridState, activeProjectPath ?? ""),
     [panelGridState, activeProjectPath],
   );
+  const surfaceCounts = useMemo(() => {
+    const surfaces = Object.values(gridWorkspaceState.activeSurfaces);
+    return {
+      total: surfaces.length,
+      chats: surfaces.filter((surface) => surface.kind === "chat" || surface.kind === "omp-chat").length,
+    };
+  }, [gridWorkspaceState]);
+  const showGetStarted =
+    !projectRestoreLoading && !projectRestoreError && (!activeProjectPath || surfaceCounts.total === 0);
   // The persisted panel grid is authoritative whenever it contains visible,
   // active hidden, or history panels. A v2-only workspace restore remains as
   // the compatibility fallback for older snapshots and focused tests.
@@ -2126,8 +2136,8 @@ export function AppShell({ updates }: AppShellProps) {
     <PanelStatusProvider>
     <div className="app-container app-container-chat-first">
       {restorePhase !== "ready" ? <WorkspaceSplash phase={restorePhase} /> : null}
-      <div className="window-taskbar" role="banner">
-        <span className="window-taskbar-title" title={t("appShell.basebuild")}>{t("appShell.basebuild")}</span>
+      <div className="window-taskbar" role="banner" data-tauri-drag-region>
+        <span className="window-taskbar-title" title={t("appShell.basebuild")} data-tauri-drag-region>{t("appShell.basebuild")}</span>
         <div className="window-taskbar-right">
           <TaskbarNotifications onNavigate={handleNotificationNavigate} appToasts={appToasts} onDismissAppToast={dismissAppToast} />
           <BackgroundAgents
@@ -2140,12 +2150,14 @@ export function AppShell({ updates }: AppShellProps) {
           <WindowControls />
         </div>
 </div>
-      <UsageSharingBanner
-        onOpenPrivacy={() => {
-          setSettingsInitialTab("analytics");
-          setSettingsOpen(true);
-        }}
-      />
+      {firstRun.completed ? (
+        <UsageSharingBanner
+          onOpenPrivacy={() => {
+            setSettingsInitialTab("analytics");
+            setSettingsOpen(true);
+          }}
+        />
+      ) : null}
       <main
         className="app-shell app-shell-chat-first"
         data-sidebar={sidebarCollapsed ? "collapsed" : "expanded"}
@@ -2280,13 +2292,20 @@ export function AppShell({ updates }: AppShellProps) {
             </div>
           ) : null}
           <div className="workspace-scroll workspace-scroll-chat-first">
-            {!activeProjectPath ? (
-              <div className="empty-state">
-                <TerminalSquare size={32} className="text-muted" />
-                <h3>{t("appShell.noProjectOpen")}</h3>
-                <p>{t("appShell.openAFolderToStart")}</p>
-                <button className="btn btn-primary" type="button" title={sidebar.pickerInFlight ? t("appShell.openingFolderPicker") : t("appShell.openAProjectFolder")} onClick={handleOpenFolder} disabled={sidebar.pickerInFlight}>{t("appShell.openProject")}</button>
-              </div>
+            {showGetStarted ? (
+              <GetStartedHome
+                refreshKey={settingsOpen ? 1 : 0}
+                projectCount={sidebar.projects.length}
+                hasProjectOpen={Boolean(activeProjectPath)}
+                chatCount={surfaceCounts.chats}
+                pickerInFlight={sidebar.pickerInFlight}
+                onOpenProviderSettings={() => {
+                  setSettingsInitialTab("providers");
+                  setSettingsOpen(true);
+                }}
+                onOpenFolder={handleOpenFolder}
+                onNewChat={() => handleCreateTypedPanel("chat")}
+              />
             ) : null}
             {activeProjectPath && projectRestoreError ? (
               <div className="project-restore-error" role="alert">
@@ -2303,6 +2322,7 @@ export function AppShell({ updates }: AppShellProps) {
             ) : null}
             {activeProjectPath && !projectRestoreError && !projectRestoreLoading ? (
               <>
+                {!showGetStarted ? (
                 <PanelGrid
                   state={gridWorkspaceState}
                   renderSurface={renderSurface}
@@ -2319,6 +2339,7 @@ export function AppShell({ updates }: AppShellProps) {
                   onAddChat={() => handleCreateTypedPanel("chat")}
                   displayTitles={sidebarDisplayTitles}
                 />
+                ) : null}
                 {historyDrawerOpen ? (
                   <Suspense fallback={<ModalLoading />}>
                     <HistoryDrawer

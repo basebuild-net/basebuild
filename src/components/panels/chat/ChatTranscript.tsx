@@ -238,11 +238,13 @@ export function ChatTranscript({
                 if (ev.kind === "assistant" && !ev.content.trim()) continue;
                 rendered.push(
                   <div key={ev.id} className={`chat-message chat-message-${ev.kind}`} aria-label={t((ev.kind === "user" ? "chatTranscript.text.you" : ev.kind === "assistant" ? "chatTranscript.text.assistant" : "chatTranscript.text.system"), { value2: ev.content.slice(0, 100) })}>
-                    <span className="chat-message-role">
-                      {ev.kind === "user" ? t("chatTranscript.you") : ev.kind === "assistant" ? resolveAssistantLabel(catalog, selectedModel, ev.modelId ?? modelId, ev.providerId) : t("chatTranscript.system")}
-                      {isOfflineTurn ? <span className="chat-offline-tag" title={t("chatTranscript.noExternalModelWasContacted")}>{t("chatTranscript.offline")}</span> : null}
-                      {timeStr ? <span className="chat-message-time" title={fullDate ?? ""}>{timeStr}</span> : null}
-                    </span>
+                    {ev.kind === "user" ? null : (
+                      <span className="chat-message-role">
+                        {ev.kind === "assistant" ? resolveAssistantLabel(catalog, selectedModel, ev.modelId ?? modelId, ev.providerId) : t("chatTranscript.system")}
+                        {isOfflineTurn ? <span className="chat-offline-tag" title={t("chatTranscript.noExternalModelWasContacted")}>{t("chatTranscript.offline")}</span> : null}
+                        {timeStr ? <span className="chat-message-time" title={fullDate ?? ""}>{timeStr}</span> : null}
+                      </span>
+                    )}
                     {ev.kind === "assistant"
                       ? <MarkdownView text={ev.content} className="chat-message-content" />
                       : ev.kind === "user"
@@ -250,6 +252,7 @@ export function ChatTranscript({
                         : <pre className="chat-message-content">{ev.content}</pre>}
                     {ev.kind === "user" || ev.kind === "assistant" ? (
                       <div className="chat-message-actions">
+                        {ev.kind === "user" && timeStr ? <span className="chat-message-time" title={fullDate ?? ""}>{timeStr}</span> : null}
                         <button
                           type="button"
                           className="btn btn-ghost btn-icon-sm chat-message-action-copy"
@@ -301,9 +304,11 @@ export function ChatTranscript({
               const key = `legacy-${index}`;
               return (
                 <div key={key} className={`chat-message chat-message-${msg.role}`}>
-                  <span className="chat-message-role">
-                    {msg.role === "user" ? t("chatTranscript.you") : msg.role === "assistant" ? resolveAssistantLabel(catalog, selectedModel, modelId, providerId) : t("chatTranscript.system")}
-                  </span>
+                  {msg.role !== "user" ? (
+                    <span className="chat-message-role">
+                      {msg.role === "assistant" ? resolveAssistantLabel(catalog, selectedModel, modelId, providerId) : t("chatTranscript.system")}
+                    </span>
+                  ) : null}
                   {msg.role === "user"
                     ? <UserMessageContent content={msg.content} onViewPayload={(name, payload) => setCommandPayloadModal({ name, content: payload })} />
                     : <pre className="chat-message-content">{msg.content}</pre>}

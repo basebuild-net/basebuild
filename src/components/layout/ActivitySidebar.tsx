@@ -642,7 +642,7 @@ export function ActivitySidebar({
     <aside className="project-chat-sidebar" aria-label={t("activitySidebar.activitySidebar")}>
       <div className="sidebar-top-actions">
         <button className="btn btn-ghost btn-sm" type="button" title={t("activitySidebar.addChatWindow")} onClick={onCreateChat} disabled={!activeProjectPath}>
-          <Plus size={12} /> {t("activitySidebar.addChatWindow")}
+          <Plus size={12} /> {t("activitySidebar.newChat")}
         </button>
         <button className="btn-icon" type="button" title={pickerInFlight ? t("activitySidebar.openingFolderPicker") : t("activitySidebar.addProjectFolder")} onClick={onOpenFolder} disabled={pickerInFlight}>
           <FolderPlus size={14} />

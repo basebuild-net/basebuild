@@ -5,7 +5,6 @@ export const panelsChatEn = {
   "chatMessageParts.expandModelThinkingTrace": "Expand model thinking trace",
   "chatTranscript.loadingConversation": "Loading conversation…",
   "chatTranscript.loadingConversationHistory": "Loading conversation history",
-  "chatTranscript.you": "You",
   "chatTranscript.system": "System",
   "chatTranscript.offline": "Offline",
   "chatTranscript.noExternalModelWasContacted": "No external model was contacted",

@@ -7,6 +7,7 @@ import { FinalTouchesTab } from "./FinalTouchesTab";
 import { OpenSpecSettingsTab } from "./OpenSpecSettingsTab";
 import { PlanningTab } from "./PlanningTab";
 import { OptionList } from "./OptionList";
+import { startupCopy } from "./startup-copy";
 import { RuntimeDefaultsFields } from "./RuntimeDefaultsFields";
 import { listRequirements, type RequirementStatus } from "../../lib/requirements";
 import { appVersion } from "../../lib/app";
@@ -572,7 +573,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                 )}
 
                 <div className="settings-section-header settings-section-spacer">
-                  <h3>{t("settingsModal.windowsStartup")}</h3>
+                  <h3>{t(startupCopy.settingsSection)}</h3>
                 </div>
                 {startupLoading ? (
                   <LoadingBlock label={t("settingsModal.loadingStartupStatus")} compact />
@@ -583,13 +584,13 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                         <label className="row gap-sm">
                           <input
                             type="checkbox"
-                            title={t("settingsModal.launchBasebuildAtWindowsSign")}
+                            title={t(startupCopy.settingsTitle)}
                             checked={startupStatus.desired}
                             disabled={startupToggling}
                             onChange={(e) => void toggleStartup(e.target.checked)}
                           />
                           <span className="text-sm">
-                            {t("settingsModal.launchAtWindowsSignIn")}
+                            {t(startupCopy.settingsLabel)}
                           </span>
                         </label>
                         <p className="text-muted text-sm">

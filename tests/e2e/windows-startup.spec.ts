@@ -1,6 +1,11 @@
 import { expect, test } from "@playwright/test";
 
+const WINDOWS_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
+const MACOS_USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko)";
+
 test.describe("Windows startup settings", () => {
+  test.use({ userAgent: WINDOWS_USER_AGENT });
+
   test("first-run setup shows launch-at-sign-in default on", async ({ page }) => {
     await page.addInitScript(() => {
       localStorage.removeItem("basebuild:first-run-complete");
@@ -13,22 +18,13 @@ test.describe("Windows startup settings", () => {
     await expect(modal).toBeVisible({ timeout: 10_000 });
 
     // Theme is the first decision and dark mode is presented first.
-    const themeButtons = modal.locator(".theme-picker-card");
+    const themeButtons = modal.locator(".first-run-theme");
     await expect(themeButtons).toHaveCount(2);
     await expect(themeButtons.first()).toContainText("Dark");
     await page.getByTitle("Use dark mode").click();
 
-    // Click "Get started" to advance past welcome
-    await page.getByTitle("Start setup").click();
-
-    // Wait for adapter step and advance through it
-    await page.getByTitle("Continue to terminal setup").click();
-
-    // Wait for terminal step and advance to startup step
-    await page.getByTitle("Continue to Windows startup setup").click();
-
-    // The startup step should show the launch-at-sign-in checkbox, checked by default
-    const checkbox = page.getByTitle("Launch Basebuild at Windows sign-in (minimized to tray)");
+    // Launch-at-sign-in lives on the same welcome sheet, checked by default.
+    const checkbox = page.getByTitle("Launch at Windows sign-in");
     await expect(checkbox).toBeVisible({ timeout: 10_000 });
     await expect(checkbox).toBeChecked();
   });
@@ -55,11 +51,7 @@ test.describe("Windows startup settings", () => {
     await page.reload();
 
     await page.getByTitle("Use dark mode").click();
-    await page.getByTitle("Start setup").click();
-    await page.getByTitle("Continue to terminal setup").click();
-    await page.getByTitle("Continue to Windows startup setup").click();
-    await page.getByTitle("Continue to privacy setup").click();
-    await page.getByTitle("Finish setup").click();
+    await page.getByTitle("Get started").click();
 
     const modal = page.locator(".modal-first-run");
     await expect(modal).not.toBeVisible({ timeout: 10_000 });
@@ -127,5 +119,36 @@ test.describe("Windows startup settings", () => {
     await expect(page.getByText("Windows Startup")).toBeVisible({ timeout: 10_000 });
     const checkbox = page.getByTitle("Launch Basebuild at Windows sign-in (minimized to tray)");
     await expect(checkbox).toBeVisible();
+  });
+});
+
+test.describe("macOS login item copy", () => {
+  test.use({ userAgent: MACOS_USER_AGENT });
+
+  test("first-run sheet offers open-at-login with menu bar wording", async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.removeItem("basebuild:first-run-complete");
+    });
+
+    await page.goto("/");
+
+    const modal = page.locator(".modal-first-run");
+    await expect(modal).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTitle("Open Basebuild at login")).toBeChecked();
+    await expect(page.getByText("Starts in the background with a menu bar icon")).toBeVisible();
+    await expect(modal).not.toContainText("Windows");
+  });
+
+  test("settings shows the macOS startup section", async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem("basebuild:first-run-complete", "true");
+    });
+
+    await page.goto("/");
+    await page.getByTitle("Open Settings").click();
+
+    await expect(page.getByRole("heading", { name: "Startup", exact: true })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTitle("Open Basebuild at login")).toBeVisible();
+    await expect(page.getByText("Windows Startup")).toHaveCount(0);
   });
 });

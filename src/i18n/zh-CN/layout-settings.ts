@@ -273,5 +273,4 @@ export const layoutSettingsZhCN = {
   "localePicker.traditionalChinese": "繁体中文",
   "localePicker.traditionalChineseTitle": "使用繁体中文",
   "firstRunModal.chooseYourLanguage": "选择语言",
-  "firstRunModal.languageHint": "之后可以在设置中更改。",
 } as const;
