@@ -13,6 +13,7 @@
     "check:i18n": "node scripts/check-i18n.mjs",
     "check:release-config": "node scripts/check-release-config.mjs",
     "test:release-manifest": "node --test scripts/generate-updater-manifest.test.mjs",
+    "test:catalog": "node --test scripts/update-model-catalog.test.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

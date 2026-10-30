@@ -51,6 +51,9 @@ jobs:
 
       - name: Updater manifest tests
         run: npm run test:release-manifest
+
+      - name: Catalog decoder tests
+        run: npm run test:catalog
   check-rust:
     runs-on: ubuntu-latest
     steps:

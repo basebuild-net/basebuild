@@ -42,6 +42,11 @@ jobs:
         with:
           node-version: 22
 
+      - name: Catalog decoder tests
+        run: node --test scripts/update-model-catalog.test.mjs
+
+      # The script decodes OhMyPi's compact encoding and refuses to write a
+      # catalog that is not the provider -> model map model_catalog.rs parses.
       - name: Refresh bundled catalog
         run: node scripts/update-model-catalog.mjs
 
