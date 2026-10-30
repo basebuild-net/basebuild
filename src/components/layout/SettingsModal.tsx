@@ -123,7 +123,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
   const [permissionsLoading, setPermissionsLoading] = useState(true);
 
   // Approval gateway state
-  const [approvalMode, setApprovalModeState] = useState<ApprovalMode>("auto");
+  const [approvalMode, setApprovalModeState] = useState<ApprovalMode>("balanced");
   const [approvalRules, setApprovalRules] = useState<ApprovalRule[]>([]);
   const [auditTrail, setAuditTrail] = useState<AuditEntry[]>([]);
   // Cleared once, by the first approval fetch — later refreshes keep the rows.
@@ -865,8 +865,8 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                       </div>
                       <p className="text-muted text-sm">
                         {approvalMode === "safe" && "Every tool call prompts for approval. Most secure, most interruptions."}
-                        {approvalMode === "balanced" && "Read-only tools auto-allow; mutating tools prompt."}
-                        {approvalMode === "auto" && "All tools auto-allow within workspace scoping. Fastest; the default."}
+                        {approvalMode === "balanced" && "Read-only tools auto-allow; mutating tools prompt. The default."}
+                        {approvalMode === "auto" && "All tools auto-allow within workspace scoping, except tools blocked by a deny rule. Fastest."}
                       </p>
                     </>
                   )}

@@ -34,13 +34,9 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
         const [p, d, c, s] = await Promise.all([listRuntimeProfiles(), getRuntimeDefaults(), getAnalyticsConsent(), startupGetStatus().catch(() => null)]);
         setProfiles(p);
         setDefaults(d);
-        // A fresh install presents aggregate usage sharing preselected, but
-        // this is only local checkbox state. No permission is persisted and
-        // no upload gate opens until the user presses Finish. A prior explicit
-        // choice (including off) is preserved when setup is re-entered.
-        setConsent(c.consentedAt === null
-          ? { ...c, uploadEnabled: true }
-          : c);
+        // Usage sharing is opt-in: the checkbox starts from the stored choice,
+        // which is off on a fresh install. Nothing is persisted until Finish.
+        setConsent(c);
         setStartupStatus(s);
       } catch {
         // ignore
@@ -232,9 +228,10 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
             <>
               <h3>Help improve Basebuild</h3>
               <p className="text-muted text-sm">
-                Anonymous aggregate usage sharing is preselected. We send model, provider, token counts,
-                cost, and timing — never your name, prompts, source code, paths, or secrets.
-                Nothing is saved or uploaded until you finish setup. Change this anytime in Settings → Privacy.
+                Optionally share anonymous aggregate usage to power the community plan comparisons on
+                basebuild.net. We send model, provider, token counts, cost, and timing, never your name,
+                prompts, source code, paths, or secrets. Off unless you tick the box. Change this anytime in
+                Settings, Privacy.
               </p>
               <label className="row gap-sm">
                 <input

@@ -134,3 +134,39 @@ fn gateway_deny_feeds_back() {
     assert_eq!(decision.decision, PermissionDecision::Deny);
     assert!(!decision.requires_prompt);
 }
+
+#[test]
+fn gateway_auto_mode_honors_persistent_deny() {
+    use basebuild_app_lib::models::permission::ApprovalRule;
+    let _guard = lock_db();
+    let project = "/test/auto-deny";
+    SettingsService::set_approval_mode(project, ApprovalMode::Auto).unwrap();
+    let rule = ApprovalRule {
+        id: "test-auto-deny".to_string(),
+        project_path: project.to_string(),
+        tool_name: "run_command".to_string(),
+        command_prefix: Some("git push".to_string()),
+        decision: PermissionDecision::Deny,
+        created_at: 0,
+    };
+    SettingsService::add_approval_rule(&rule).unwrap();
+    let denied =
+        SettingsService::resolve_tool_call(project, "run_command", Some("git push origin"), &[]);
+    assert_eq!(denied.decision, PermissionDecision::Deny);
+    assert!(!denied.requires_prompt);
+    // Commands outside the rule's prefix still follow the Auto default.
+    let allowed = SettingsService::resolve_tool_call(project, "run_command", Some("ls"), &[]);
+    assert_eq!(allowed.decision, PermissionDecision::Allow);
+    SettingsService::remove_approval_rule("test-auto-deny").unwrap();
+}
+
+#[test]
+fn gateway_unset_mode_prompts_before_mutating_tools() {
+    let _guard = lock_db();
+    let project = "/test/never-configured";
+    let read = SettingsService::resolve_tool_call(project, "read_file", None, &[]);
+    assert_eq!(read.decision, PermissionDecision::Allow);
+    let write = SettingsService::resolve_tool_call(project, "write_file", None, &[]);
+    assert_eq!(write.decision, PermissionDecision::Ask);
+    assert!(write.requires_prompt);
+}
