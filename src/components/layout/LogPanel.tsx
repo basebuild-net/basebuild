@@ -3,6 +3,8 @@ import { useEscapeKey } from "../../lib/useEscapeKey";
 import { Copy, Trash2, X } from "lucide-react";
 import { useLogs, type LogEntry, type LogLevel } from "../../state/log";
 import { ModalPortal } from "../ModalPortal";
+import { t } from "../../i18n";
+import { formatDateTime } from "../../i18n/format";
 
 const levelBadge: Record<LogLevel, string> = {
   debug: "badge badge-debug",
@@ -31,13 +33,13 @@ export function LogPanel({ open, onClose }: LogPanelProps) {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal modal-log" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>Warnings & Errors</h2>
+          <h2>{t("logPanel.warningsErrors")}</h2>
           <div className="row gap-sm">
             <button
               className="btn-icon"
               type="button"
-              title="Copy all to clipboard"
-              aria-label="Copy all to clipboard"
+              title={t("logPanel.copyAllToClipboard")}
+              aria-label={t("logPanel.copyAllToClipboard")}
               onClick={() => void copyAll(logs, () => {
                 addLog("info", "Log copied to clipboard");
                 setCopied(true);
@@ -46,15 +48,15 @@ export function LogPanel({ open, onClose }: LogPanelProps) {
             >
               <Copy size={14} />
             </button>
-            <button className="btn-icon" type="button" title="Clear log" aria-label="Clear log" onClick={clear}>
+            <button className="btn-icon" type="button" title={t("logPanel.clearLog")} aria-label={t("logPanel.clearLog")} onClick={clear}>
               <Trash2 size={14} />
             </button>
-            <button className="btn-icon" type="button" title="Close" aria-label="Close" onClick={onClose}>
+            <button className="btn-icon" type="button" title={t("logPanel.close")} aria-label={t("logPanel.close")} onClick={onClose}>
               <X size={14} />
             </button>
           </div>
         </div>
-        {copied ? <div className="log-copy-toast text-sm text-ok">Copied to clipboard</div> : null}
+        {copied ? <div className="log-copy-toast text-sm text-ok">{t("logPanel.copiedToClipboard")}</div> : null}
         <div className="log-filter">
           {(["all", "error", "warn", "info", "debug"] as const).map((f) => (
             <button
@@ -69,7 +71,7 @@ export function LogPanel({ open, onClose }: LogPanelProps) {
         </div>
         <div className="log-list">
           {filtered.length === 0 ? (
-            <p className="text-muted text-sm pad">No log entries.</p>
+            <p className="text-muted text-sm pad">{t("logPanel.noLogEntries")}</p>
           ) : (
             filtered.map((entry) => <LogRow key={entry.id} entry={entry} />)
           )}
@@ -95,14 +97,14 @@ function formatLogs(logs: LogEntry[]): string {
 }
 
 async function copyAll(logs: LogEntry[], onDone: () => void): Promise<void> {
-  const text = logs.length === 0 ? "No warnings or errors." : formatLogs(logs);
+  const text = logs.length === 0 ? t("logPanel.noWarningsOrErrors") : formatLogs(logs);
   await navigator.clipboard.writeText(text);
   onDone();
 }
 
 function LogRow({ entry }: { entry: LogEntry }) {
   const [expanded, setExpanded] = useState(false);
-  const time = new Date(entry.timestamp).toLocaleTimeString();
+  const time = formatDateTime(new Date(entry.timestamp), { timeStyle: "medium" });
   return (
     <div
       className={`log-row ${entry.level}`}

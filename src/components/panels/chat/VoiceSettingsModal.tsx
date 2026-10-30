@@ -12,6 +12,7 @@ import {
   type DownloadedToolModel,
 } from "../../../lib/toolCatalog";
 import type { SttEngine, VoiceMode, VoiceProfile } from "../../../lib/voice";
+import { t } from "../../../i18n";
 
 /**
  * Voice preferences, kept deliberately separate from the composer's model
@@ -19,51 +20,51 @@ import type { SttEngine, VoiceMode, VoiceProfile } from "../../../lib/voice";
  * fast conversational one, typed work often wants the slow careful one.
  */
 
-const ENGINE_OPTIONS: { id: SttEngine; label: string; title: string }[] = [
+const ENGINE_OPTIONS = (): { id: SttEngine; label: string; title: string }[] => [
   {
     id: "openai_whisper",
-    label: "OpenAI",
-    title: "Send captured audio to OpenAI for transcription. Needs an OpenAI API key and bills per minute.",
+    label: t("voiceSettingsModal.openai"),
+    title: t("voiceSettingsModal.sendCapturedAudioToOpenaiFor"),
   },
   {
     id: "windows_native",
-    label: "Windows",
-    title: "Windows built-in speech recognition. Offline and free, not wired up yet.",
+    label: t("voiceSettingsModal.windows"),
+    title: t("voiceSettingsModal.windowsBuiltInSpeechRecognitionOffline"),
   },
   {
     id: "local_whisper",
-    label: "Local Whisper",
-    title: "Whisper running on this machine. Offline and free, not wired up yet.",
+    label: t("voiceSettingsModal.localWhisper"),
+    title: t("voiceSettingsModal.whisperRunningOnThisMachineOffline"),
   },
   {
     id: "parakeet_unified_en",
-    label: "Parakeet EN",
-    title: "Offline English transcription via transcribe.cpp. Download a model below, then speak.",
+    label: t("voiceSettingsModal.parakeetEn"),
+    title: t("voiceSettingsModal.offlineEnglishTranscriptionViaTranscribeCpp"),
   },
   {
     id: "parakeet_tdt_v3",
-    label: "Parakeet V3",
-    title: "Offline multilingual transcription (25 European languages) via transcribe.cpp. Download a model below.",
+    label: t("voiceSettingsModal.parakeetV3"),
+    title: t("voiceSettingsModal.offlineMultilingualTranscription25EuropeanLanguages"),
   },
 ];
 
-const MODE_OPTIONS: { id: VoiceMode; label: string; title: string }[] = [
+const MODE_OPTIONS = (): { id: VoiceMode; label: string; title: string }[] => [
   {
     id: "call",
-    label: "Call",
-    title: "Continuous listening. Speak whenever you like, including over the agent to interrupt it.",
+    label: t("voiceSettingsModal.call"),
+    title: t("voiceSettingsModal.continuousListeningSpeakWheneverYouLike"),
   },
   {
     id: "push_to_talk",
-    label: "Push to talk",
-    title: "The microphone is open only while you hold the button.",
+    label: t("voiceSettingsModal.pushToTalk"),
+    title: t("voiceSettingsModal.theMicrophoneIsOpenOnlyWhile"),
   },
 ];
 
-const EFFORT_OPTIONS = [
-  { id: "low", label: "Low", title: "Fastest replies, least deliberation" },
-  { id: "medium", label: "Medium", title: "Balanced speed and reasoning" },
-  { id: "high", label: "High", title: "Slowest and most thorough" },
+const EFFORT_OPTIONS = () => [
+  { id: "low", label: t("voiceSettingsModal.low"), title: t("voiceSettingsModal.fastestRepliesLeastDeliberation") },
+  { id: "medium", label: t("voiceSettingsModal.medium"), title: t("voiceSettingsModal.balancedSpeedAndReasoning") },
+  { id: "high", label: t("voiceSettingsModal.high"), title: t("voiceSettingsModal.slowestAndMostThorough") },
 ];
 
 export type VoiceSettingsModalProps = {
@@ -162,34 +163,32 @@ export function VoiceSettingsModal({ profile, catalog, onSave, onClose }: VoiceS
         <div
           className="modal voice-settings-modal"
           role="dialog"
-          aria-label="Voice settings"
+          aria-label={t("voiceSettingsModal.voiceSettings")}
           onClick={(event) => event.stopPropagation()}
         >
           <header className="modal-header">
-            <h2>Voice</h2>
-            <button className="btn btn-sm" type="button" title="Close voice settings" onClick={onClose}>
-              Close
+            <h2>{t("voiceSettingsModal.voice")}</h2>
+            <button className="btn btn-sm" type="button" title={t("voiceSettingsModal.closeVoiceSettings")} onClick={onClose}>
+              {t("voiceSettingsModal.close")}
             </button>
           </header>
 
           <div className="modal-body voice-settings-body">
             <p className="text-muted text-sm">
-              You can hold a voice conversation with any text model: speech is transcribed on the way in and read
-              aloud on the way out. Models badged Realtime in the catalog are a different thing, a single duplex
-              audio stream, and every vendor bills those through an API key rather than a subscription.
+              {t("voiceSettingsModal.youCanHoldAVoice")}
             </p>
 
             <section className="voice-settings-section">
-              <h3 title="Which model answers when you speak">Conversation</h3>
+              <h3 title={t("voiceSettingsModal.whichModelAnswersWhenYou")}>{t("voiceSettingsModal.conversation")}</h3>
               <label className="voice-settings-field">
-                <span>Provider</span>
+                <span>{t("voiceSettingsModal.provider")}</span>
                 <select
                   className="input"
                   value={draft.providerId}
-                  title="Provider used for voice conversations, independent of the composer's selection"
+                  title={t("voiceSettingsModal.providerUsedForVoiceConversations")}
                   onChange={(event) => patch({ providerId: event.target.value, modelId: "" })}
                 >
-                  <option value="">Use the composer's current provider</option>
+                  <option value="">{t("voiceSettingsModal.useTheComposerSCurrent")}</option>
                   {providers.map((provider) => (
                     <option key={provider.id} value={provider.id}>
                       {provider.label}
@@ -198,54 +197,54 @@ export function VoiceSettingsModal({ profile, catalog, onSave, onClose }: VoiceS
                 </select>
               </label>
               <label className="voice-settings-field">
-                <span>Model</span>
+                <span>{t("voiceSettingsModal.model")}</span>
                 <select
                   className="input"
                   value={draft.modelId}
                   disabled={!draft.providerId}
-                  title="Model used for voice conversations"
+                  title={t("voiceSettingsModal.modelUsedForVoiceConversations")}
                   onChange={(event) => patch({ modelId: event.target.value })}
                 >
-                  <option value="">Use the composer's current model</option>
+                  <option value="">{t("voiceSettingsModal.useTheComposerSCurrent2")}</option>
                   {models.map((model) => (
                     <option key={model.id} value={model.id}>
                       {model.label}
-                      {model.voice?.level === "realtime" ? " (realtime)" : ""}
+                      {model.voice?.level === "realtime" ? t("voiceSettingsModal.realtime") : ""}
                     </option>
                   ))}
                 </select>
               </label>
               <div className="voice-settings-field">
-                <span>Effort</span>
+                <span>{t("voiceSettingsModal.effort")}</span>
                 <OptionList
                   compact
-                  label="Voice reasoning effort"
+                  label={t("voiceSettingsModal.voiceReasoningEffort")}
                   value={draft.effortLevel}
-                  options={EFFORT_OPTIONS}
+                  options={EFFORT_OPTIONS()}
                   onChange={(id) => patch({ effortLevel: id })}
                 />
               </div>
             </section>
 
             <section className="voice-settings-section">
-              <h3 title="How your speech becomes text">Speech to text</h3>
+              <h3 title={t("voiceSettingsModal.howYourSpeechBecomesText")}>{t("voiceSettingsModal.speechToText")}</h3>
               <div className="voice-settings-field">
-                <span>Engine</span>
+                <span>{t("voiceSettingsModal.engine")}</span>
                 <OptionList
                   compact
-                  label="Speech to text engine"
+                  label={t("voiceSettingsModal.speechToTextEngine")}
                   value={draft.sttEngine}
-                  options={ENGINE_OPTIONS}
+                  options={ENGINE_OPTIONS()}
                   onChange={(id) => patch({ sttEngine: id })}
                 />
               </div>
               {draft.sttEngine === "openai_whisper" ? (
                 <label className="voice-settings-field">
-                  <span>Transcription model</span>
+                  <span>{t("voiceSettingsModal.transcriptionModel")}</span>
                   <input
                     className="input"
                     value={draft.sttModelId}
-                    title="OpenAI transcription model, for example whisper-1 or gpt-4o-transcribe"
+                    title={t("voiceSettingsModal.openAITranscriptionModelForExample")}
                     onChange={(event) => patch({ sttModelId: event.target.value })}
                   />
                 </label>
@@ -255,11 +254,7 @@ export function VoiceSettingsModal({ profile, catalog, onSave, onClose }: VoiceS
                     {selectedTool.description}
                   </p>
                   <p className="text-muted text-sm">
-                    Languages: {selectedTool.languages.length > 0
-                      ? selectedTool.languages.join(", ")
-                      : "language-agnostic"}
-                    {" \u00b7 "}
-                    License: {selectedTool.license}
+                    {t("voiceSettingsModal.languagesAndLicense", { languages: selectedTool.languages.length > 0 ? selectedTool.languages.join(", ") : t("voiceSettingsModal.languageAgnostic"), license: selectedTool.license })}
                   </p>
                   {downloadError ? (
                     <p className="voice-stt-error text-sm">
@@ -280,11 +275,11 @@ export function VoiceSettingsModal({ profile, catalog, onSave, onClose }: VoiceS
                         <div
                           key={file.quant}
                           className="voice-stt-file-row"
-                          title={`${file.quant} \u00b7 ${(file.sizeBytes / 1024 / 1024).toFixed(0)} MB`}
+                          title={t("voiceSettingsModal.mB", { quant: file.quant, value: (file.sizeBytes / 1024 / 1024).toFixed(0) })}
                         >
                           <span className="voice-stt-file-label">
                             {file.quant}
-                            {isDefault ? " (recommended)" : ""}
+                            {isDefault ? t("voiceSettingsModal.recommended") : ""}
                             {" \u00b7 "}
                             {(file.sizeBytes / 1024 / 1024).toFixed(0)} MB
                           </span>
@@ -292,21 +287,21 @@ export function VoiceSettingsModal({ profile, catalog, onSave, onClose }: VoiceS
                             <button
                               className="btn btn-sm"
                               type="button"
-                              title="Remove the downloaded model file from disk"
+                              title={t("voiceSettingsModal.removeTheDownloadedModelFile")}
                               disabled={isDeleting}
                               onClick={() => handleDelete(selectedTool.id, file.quant)}
                             >
-                              {isDeleting ? "Removing..." : "Remove"}
+                              {isDeleting ? t("voiceSettingsModal.removing") : t("voiceSettingsModal.remove")}
                             </button>
                           ) : (
                             <button
                               className="btn btn-sm btn-primary"
                               type="button"
-                              title={`Download ${file.quant} (${(file.sizeBytes / 1024 / 1024).toFixed(0)} MB)`}
+                              title={t("voiceSettingsModal.downloadMB", { quant: file.quant, value: (file.sizeBytes / 1024 / 1024).toFixed(0) })}
                               disabled={isDownloading}
                               onClick={() => handleDownload(selectedTool.id, file.quant)}
                             >
-                              {isDownloading ? "Downloading..." : "Download"}
+                              {isDownloading ? t("voiceSettingsModal.downloading") : t("voiceSettingsModal.download")}
                             </button>
                           )}
                         </div>
@@ -314,36 +309,34 @@ export function VoiceSettingsModal({ profile, catalog, onSave, onClose }: VoiceS
                     })}
                   </div>
                   <p className="text-muted text-sm">
-                    Requires transcribe-cli in PATH. Install from
-                    {" "}
-                    <a
+                    {t("voiceSettingsModal.requiresTranscribeCliInPath")}<a
                       href="https://github.com/handy-computer/transcribe.cpp"
                       target="_blank"
                       rel="noreferrer"
                     >
-                      transcribe.cpp
+                      {t("voiceSettingsModal.transcribeCpp")}
                     </a>
                     .
                   </p>
                 </div>
               ) : (
                 <p className="text-muted text-sm">
-                  This engine is not wired up yet. Dictation will report that clearly rather than sending silence.
+                  {t("voiceSettingsModal.thisEngineIsNotWired")}
                 </p>
               )}
             </section>
 
             <section className="voice-settings-section">
-              <h3 title="Whether replies are read back to you">Reply readback</h3>
+              <h3 title={t("voiceSettingsModal.whetherRepliesAreReadBack")}>{t("voiceSettingsModal.replyReadback")}</h3>
               <div className="voice-settings-field">
-                <span>Read replies aloud</span>
+                <span>{t("voiceSettingsModal.readRepliesAloud")}</span>
                 <OptionList
                   compact
-                  label="Read replies aloud"
+                  label={t("voiceSettingsModal.readRepliesAloud")}
                   value={draft.ttsEnabled ? "on" : "off"}
                   options={[
-                    { id: "on", label: "On", title: "Speak each reply using an installed system voice" },
-                    { id: "off", label: "Off", title: "Show replies on screen only" },
+                    { id: "on", label: t("voiceSettingsModal.on"), title: t("voiceSettingsModal.speakEachReplyUsingAnInstalled") },
+                    { id: "off", label: t("voiceSettingsModal.off"), title: t("voiceSettingsModal.showRepliesOnScreenOnly") },
                   ]}
                   onChange={(id) => patch({ ttsEnabled: id === "on" })}
                 />
@@ -351,14 +344,14 @@ export function VoiceSettingsModal({ profile, catalog, onSave, onClose }: VoiceS
               {draft.ttsEnabled ? (
                 <>
                   <label className="voice-settings-field">
-                    <span>Voice</span>
+                    <span>{t("voiceSettingsModal.voice")}</span>
                     <select
                       className="input"
                       value={draft.ttsVoice ?? ""}
-                      title="System voice used to read replies aloud"
+                      title={t("voiceSettingsModal.systemVoiceUsedToRead")}
                       onChange={(event) => patch({ ttsVoice: event.target.value || null })}
                     >
-                      <option value="">System default</option>
+                      <option value="">{t("voiceSettingsModal.systemDefault")}</option>
                       {voices.map((voice) => (
                         <option key={voice.name} value={voice.name}>
                           {voice.name}
@@ -367,7 +360,7 @@ export function VoiceSettingsModal({ profile, catalog, onSave, onClose }: VoiceS
                     </select>
                   </label>
                   <label className="voice-settings-field">
-                    <span>Rate</span>
+                    <span>{t("voiceSettingsModal.rate")}</span>
                     <input
                       className="input"
                       type="range"
@@ -375,7 +368,7 @@ export function VoiceSettingsModal({ profile, catalog, onSave, onClose }: VoiceS
                       max={2}
                       step={0.1}
                       value={draft.ttsRate}
-                      title={`Speech rate: ${draft.ttsRate.toFixed(1)}x`}
+                      title={t("voiceSettingsModal.speechRateX", { value: draft.ttsRate.toFixed(1) })}
                       onChange={(event) => patch({ ttsRate: Number(event.target.value) })}
                     />
                   </label>
@@ -384,19 +377,19 @@ export function VoiceSettingsModal({ profile, catalog, onSave, onClose }: VoiceS
             </section>
 
             <section className="voice-settings-section">
-              <h3 title="How the call decides you have finished speaking">Call behaviour</h3>
+              <h3 title={t("voiceSettingsModal.howTheCallDecidesYou")}>{t("voiceSettingsModal.callBehaviour")}</h3>
               <div className="voice-settings-field">
-                <span>Default mode</span>
+                <span>{t("voiceSettingsModal.defaultMode")}</span>
                 <OptionList
                   compact
-                  label="Default voice mode"
+                  label={t("voiceSettingsModal.defaultVoiceMode")}
                   value={draft.mode}
-                  options={MODE_OPTIONS}
+                  options={MODE_OPTIONS()}
                   onChange={(id) => patch({ mode: id })}
                 />
               </div>
               <label className="voice-settings-field">
-                <span>End of speech silence</span>
+                <span>{t("voiceSettingsModal.endOfSpeechSilence")}</span>
                 <input
                   className="input"
                   type="number"
@@ -404,19 +397,19 @@ export function VoiceSettingsModal({ profile, catalog, onSave, onClose }: VoiceS
                   max={4000}
                   step={100}
                   value={draft.vadSilenceMs}
-                  title="How long you must pause before the utterance is sent, in milliseconds"
+                  title={t("voiceSettingsModal.howLongYouMustPause")}
                   onChange={(event) => patch({ vadSilenceMs: Number(event.target.value) })}
                 />
               </label>
               <div className="voice-settings-field">
-                <span>Interrupt by speaking</span>
+                <span>{t("voiceSettingsModal.interruptBySpeaking")}</span>
                 <OptionList
                   compact
-                  label="Interrupt by speaking"
+                  label={t("voiceSettingsModal.interruptBySpeaking")}
                   value={draft.bargeIn ? "on" : "off"}
                   options={[
-                    { id: "on", label: "On", title: "Talking over a reply stops it and steers the running turn" },
-                    { id: "off", label: "Off", title: "Let each reply finish before listening again" },
+                    { id: "on", label: t("voiceSettingsModal.on"), title: t("voiceSettingsModal.talkingOverAReplyStopsIt") },
+                    { id: "off", label: t("voiceSettingsModal.off"), title: t("voiceSettingsModal.letEachReplyFinishBeforeListening") },
                   ]}
                   onChange={(id) => patch({ bargeIn: id === "on" })}
                 />
@@ -425,16 +418,16 @@ export function VoiceSettingsModal({ profile, catalog, onSave, onClose }: VoiceS
           </div>
 
           <footer className="modal-footer">
-            <button className="btn" type="button" title="Discard changes and close" onClick={onClose}>
-              Cancel
+            <button className="btn" type="button" title={t("voiceSettingsModal.discardChangesAndClose")} onClick={onClose}>
+              {t("voiceSettingsModal.cancel")}
             </button>
             <button
               className="btn btn-primary"
               type="button"
-              title="Save these voice preferences"
+              title={t("voiceSettingsModal.saveTheseVoicePreferences")}
               onClick={() => onSave(draft)}
             >
-              Save
+              {t("voiceSettingsModal.save")}
             </button>
           </footer>
         </div>

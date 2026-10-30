@@ -8,6 +8,7 @@ import {
 } from "../../lib/usageSync";
 import { getAnalyticsConsent, setAnalyticsConsent } from "../../lib/analytics";
 import { useLogs } from "../../state/log";
+import { t } from "../../i18n";
 
 const DISMISS_KEY = "basebuild:usage-consent-dismissed";
 
@@ -103,10 +104,9 @@ export function UsageSharingBanner({ onOpenPrivacy }: UsageSharingBannerProps) {
     <div className="usage-consent-banner" role="status">
       <BarChart3 size={14} className="usage-consent-banner-icon" />
       <div className="usage-consent-banner-body">
-        <strong className="text-sm">Usage isn't being sent yet</strong>
+        <strong className="text-sm">{t("usageSharingBanner.usageIsnTBeingSent")}</strong>
         <span className="text-muted text-sm">
-          Share anonymous aggregate usage (model, hours, request counts) to help build
-          community plan estimates. Never your name, prompts, code, paths, or secrets.
+          {t("usageSharingBanner.shareAnonymousAggregateUsageModel")}
         </span>
       </div>
       <div className="usage-consent-banner-actions">
@@ -115,23 +115,23 @@ export function UsageSharingBanner({ onOpenPrivacy }: UsageSharingBannerProps) {
           type="button"
           disabled={busy}
           onClick={() => void enable()}
-          title="Turn on anonymous aggregate usage sharing"
+          title={t("usageSharingBanner.turnOnAnonymousAggregateUsage")}
         >
-          {busy ? "Turning on..." : "Turn on usage sharing"}
+          {busy ? t("usageSharingBanner.turningOn") : t("usageSharingBanner.turnOnUsageSharing")}
         </button>
         <button
           className="btn btn-sm"
           type="button"
           onClick={openDetails}
-          title="Open Analytics settings to review exactly what is shared"
+          title={t("usageSharingBanner.openAnalyticsSettingsToReview")}
         >
-          What's shared
+          {t("usageSharingBanner.whatSShared")}
         </button>
         <button
           className="usage-consent-banner-close"
           type="button"
           onClick={dismiss}
-          title="Not now: hide this notice"
+          title={t("usageSharingBanner.notNowHideThisNotice")}
         >
           <X size={14} />
         </button>

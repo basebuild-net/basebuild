@@ -37,6 +37,7 @@ import {
 } from "../../lib/git";
 import { nativeChatModelDefault, nativeChatSend, nativeChatStart, nativeProviderCatalog } from "../../lib/native-chat";
 import { getRuntimeDefaults } from "../../lib/settings";
+import { t } from "../../i18n";
 
 // ponytail: cap staged diff; add chunking only when real commits need more context.
 const COMMIT_DIFF_LIMIT = 12_000;
@@ -191,7 +192,7 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
       const raw = await gitDiff(projectPath, file.path, file.staged);
       setDiffLines(parseDiff(raw));
     } catch (e) {
-      setDiffLines([{ type: "meta", content: `Error: ${e}` }]);
+      setDiffLines([{ type: "meta", content: t("sourcePanel.error", { e: String(e) }) }]);
     }
   }
 
@@ -209,7 +210,7 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
 
   async function discard(file: FileEntry) {
     if (!projectPath) return;
-    if (!confirm(`Discard changes to ${file.path}? This cannot be undone.`)) return;
+    if (!confirm(t("sourcePanel.discardChangesToThisCannotBe", { path: file.path }))) return;
     await gitDiscard(projectPath, file.path);
     if (selectedFile?.path === file.path) {
       setSelectedFile(null);
@@ -270,7 +271,7 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
       const effortLevel = modelDefault.effortLevel;
       const diffParts = await Promise.all(diffFiles.map(async (file) => {
         const diff = await gitDiff(projectPath, file.path, stagedFiles.length > 0);
-        return `### ${file.path}\n${diff || `${file.changeType} (no textual diff)`}`;
+        return `### ${file.path}\n${diff || `${file.changeType} (no textual diff)`}`; // i18n-exempt: diff text is sent to the commit model
       }));
 
       const fullDiff = diffParts.join("\n\n");
@@ -278,14 +279,14 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
         ? `${fullDiff.slice(0, COMMIT_DIFF_LIMIT)}\n\n[diff truncated]`
         : fullDiff;
       const prompt = [
-        "Write one concise git commit message for these changes.",
-        "Return only the commit message text. Do not include any explanation, reasoning, or preamble like 'Let me analyze' or 'Here is the message'. Start directly with the commit subject line. Use imperative mood. Keep the subject under 72 characters. Add a body only if it is truly needed.",
-        `Files:\n${diffFiles.map((file) => `- ${file.path} (${file.changeType})`).join("\n")}`,
-        `Diff:\n${visibleDiff}`,
+        "Write one concise git commit message for these changes." /* i18n-exempt: model prompt */,
+        t("sourcePanel.returnOnlyTheCommitMessageText"),
+        `Files:\n${diffFiles.map((file) => `- ${file.path} (${file.changeType})`).join("\n")}` /* i18n-exempt: model prompt */,
+        `Diff:\n${visibleDiff}` /* i18n-exempt: model prompt */,
       ].filter(Boolean).join("\n\n");
       const sessionId = commitChatSessionId ?? (await nativeChatStart({
         projectPath,
-        title: "Commit Message",
+        title: t("sourcePanel.commitMessage2"),
         providerId,
         modelId,
         effortLevel,
@@ -307,7 +308,7 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
 
       const message = cleanGeneratedCommitMessage(result.assistantMessage?.content ?? "");
       if (!message) {
-        setError("AI did not return a commit message.");
+        setError(t("sourcePanel.aiDidNotReturnACommit"));
         return;
       }
 
@@ -359,7 +360,7 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
   }
 
   if (!projectPath) {
-    return <p className="text-muted pad">Open a project to see source control.</p>;
+    return <p className="text-muted pad">{t("sourcePanel.openAProjectToSee")}</p>;
   }
 
   const stagedCount = status?.staged.length ?? 0;
@@ -386,18 +387,18 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
           ) : null}
           {status.branch.ahead > 0 || status.branch.behind > 0 ? (
             <span className="source-sync-status">
-              {status.branch.ahead > 0 ? <span className="source-ahead" title={`${status.branch.ahead} ahead`}>↑{status.branch.ahead}</span> : null}
-              {status.branch.behind > 0 ? <span className="source-behind" title={`${status.branch.behind} behind`}>↓{status.branch.behind}</span> : null}
+              {status.branch.ahead > 0 ? <span className="source-ahead" title={t("sourcePanel.ahead", { ahead: status.branch.ahead })}>↑{status.branch.ahead}</span> : null}
+              {status.branch.behind > 0 ? <span className="source-behind" title={t("sourcePanel.behind", { behind: status.branch.behind })}>↓{status.branch.behind}</span> : null}
             </span>
           ) : null}
           <div className="source-actions">
-            <button className="btn-icon btn-icon-sm" title="Fetch" onClick={() => void fetchRemote()} disabled={loading} type="button">
+            <button className="btn-icon btn-icon-sm" title={t("sourcePanel.fetch")} onClick={() => void fetchRemote()} disabled={loading} type="button">
               <RefreshCw size={13} className={loading ? "spin" : ""} />
             </button>
-            <button className="btn-icon btn-icon-sm" title="Pull" onClick={() => void pull()} disabled={loading} type="button">
+            <button className="btn-icon btn-icon-sm" title={t("sourcePanel.pull")} onClick={() => void pull()} disabled={loading} type="button">
               <ArrowDown size={13} />
             </button>
-            <button className="btn-icon btn-icon-sm" title="Push" onClick={() => void push()} disabled={loading} type="button">
+            <button className="btn-icon btn-icon-sm" title={t("sourcePanel.push")} onClick={() => void push()} disabled={loading} type="button">
               <ArrowUp size={13} />
             </button>
           </div>
@@ -416,7 +417,7 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
           onClick={() => setTab("changes")}
           type="button"
         >
-          Changes
+          {t("sourcePanel.changesTab")}
           {totalChanges > 0 ? <span className="source-tab-badge">{totalChanges}</span> : null}
         </button>
         <button
@@ -424,11 +425,11 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
           onClick={() => setTab("history")}
           type="button"
         >
-          History
+          {t("sourcePanel.history")}
         </button>
         <button
           className="btn-icon btn-icon-sm source-refresh"
-          title="Refresh"
+          title={t("sourcePanel.refresh")}
           onClick={() => void refresh()}
           disabled={loading}
           type="button"
@@ -445,8 +446,8 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
           <div className="source-commit-area">
             <textarea
               className="input source-commit-input"
-              title="Commit message"
-              placeholder="Message (Ctrl+Enter to commit)"
+              title={t("sourcePanel.commitMessage")}
+              placeholder={t("sourcePanel.messageCtrlEnterToCommit")}
               value={commitMessage}
               onChange={(e) => setCommitMessage(e.target.value)}
               onKeyDown={(e) => {
@@ -460,21 +461,21 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
             <div className="row-between">
               <button
                 className="btn btn-ghost btn-sm"
-                title="Generate commit message with AI"
+                title={t("sourcePanel.generateCommitMessageWithAi")}
                 disabled={totalChanges === 0 || generatingCommit}
                 onClick={() => void generateCommitMessage()}
                 type="button"
               >
-                <Sparkles size={12} /> {generatingCommit ? "Generating…" : "Generate commit"}
+                <Sparkles size={12} /> {generatingCommit ? t("sourcePanel.generating") : t("sourcePanel.generateCommit")}
               </button>
               <button
                 className="btn btn-primary source-commit-btn"
-                title="Commit (Ctrl+Enter)"
+                title={t("sourcePanel.commitCtrlEnter")}
                 disabled={!commitMessage.trim() || stagedCount === 0}
                 onClick={() => void commit()}
                 type="button"
               >
-                <Check size={13} /> Commit
+                <Check size={13} /> {t("sourcePanel.commit")}
               </button>
             </div>
           </div>
@@ -482,11 +483,11 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
           {/* Staged Changes - collapsible */}
           {stagedCount > 0 ? (
             <CollapsibleSection
-              label="Staged Changes"
+              label={t("sourcePanel.stagedChanges")}
               count={stagedCount}
               open={stagedOpen}
               onToggle={() => setStagedOpen((v) => !v)}
-              action={{ icon: Minus, title: "Unstage All", onClick: () => void unstageAll() }}
+              action={{ icon: Minus, title: t("sourcePanel.unstageAll"), onClick: () => void unstageAll() }}
             >
               {(status?.staged ?? []).map((file) => (
                 <FileRow
@@ -497,7 +498,7 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
                   onToggle={() => void unstage(file)}
                   onView={() => void viewDiff(file)}
                   actions={[
-                    { icon: Minus, title: "Unstage", onClick: () => void unstage(file) },
+                    { icon: Minus, title: t("sourcePanel.unstage2"), onClick: () => void unstage(file) },
                   ]}
                 />
               ))}
@@ -507,11 +508,11 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
           {/* Changes - collapsible */}
           {changesCount > 0 ? (
             <CollapsibleSection
-              label="Changes"
+              label={t("sourcePanel.changes")}
               count={changesCount}
               open={changesOpen}
               onToggle={() => setChangesOpen((v) => !v)}
-              action={{ icon: Plus, title: "Stage All", onClick: () => void stageAll() }}
+              action={{ icon: Plus, title: t("sourcePanel.stageAll"), onClick: () => void stageAll() }}
             >
               {(status?.unstaged ?? []).map((file) => (
                 <FileRow
@@ -522,8 +523,8 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
                   onToggle={() => void stage(file)}
                   onView={() => void viewDiff(file)}
                   actions={[
-                    { icon: Plus, title: "Stage", onClick: () => void stage(file) },
-                    { icon: RotateCcw, title: "Discard", onClick: () => void discard(file), danger: true },
+                    { icon: Plus, title: t("sourcePanel.stage2"), onClick: () => void stage(file) },
+                    { icon: RotateCcw, title: t("sourcePanel.discard"), onClick: () => void discard(file), danger: true },
                   ]}
                 />
               ))}
@@ -533,7 +534,7 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
           {/* Untracked - collapsible */}
           {untrackedCount > 0 ? (
             <CollapsibleSection
-              label="Untracked"
+              label={t("sourcePanel.untracked")}
               count={untrackedCount}
               open={untrackedOpen}
               onToggle={() => setUntrackedOpen((v) => !v)}
@@ -547,7 +548,7 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
                   onToggle={() => void stage(file)}
                   onView={() => void viewDiff(file)}
                   actions={[
-                    { icon: Plus, title: "Add", onClick: () => void stage(file) },
+                    { icon: Plus, title: t("sourcePanel.add"), onClick: () => void stage(file) },
                   ]}
                 />
               ))}
@@ -556,14 +557,14 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
 
           {/* Loading — must precede the empty state: `totalChanges === 0` is
               derived from a null `status` before the first fetch lands. */}
-          {initialLoad ? <SkeletonRows rows={4} label="Loading working tree changes…" /> : null}
+          {initialLoad ? <SkeletonRows rows={4} label={t("sourcePanel.loadingWorkingTreeChanges")} /> : null}
 
           {/* Empty state */}
           {!initialLoad && totalChanges === 0 && !error ? (
             <div className="source-empty">
               <Check size={20} className="text-muted" />
-              <p>No changes</p>
-              <p className="text-sm text-muted">Working tree is clean</p>
+              <p>{t("sourcePanel.noChanges")}</p>
+              <p className="text-sm text-muted">{t("sourcePanel.workingTreeIsClean")}</p>
             </div>
           ) : null}
 
@@ -574,7 +575,7 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
                 <span className="mono text-sm">{selectedFile.path}</span>
                 <button
                   className="btn-icon btn-icon-sm"
-                  title="Close diff"
+                  title={t("sourcePanel.closeDiff")}
                   onClick={() => { setSelectedFile(null); setDiffLines([]); }}
                   type="button"
                 >
@@ -600,11 +601,11 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
           ) : null}
         </div>
       ) : initialLoad ? (
-        <SkeletonRows rows={6} label="Loading commit history…" />
+        <SkeletonRows rows={6} label={t("sourcePanel.loadingCommitHistory")} />
       ) : commits.length === 0 ? (
         <div className="empty-state">
-          <h3>No commits yet</h3>
-          <p>This repository has no commit history. Stage files in the Changes tab and create your first commit.</p>
+          <h3>{t("sourcePanel.noCommitsYet")}</h3>
+          <p>{t("sourcePanel.thisRepositoryHasNoCommit")}</p>
         </div>
       ) : (
         <CommitGraph commits={commits} />
@@ -680,7 +681,7 @@ function FileRow({
     <div className={`source-file-row${isSelected ? " is-selected" : ""}`}>
       <label
         className="source-file-check"
-        title={checked ? "Unstage" : "Stage"}
+        title={checked ? t("sourcePanel.unstage") : t("sourcePanel.stage")}
         onClick={(e) => e.stopPropagation()}
         onDoubleClick={(e) => e.stopPropagation()}
       >

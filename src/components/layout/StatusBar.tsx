@@ -1,5 +1,6 @@
 import { AlertCircle, AlertTriangle, CheckCircle } from "lucide-react";
 import { useLogs } from "../../state/log";
+import { t } from "../../i18n";
 
 type StatusBarProps = {
   onClick: () => void;
@@ -24,9 +25,9 @@ export function StatusBar({ onClick }: StatusBarProps) {
 
   if (!lastEntry) {
     return (
-      <button className="status-bar" type="button" title="Open log panel" onClick={onClick}>
-        <span className="status-bar-message text-muted">No issues</span>
-        <span className="status-bar-count">{logs.length} events</span>
+      <button className="status-bar" type="button" title={t("statusBar.openLogPanel")} onClick={onClick}>
+        <span className="status-bar-message text-muted">{t("statusBar.noIssues")}</span>
+        <span className="status-bar-count">{t("statusBar.events", { count: logs.length })}</span>
       </button>
     );
   }
@@ -39,18 +40,18 @@ export function StatusBar({ onClick }: StatusBarProps) {
       className={`status-bar ${levelClass[status]}`}
       type="button"
       onClick={onClick}
-      title="Click to view all warnings and errors"
+      title={t("statusBar.clickToViewAllWarnings")}
     >
       <span className="status-bar-message">
         <Icon size={10} />
         {lastEntry.message}
       </span>
       <span className="status-bar-meta">
-        {hasErrors ? `${logs.filter((l) => l.level === "error").length} error(s)` : null}
+        {hasErrors ? t("statusBar.errorS", { valueCount: logs.filter((l) => l.level === "error").length }) : null}
         {hasErrors && hasWarnings ? " · " : null}
-        {hasWarnings ? `${logs.filter((l) => l.level === "warn").length} warning(s)` : null}
+        {hasWarnings ? t("statusBar.warningS", { valueCount: logs.filter((l) => l.level === "warn").length }) : null}
         {(hasErrors || hasWarnings) ? " · " : null}
-        {logs.length} events
+        {t("statusBar.events", { count: logs.length })}
       </span>
     </button>
   );

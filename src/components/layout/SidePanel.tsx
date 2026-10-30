@@ -7,6 +7,7 @@ import type { IdeaCategory } from "../../lib/ideas";
 import { PlanningInspector } from "./PlanningInspector";
 import { FilesPanel } from "../panels/FilesPanel";
 import { SourcePanel } from "../panels/SourcePanel";
+import { t } from "../../i18n";
 
 export type SideSectionId = "plans" | "files" | "source";
 
@@ -14,11 +15,11 @@ type SideSectionMeta = { id: SideSectionId; icon: LucideIcon; label: string };
 
 const DEFAULT_SECTIONS: SideSectionId[] = ["plans", "files", "source"];
 
-const sectionMeta: Record<SideSectionId, SideSectionMeta> = {
-  plans: { id: "plans", icon: LayoutList, label: "Plans" },
-  files: { id: "files", icon: FileText, label: "Files" },
-  source: { id: "source", icon: GitBranch, label: "Source" },
-};
+const sectionMeta = (): Record<SideSectionId, SideSectionMeta> => ({
+  plans: { id: "plans", icon: LayoutList, label: t("sidePanel.plans") },
+  files: { id: "files", icon: FileText, label: t("sidePanel.files") },
+  source: { id: "source", icon: GitBranch, label: t("sidePanel.source") },
+});
 
 type SidePanelProps = {
   projectPath: string | null;
@@ -51,7 +52,7 @@ function loadOrder(): SideSectionId[] {
   try {
     const raw = localStorage.getItem("bb:sideSections");
     const parsed: SideSectionId[] = raw ? JSON.parse(raw) : [];
-    const valid = parsed.filter((x) => x in sectionMeta);
+    const valid = parsed.filter((x) => x in sectionMeta());
     if (valid.length === 3 && new Set(valid).size === 3) return valid;
   } catch {
     // ignore
@@ -82,7 +83,7 @@ function SectionHeader({
   onDragEnd: () => void;
   actions?: React.ReactNode;
 }) {
-  const meta = sectionMeta[id];
+  const meta = sectionMeta()[id];
   const Icon = meta.icon;
   return (
     <div className="side-section-header">
@@ -91,7 +92,7 @@ function SectionHeader({
         draggable
         onDragStart={onDragStart}
         onDragEnd={onDragEnd}
-        title="Drag to reorder"
+        title={t("sidePanel.dragToReorder")}
       >
         <GripVertical size={12} />
       </span>
@@ -100,7 +101,7 @@ function SectionHeader({
         type="button"
         onClick={onToggle}
         aria-expanded={expanded}
-        title={`${expanded ? "Collapse" : "Expand"} ${meta.label}`}
+        title={t((expanded ? "sidePanel.text.collapse" : "sidePanel.text.expand"), { label: meta.label })}
       >
         <Icon size={12} />
         <span className="side-section-label">{meta.label}</span>
@@ -111,7 +112,7 @@ function SectionHeader({
         type="button"
         onClick={onToggle}
         aria-expanded={expanded}
-        title={`${expanded ? "Collapse" : "Expand"} ${meta.label}`}
+        title={t((expanded ? "sidePanel.text2.collapse" : "sidePanel.text2.expand"), { label: meta.label })}
       >
         <ChevronDown size={12} className={expanded ? "rotated" : ""} />
       </button>
@@ -203,12 +204,12 @@ export function SidePanel({
 
   if (collapsed) {
     return (
-      <aside className="side-panel side-panel-collapsed" aria-label="Side panel">
+      <aside className="side-panel side-panel-collapsed" aria-label={t("sidePanel.sidePanel")}>
         <button
           className="btn-icon"
           type="button"
-          title="Expand side panel"
-          aria-label="Expand side panel"
+          title={t("sidePanel.expandSidePanel")}
+          aria-label={t("sidePanel.expandSidePanel")}
           onClick={onToggleCollapse}
         >
           <ChevronLeft size={15} />
@@ -218,15 +219,15 @@ export function SidePanel({
   }
 
   return (
-    <aside className="side-panel side-panel-accordion" aria-label="Side panel">
+    <aside className="side-panel side-panel-accordion" aria-label={t("sidePanel.sidePanel")}>
       <div className="side-panel-header">
-        <span className="side-panel-title">Inspector</span>
+        <span className="side-panel-title">{t("sidePanel.inspector")}</span>
         <div className="side-panel-actions">
           <button
             className="btn-icon"
             type="button"
-            title="Expand all sections"
-            aria-label="Expand all sections"
+            title={t("sidePanel.expandAllSections")}
+            aria-label={t("sidePanel.expandAllSections")}
             onClick={() => setAll(true)}
           >
             +
@@ -234,8 +235,8 @@ export function SidePanel({
           <button
             className="btn-icon"
             type="button"
-            title="Collapse all sections"
-            aria-label="Collapse all sections"
+            title={t("sidePanel.collapseAllSections")}
+            aria-label={t("sidePanel.collapseAllSections")}
             onClick={() => setAll(false)}
           >
             −
@@ -243,8 +244,8 @@ export function SidePanel({
           <button
             className="btn-icon"
             type="button"
-            title="Collapse side panel"
-            aria-label="Collapse side panel"
+            title={t("sidePanel.collapseSidePanel")}
+            aria-label={t("sidePanel.collapseSidePanel")}
             onClick={onToggleCollapse}
           >
             <ChevronRight size={15} />

@@ -14,6 +14,7 @@ import type { IdeaCategory } from "../../lib/ideas";
 import type { NewPlan, Plan, PlanFocusContext } from "../../lib/plans";
 import type { PlansState } from "../../state/plans";
 import { useLogs } from "../../state/log";
+import { t } from "../../i18n";
 
 type ChatEnvironmentPanelProps = {
   projectPath: string | null;
@@ -41,15 +42,15 @@ type ChatEnvironmentPanelProps = {
 
 type FoldId = "source" | "files";
 
-const FOLDS: { id: FoldId; icon: LucideIcon; label: string }[] = [
-  { id: "source", icon: GitBranch, label: "Changes" },
-  { id: "files", icon: Folder, label: "Files" },
+const FOLDS = (): { id: FoldId; icon: LucideIcon; label: string }[] => [
+  { id: "source", icon: GitBranch, label: t("chatEnvironmentPanel.changes") },
+  { id: "files", icon: Folder, label: t("chatEnvironmentPanel.files") },
 ];
 
-const NEW_PANEL_OPTIONS: { type: "chat" | "terminal" | "omp" | "schematic"; icon: LucideIcon; label: string }[] = [
-  { type: "chat", icon: MessageSquare, label: "Chat" },
-  { type: "terminal", icon: TerminalSquare, label: "Terminal" },
-  { type: "omp", icon: Zap, label: "Oh My Pi Chat" },
+const NEW_PANEL_OPTIONS = (): { type: "chat" | "terminal" | "omp" | "schematic"; icon: LucideIcon; label: string }[] => [
+  { type: "chat", icon: MessageSquare, label: t("chatEnvironmentPanel.chat") },
+  { type: "terminal", icon: TerminalSquare, label: t("chatEnvironmentPanel.terminal") },
+  { type: "omp", icon: Zap, label: t("chatEnvironmentPanel.ohMyPiChat") },
 ];
 
 export function ChatEnvironmentPanel({
@@ -71,7 +72,7 @@ export function ChatEnvironmentPanel({
   const { addLog } = useLogs();
   // OMP is an optional enhancement: only offer the "Oh My Pi" panel when the
   // OMP CLI is actually installed. Native chat/terminal are always available.
-  const panelOptions = NEW_PANEL_OPTIONS.filter((o) => o.type !== "omp" || ompInstalled);
+  const panelOptions = NEW_PANEL_OPTIONS().filter((o) => o.type !== "omp" || ompInstalled);
 
   // Auto-open the Plans modal when the chat-side inspector button fires.
   const lastSignalRef = useState<{ value: number }>({ value: 0 })[0];
@@ -83,10 +84,10 @@ export function ChatEnvironmentPanel({
   if (!projectPath) return null;
 
   return (
-    <div className="chat-env-panel" aria-label="Environment info">
+    <div className="chat-env-panel" aria-label={t("chatEnvironmentPanel.environmentInfo")}>
       <div className="chat-env-header">
         <div className="chat-env-tabs">
-          {FOLDS.map(({ id, icon: Icon, label }) => (
+          {FOLDS().map(({ id, icon: Icon, label }) => (
             <button
               key={id}
               className="chat-env-tab chat-env-tab-icon"
@@ -105,7 +106,7 @@ export function ChatEnvironmentPanel({
             <button
               className="chat-env-tab chat-env-tab-add"
               type="button"
-              title="New panel"
+              title={t("chatEnvironmentPanel.newPanel")}
               aria-haspopup="menu"
               aria-expanded={menuOpen}
               onClick={() => setMenuOpen((v) => !v)}
@@ -119,7 +120,7 @@ export function ChatEnvironmentPanel({
               <div
                 className="chat-env-add-menu"
                 role="menu"
-                aria-label="New panel"
+                aria-label={t("chatEnvironmentPanel.newPanel")}
                 onMouseLeave={() => setMenuOpen(false)}
                 onKeyDown={(e) => {
                   if (e.key === "Escape") { setMenuOpen(false); }
@@ -130,7 +131,7 @@ export function ChatEnvironmentPanel({
                     key={type}
                     type="button"
                     role="menuitem"
-                    title={`New ${label} panel`}
+                    title={t("chatEnvironmentPanel.newPanel2", { label: label })}
                     autoFocus={index === 0}
                     onClick={() => {
                       addLog("debug", "New panel selected", `type=${type}; project=${projectPath}`);

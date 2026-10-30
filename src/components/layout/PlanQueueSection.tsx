@@ -19,6 +19,7 @@ import {
 } from "../../lib/planRuns";
 import { getLaunchProfile, type WorkspacePolicy } from "../../lib/planDependencies";
 import { SkeletonText } from "./Loading";
+import { t } from "../../i18n";
 
 type PlanQueueSectionProps = {
   sessionId: string | null;
@@ -81,7 +82,7 @@ export function PlanQueueSection({
         setWorkspacePolicy(saved.workspacePolicy === "sequential_primary" ? "sequential_primary" : "isolated_worktrees");
       })
       .catch((error) => {
-        onShowToast?.("Could not load queue profile", error instanceof Error ? error.message : String(error), "error");
+        onShowToast?.(t("planQueueSection.couldNotLoadQueueProfile"), error instanceof Error ? error.message : String(error), "error");
       })
       .finally(() => setProfileLoading(false));
   }, [projectPath, onShowToast]);
@@ -124,7 +125,7 @@ export function PlanQueueSection({
       await enqueuePlan({ sessionId, planId });
       await refreshQueue(sessionId);
     } catch (error) {
-      onShowToast?.("Could not enqueue plan", error instanceof Error ? error.message : String(error), "error");
+      onShowToast?.(t("planQueueSection.couldNotEnqueuePlan"), error instanceof Error ? error.message : String(error), "error");
     }
   }
 
@@ -133,7 +134,7 @@ export function PlanQueueSection({
       await removePlanRun(entryId);
       if (sessionId) await refreshQueue(sessionId);
     } catch (error) {
-      onShowToast?.("Could not remove queue entry", error instanceof Error ? error.message : String(error), "error");
+      onShowToast?.(t("planQueueSection.couldNotRemoveQueueEntry"), error instanceof Error ? error.message : String(error), "error");
     }
   }
 
@@ -141,9 +142,9 @@ export function PlanQueueSection({
     if (!sessionId) return;
     try {
       await startQueue({ sessionId, profile });
-      onShowToast?.("Queue started", `${profile.concurrency} concurrent worker${profile.concurrency === 1 ? "" : "s"}`, "success");
+      onShowToast?.(t("planQueueSection.queueStarted"), profile.concurrency === 1 ? t("planQueueSection.concurrentWorkersOne", { count: profile.concurrency }) : t("planQueueSection.concurrentWorkersOther", { count: profile.concurrency }), "success");
     } catch (error) {
-      onShowToast?.("Could not start queue", error instanceof Error ? error.message : String(error), "error");
+      onShowToast?.(t("planQueueSection.couldNotStartQueue"), error instanceof Error ? error.message : String(error), "error");
     }
   }
 
@@ -151,9 +152,9 @@ export function PlanQueueSection({
     if (!sessionId) return;
     try {
       await pauseQueue(sessionId);
-      onShowToast?.("Queue paused", "In-flight runs will finish; no new plans will start.", "success");
+      onShowToast?.(t("planQueueSection.queuePaused"), t("planQueueSection.inFlightRunsWillFinishNo"), "success");
     } catch (error) {
-      onShowToast?.("Could not pause queue", error instanceof Error ? error.message : String(error), "error");
+      onShowToast?.(t("planQueueSection.couldNotPauseQueue"), error instanceof Error ? error.message : String(error), "error");
     }
   }
 
@@ -162,7 +163,7 @@ export function PlanQueueSection({
       await cancelPlanRun(runId, cancelPlan);
       if (sessionId) await refreshRuns(sessionId);
     } catch (error) {
-      onShowToast?.("Could not cancel run", error instanceof Error ? error.message : String(error), "error");
+      onShowToast?.(t("planQueueSection.couldNotCancelRun"), error instanceof Error ? error.message : String(error), "error");
     }
   }
 
@@ -172,7 +173,7 @@ export function PlanQueueSection({
       await startOmpPlanRun(sessionId, planId);
       await refreshRuns(sessionId);
     } catch (error) {
-      onShowToast?.("Could not start OMP run", error instanceof Error ? error.message : String(error), "error");
+      onShowToast?.(t("planQueueSection.couldNotStartOmpRun"), error instanceof Error ? error.message : String(error), "error");
     }
   }
 
@@ -183,11 +184,11 @@ export function PlanQueueSection({
       } else if (run.runnerKind === "omp") {
         await startOmpPlanRun(run.sessionId, run.planId);
       } else {
-        throw new Error("The retained execution chat is unavailable. Assign the ready plan to a new chat.");
+        throw new Error(t("planQueueSection.theRetainedExecutionChatIsUnavailable"));
       }
       if (sessionId) await refreshRuns(sessionId);
     } catch (error) {
-      onShowToast?.("Could not resume plan", error instanceof Error ? error.message : String(error), "error");
+      onShowToast?.(t("planQueueSection.couldNotResumePlan"), error instanceof Error ? error.message : String(error), "error");
     }
   }
 
@@ -196,7 +197,7 @@ export function PlanQueueSection({
       await markPlanRunComplete(run.id);
       if (sessionId) await refreshRuns(sessionId);
     } catch (error) {
-      onShowToast?.("Could not complete review", error instanceof Error ? error.message : String(error), "error");
+      onShowToast?.(t("planQueueSection.couldNotCompleteReview"), error instanceof Error ? error.message : String(error), "error");
     }
   }
 
@@ -210,15 +211,15 @@ export function PlanQueueSection({
   return (
     <div className="plan-queue-section">
       <div className="plan-queue-header">
-        <span className="plan-queue-title">Run Queue</span>
-        <span className="plan-queue-count" title="Active runs">
+        <span className="plan-queue-title">{t("planQueueSection.runQueue")}</span>
+        <span className="plan-queue-count" title={t("planQueueSection.activeRuns")}>
           {activeRuns.length}
         </span>
       </div>
 
       {/* Profile selector */}
       <div className="plan-queue-profile">
-        <label className="plan-queue-concurrency" title="Requested parallel run count; capped at one when isolated worktrees are unavailable">
+        <label className="plan-queue-concurrency" title={t("planQueueSection.requestedParallelRunCountCapped")}>
           <span>×</span>
           <input
             type="number"
@@ -231,31 +232,31 @@ export function PlanQueueSection({
                 concurrency: Math.max(1, Math.min(4, Number(e.target.value) || 1)),
               }))
             }
-            title="Requested parallel run count"
+            title={t("planQueueSection.requestedParallelRunCount")}
           />
         </label>
         <div
           className="plan-queue-routing"
           title={
             profileLoading
-              ? "Loading the coding route for this project…"
-              : `Coding route: ${profile.providerId || "project default"} / ${profile.modelId || "project default"} · ${workspacePolicy === "isolated_worktrees" ? "isolated worktrees" : "primary worktree"}`
+              ? t("planQueueSection.loadingTheCodingRouteFor")
+              : t((workspacePolicy === "isolated_worktrees" ? "planQueueSection.codingRoute.isolatedWorktrees" : "planQueueSection.codingRoute.primaryWorktree"), { providerId: profile.providerId || t("planQueueSection.projectDefault"), modelId: profile.modelId || t("planQueueSection.projectDefault2") })
           }
         >
           <span>
             {profileLoading ? (
               <SkeletonText width={22} />
             ) : (
-              `${profile.providerId || "project default"} / ${profile.modelId || "model default"}`
+              t("planQueueSection.text", { providerId: profile.providerId || t("planQueueSection.projectDefault3"), modelId: profile.modelId || t("planQueueSection.modelDefault") })
             )}
           </span>
           <span>
             {profileLoading ? (
               <SkeletonText width={9} />
             ) : workspacePolicy === "isolated_worktrees" ? (
-              "worktrees"
+              t("planQueueSection.worktrees")
             ) : (
-              "primary"
+              t("planQueueSection.primary")
             )}
           </span>
         </div>
@@ -264,18 +265,18 @@ export function PlanQueueSection({
           type="button"
           onClick={handleStartQueue}
           disabled={!hasQueue || activeRuns.length > 0}
-          title={`Start queued plans with ${profile.providerId || "the project provider"} / ${profile.modelId || "the project model"}`}
+          title={t("planQueueSection.startQueuedPlansWith", { providerId: profile.providerId || t("planQueueSection.theProjectProvider"), modelId: profile.modelId || t("planQueueSection.theProjectModel") })}
         >
-          <Play size={12} /> Start
+          <Play size={12} /> {t("planQueueSection.start")}
         </button>
         <button
           className="btn btn-sm plan-queue-pause"
           type="button"
           onClick={handlePauseQueue}
           disabled={activeRuns.length === 0}
-          title="Pause the queue (in-flight runs continue)"
+          title={t("planQueueSection.pauseTheQueueInFlight")}
         >
-          <Pause size={12} /> Pause
+          <Pause size={12} /> {t("planQueueSection.pause")}
         </button>
       </div>
 
@@ -283,7 +284,7 @@ export function PlanQueueSection({
       {unqueuedReady.length > 0 ? (
         <div className="plan-queue-enqueue">
           <span className="plan-queue-enqueue-label text-muted text-xs">
-            Ready to queue:
+            {t("planQueueSection.readyToQueue")}
           </span>
           {unqueuedReady.map((plan) => (
             <button
@@ -291,7 +292,7 @@ export function PlanQueueSection({
               className="btn btn-sm plan-queue-enqueue-btn"
               type="button"
               onClick={() => handleEnqueue(plan.id)}
-              title={`Enqueue "${plan.title}" into the run queue`}
+              title={t("planQueueSection.enqueueIntoTheRunQueue", { title: plan.title })}
             >
               + {plan.title}
             </button>
@@ -314,7 +315,7 @@ export function PlanQueueSection({
                   {run ? (
                     <span
                       className={`plan-queue-run-status plan-queue-run-status-${run.status}`}
-                      title={`Run status: ${run.status}`}
+                      title={t("planQueueSection.runStatus", { status: run.status })}
                     >
                       {run.status === "running" ? (
                         <Loader2 size={11} className="spin" />
@@ -323,7 +324,7 @@ export function PlanQueueSection({
                     </span>
                   ) : (
                     <span className="plan-queue-run-status plan-queue-run-status-queued">
-                      queued
+                      {t("planQueueSection.queued")}
                     </span>
                   )}
                 </div>
@@ -333,7 +334,7 @@ export function PlanQueueSection({
                       className="btn-icon"
                       type="button"
                       onClick={() => onOpenChatSession(run.chatSessionId!)}
-                      title="Open the run's chat session"
+                      title={t("planQueueSection.openTheRunSChat")}
                     >
                       <Play size={12} />
                     </button>
@@ -343,7 +344,7 @@ export function PlanQueueSection({
                       className="btn-icon"
                       type="button"
                       onClick={() => handleStartOmp(plan.id)}
-                      title="Run with OMP (opens a terminal tab seeded with plan context)"
+                      title={t("planQueueSection.runWithOmpOpensA")}
                     >
                       <Play size={12} />
                     </button>
@@ -353,7 +354,7 @@ export function PlanQueueSection({
                       className="btn-icon"
                       type="button"
                       onClick={() => handleCancelRun(run.id, false)}
-                      title="Cancel this run (returns plan to ready)"
+                      title={t("planQueueSection.cancelThisRunReturnsPlan")}
                     >
                       <Square size={12} />
                     </button>
@@ -365,17 +366,17 @@ export function PlanQueueSection({
                         type="button"
                         disabled={!run.chatSessionId && run.runnerKind === "native"}
                         onClick={() => void handleResumeRun(run)}
-                        title={run.chatSessionId || run.runnerKind === "omp" ? "Resume the incomplete plan run" : "Cannot resume: the retained execution chat is unavailable; assign the ready plan to a new chat."}
+                        title={run.chatSessionId || run.runnerKind === "omp" ? t("planQueueSection.resumeTheIncompletePlanRun") : t("planQueueSection.cannotResumeTheRetainedExecution")}
                       >
-                        <Play size={10} /> Resume
+                        <Play size={10} /> {t("planQueueSection.resume")}
                       </button>
                       <button
                         className="btn btn-sm"
                         type="button"
                         onClick={() => void handleReviewRun(run)}
-                        title="Review retained artifacts and mark the run complete"
+                        title={t("planQueueSection.reviewRetainedArtifactsAndMark")}
                       >
-                        <ClipboardCheck size={10} /> Review
+                        <ClipboardCheck size={10} /> {t("planQueueSection.review")}
                       </button>
                     </>
                   ) : null}
@@ -385,9 +386,9 @@ export function PlanQueueSection({
                       type="button"
                       disabled={!run.chatSessionId && run.runnerKind === "native"}
                       onClick={() => void handleResumeRun(run)}
-                      title={run.chatSessionId || run.runnerKind === "omp" ? "Retry this failed plan run" : "Cannot retry: the retained execution chat is unavailable; assign the ready plan to a new chat."}
+                      title={run.chatSessionId || run.runnerKind === "omp" ? t("planQueueSection.retryThisFailedPlanRun") : t("planQueueSection.cannotRetryTheRetainedExecution")}
                     >
-                      <RotateCcw size={10} /> Retry
+                      <RotateCcw size={10} /> {t("planQueueSection.retry")}
                     </button>
                   ) : null}
                   {!run ? (
@@ -395,7 +396,7 @@ export function PlanQueueSection({
                       className="btn-icon"
                       type="button"
                       onClick={() => handleRemoveEntry(entry.id)}
-                      title="Remove from queue"
+                      title={t("planQueueSection.removeFromQueue")}
                     >
                       <X size={12} />
                     </button>
@@ -407,7 +408,7 @@ export function PlanQueueSection({
         </div>
       ) : (
         <p className="text-muted text-xs pad">
-          No queued plans. Enqueue a ready plan above.
+          {t("planQueueSection.noQueuedPlansEnqueueA")}
         </p>
       )}
     </div>

@@ -15,10 +15,11 @@
  * the wait instead of silence. */
 import { Loader2 } from "lucide-react";
 import { LogoPulse } from "./LogoPulse";
+import { t } from "../../i18n";
 
 /** Centred pulse + label. For a panel or section with no known result shape. */
 export function LoadingBlock({
-  label = "Loading…",
+  label = t("loading.loading4"),
   compact = false,
 }: {
   label?: string;
@@ -44,7 +45,7 @@ export function LoadingBlock({
  * real content replaces it. */
 export function SkeletonRows({
   rows = 3,
-  label = "Loading…",
+  label = t("loading.loading4"),
 }: {
   rows?: number;
   /** Announced to assistive tech; the rows themselves are decorative. */
@@ -68,7 +69,7 @@ export function SkeletonText({ width = 8 }: { width?: number }) {
       className="bb-skeleton bb-skeleton-inline"
       style={{ width: `${width}ch` }}
       role="status"
-      aria-label="Loading"
+      aria-label={t("loading.loading")}
     />
   );
 }
@@ -94,8 +95,8 @@ export function SkeletonControl({
     <span
       className="bb-skeleton-control"
       role="status"
-      aria-label={`Loading ${label}`}
-      title={`Loading ${label}…`}
+      aria-label={t("loading.loading2", { label: label })}
+      title={t("loading.loading3", { label: label })}
     >
       <Loader2 size={size} className="spin" aria-hidden="true" />
     </span>

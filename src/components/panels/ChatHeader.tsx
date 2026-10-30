@@ -18,6 +18,8 @@ import {
 import type { AgentMode } from "../../lib/sessions";
 import type { GitBranch as GitBranchInfo } from "../../lib/git";
 import { ActionMenu, type ActionMenuItem } from "../ActionMenu";
+import { t } from "../../i18n";
+import { formatNumber } from "../../i18n/format";
 /** Per-chat column header (`chat-header-context`).
  *
  * Renders above the conversation, never scrolls out of view. Every
@@ -29,6 +31,12 @@ type PlanBadge = {
   title: string;
   status: string;
 } | null;
+
+const RUN_STATE_KEYS = {
+  idle: "chatHeader.runStateIdle",
+  queued: "chatHeader.runStateQueued",
+  running: "chatHeader.runStateRunning",
+} as const;
 
 type ChatHeaderProps = {
   runState: "idle" | "queued" | "running";
@@ -126,7 +134,7 @@ export function ChatTitleBar(props: {
           ref={inputRef}
           className="input chat-column-title-input"
           value={draftTitle}
-          title="Rename chat - Enter to save, Esc to cancel"
+          title={t("chatHeader.renameChatEnterToSave")}
           onChange={(e) => setDraftTitle(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") { e.preventDefault(); commitRename(); }
@@ -138,7 +146,7 @@ export function ChatTitleBar(props: {
         <button
           className="chat-column-title"
           type="button"
-          title={`${props.title}${props.titleLocked ? " (locked)" : ""} - double-click to rename`}
+          title={t((props.titleLocked ? "chatHeader.doubleClickToRename.locked" : "chatHeader.doubleClickToRename.none"), { title: props.title })}
           onDoubleClick={() => setEditing(true)}
         >
           <span className="chat-column-title-text">{props.title}</span>
@@ -192,45 +200,45 @@ export function ChatHeader(props: ChatHeaderProps) {
     setBranchOpen(true);
   }
 
-  const modeLabel = props.agentMode === "build" ? "Build mode" : "Plan mode";
+  const modeLabel = props.agentMode === "build" ? t("chatHeader.buildMode") : t("chatHeader.planMode");
   const modeTitle = props.agentMode === "build"
-    ? "Build mode — edits allowed (approval gateway). Click to switch to plan mode."
-    : "Plan mode — read-only posture. Click to switch to build mode.";
+    ? t("chatHeader.buildModeEditsAllowedApprovalGateway")
+    : t("chatHeader.planModeReadOnlyPostureClick");
 
   const workspaceLabel = props.worktreePath
-    ? props.worktreePath.split(/[\\/]/).pop() ?? "Worktree"
-    : props.projectPath.split(/[\\/]/).pop() ?? "Workspace";
+    ? props.worktreePath.split(/[\\/]/).pop() ?? t("chatHeader.worktree2")
+    : props.projectPath.split(/[\\/]/).pop() ?? t("chatHeader.workspace2");
   const actionItems: ActionMenuItem[] = [
-    { key: "rename", label: "Rename", title: "Rename this chat", icon: <Pencil size={11} />, onSelect: props.onRenameAction },
-    { key: "assign", label: "Assign plan", title: "Assign a ready plan to this chat", icon: <Sparkles size={11} />, onSelect: props.onAssignPlan },
-    { key: "copy", label: "Copy conversation", title: "Copy the conversation as markdown", icon: <CopyIcon />, disabled: !props.canCopyConversation, onSelect: props.onCopyConversation },
-    ...(props.onCopySessionId ? [{ key: "copy-id", label: "Copy chat ID", title: "Copy the chat session identifier", icon: <CopyIcon />, onSelect: props.onCopySessionId }] : []),
+    { key: "rename", label: t("chatHeader.rename"), title: t("chatHeader.renameThisChat"), icon: <Pencil size={11} />, onSelect: props.onRenameAction },
+    { key: "assign", label: t("chatHeader.assignPlan"), title: t("chatHeader.assignAReadyPlanToThis"), icon: <Sparkles size={11} />, onSelect: props.onAssignPlan },
+    { key: "copy", label: t("chatHeader.copyConversation"), title: t("chatHeader.copyTheConversationAsMarkdown"), icon: <CopyIcon />, disabled: !props.canCopyConversation, onSelect: props.onCopyConversation },
+    ...(props.onCopySessionId ? [{ key: "copy-id", label: t("chatHeader.copyChatId"), title: t("chatHeader.copyTheChatSessionIdentifier"), icon: <CopyIcon />, onSelect: props.onCopySessionId }] : []),
     ...(props.onStartVoiceCall ? [{
       key: "voice-call",
-      label: props.voiceCallActive ? "End voice call" : "Start voice call",
+      label: props.voiceCallActive ? t("chatHeader.endVoiceCall") : t("chatHeader.startVoiceCall"),
       title: props.voiceCallActive
-        ? "Hang up the active voice call and release the microphone"
-        : "Start a hands-free voice call: continuous listening, talk over the agent to interrupt",
+        ? t("chatHeader.hangUpTheActiveVoiceCall")
+        : t("chatHeader.startAHandsFreeVoiceCall"),
       icon: <Phone size={11} />,
       onSelect: props.onStartVoiceCall,
     }] : []),
     ...(props.onOpenVoiceSettings ? [{
       key: "voice-settings",
-      label: "Voice settings",
-      title: "Configure speech-to-text engine, download offline models, and adjust reply readback",
+      label: t("chatHeader.voiceSettings"),
+      title: t("chatHeader.configureSpeechToTextEngineDownload"),
       icon: <Settings size={11} />,
       onSelect: props.onOpenVoiceSettings,
     }] : []),
-    { key: "debug", label: props.debugMode ? "Hide debug events" : "Show debug events", title: props.debugMode ? "Turn debug event rendering off" : "Show raw event data in tool cards", icon: <Bug size={11} />, onSelect: props.onToggleDebug },
+    { key: "debug", label: props.debugMode ? t("chatHeader.hideDebugEvents") : t("chatHeader.showDebugEvents"), title: props.debugMode ? t("chatHeader.turnDebugEventRenderingOff") : t("chatHeader.showRawEventDataInTool"), icon: <Bug size={11} />, onSelect: props.onToggleDebug },
     ...(props.prRecommendation ? [{
       key: "pull-request",
-      label: "Create pull request",
-      title: `Open a PR for ${props.prRecommendation.branch}`,
+      label: t("chatHeader.createPullRequest"),
+      title: t("chatHeader.openAPrFor", { branch: props.prRecommendation.branch }),
       icon: <GitPullRequest size={11} />,
       onSelect: props.onCreatePullRequest,
     }] : []),
-    { key: "close", label: "Close chat", title: "Close this chat window (session retained)", icon: <X size={11} />, onSelect: props.onCloseChat },
-    { key: "delete", label: "Close and delete session", title: "Permanently delete this chat history", icon: <TrashIcon />, danger: true, onSelect: props.onCloseAndDelete },
+    { key: "close", label: t("chatHeader.closeChat"), title: t("chatHeader.closeThisChatWindowSessionRetained"), icon: <X size={11} />, onSelect: props.onCloseChat },
+    { key: "delete", label: t("chatHeader.closeAndDeleteSession"), title: t("chatHeader.permanentlyDeleteThisChatHistory"), icon: <TrashIcon />, danger: true, onSelect: props.onCloseAndDelete },
   ];
 
   return (
@@ -242,8 +250,8 @@ export function ChatHeader(props: ChatHeaderProps) {
       onDrop={props.onDrop}
     >
       <div className="chat-column-header-left">
-        <span className={`chat-header-run-state is-${props.runState}`} title={`Agent state: ${props.runState}`}>
-          {props.runState}
+        <span className={`chat-header-run-state is-${props.runState}`} title={t("chatHeader.agentState", { runState: t(RUN_STATE_KEYS[props.runState]) })}>
+          {t(RUN_STATE_KEYS[props.runState])}
         </span>
         <ContextIndicator used={props.contextUsed} limit={props.contextLimit} />
         <button
@@ -259,7 +267,7 @@ export function ChatHeader(props: ChatHeaderProps) {
           <button
             className="chat-column-plan-badge"
             type="button"
-            title={`Plan ${props.planBadge.referenceId}: ${props.planBadge.title} (${props.planBadge.status})`}
+            title={t("chatHeader.plan", { referenceId: props.planBadge.referenceId, title: props.planBadge.title, status: props.planBadge.status })}
             onClick={props.onOpenPlan}
           >
             <Sparkles size={10} />
@@ -269,7 +277,7 @@ export function ChatHeader(props: ChatHeaderProps) {
         ) : null}
       </div>
       <div className="chat-column-header-right">
-        <span className="chat-header-workspace" title={props.worktreePath ? `Worktree: ${props.worktreePath}` : `Workspace: ${props.projectPath}`}>
+        <span className="chat-header-workspace" title={props.worktreePath ? t("chatHeader.worktree", { worktreePath: props.worktreePath }) : t("chatHeader.workspace", { projectPath: props.projectPath })}>
           <FolderGit2 size={10} />
           <span>{workspaceLabel}</span>
         </span>
@@ -278,7 +286,7 @@ export function ChatHeader(props: ChatHeaderProps) {
             <button
               className="chat-column-branch"
               type="button"
-              title={`Branch: ${props.branch}. Click to switch or create.`}
+              title={t("chatHeader.branchClickToSwitchOrCreate", { branch: props.branch })}
               aria-expanded={branchOpen}
               onClick={toggleBranchMenu}
             >
@@ -306,7 +314,7 @@ export function ChatHeader(props: ChatHeaderProps) {
         <button
           className="btn-icon btn-icon-sm"
           type="button"
-          title="Open command palette"
+          title={t("chatHeader.openCommandPalette")}
           onClick={props.onOpenCommands}
         >
           <Command size={13} />
@@ -314,14 +322,14 @@ export function ChatHeader(props: ChatHeaderProps) {
         <button
           className="btn-icon btn-icon-sm"
           type="button"
-          title="Toggle chat history"
+          title={t("chatHeader.toggleChatHistory")}
           onClick={props.onToggleHistory}
         >
           <HistoryIcon />
         </button>
         <ActionMenu
           items={actionItems}
-          triggerTitle="More chat actions"
+          triggerTitle={t("chatHeader.moreChatActions")}
           triggerClassName="btn-icon btn-icon-sm"
           icon={<MoreHorizontal size={13} />}
         />
@@ -361,7 +369,7 @@ export function BranchDropdown(props: {
       <div
         className={`chat-branch-dropdown${props.position.above ? " is-above" : ""}`}
         role="dialog"
-        aria-label="Switch branch"
+        aria-label={t("chatHeader.switchBranch")}
         style={style}
         onMouseDown={(event) => event.stopPropagation()}
       >
@@ -371,7 +379,7 @@ export function BranchDropdown(props: {
               key={branch.name}
               className={`chat-branch-dropdown-item${branch.name === props.current ? " is-active" : ""}`}
               type="button"
-              title={`${branch.name}${branch.name === props.current ? " (current)" : ""}`}
+              title={t((branch.name === props.current ? "chatHeader.text.current" : "chatHeader.text.none"), { name: branch.name })}
               onClick={() => props.onPick(branch.name)}
             >
               <GitBranch size={11} />
@@ -384,8 +392,8 @@ export function BranchDropdown(props: {
           <div className="chat-branch-create">
             <input
               className="input chat-branch-create-input"
-              placeholder="branch-name"
-              title="New branch name"
+              placeholder={t("chatHeader.branchName")}
+              title={t("chatHeader.newBranchName")}
               value={props.newBranchName}
               onChange={(event) => props.setNewBranchName(event.target.value)}
               onKeyDown={(event) => {
@@ -394,16 +402,16 @@ export function BranchDropdown(props: {
               }}
               autoFocus
             />
-            <button className="btn btn-sm btn-primary" type="button" title="Create branch" onClick={props.onCreateBranch}>
-              <Plus size={11} /> Create
+            <button className="btn btn-sm btn-primary" type="button" title={t("chatHeader.createBranch")} onClick={props.onCreateBranch}>
+              <Plus size={11} /> {t("chatHeader.create")}
             </button>
-            <button className="btn-icon btn-icon-sm" type="button" title="Cancel" onClick={props.onCancelCreate}>
+            <button className="btn-icon btn-icon-sm" type="button" title={t("chatHeader.cancel")} onClick={props.onCancelCreate}>
               <X size={11} />
             </button>
           </div>
         ) : (
-          <button className="chat-branch-dropdown-create" type="button" title="Create a new branch" onClick={props.onCreate}>
-            <Plus size={11} /> Create branch…
+          <button className="chat-branch-dropdown-create" type="button" title={t("chatHeader.createANewBranch")} onClick={props.onCreate}>
+            <Plus size={11} /> {t("chatHeader.createBranch2")}
           </button>
         )}
       </div>
@@ -421,19 +429,17 @@ function SwitchConfirm(props: {
   onCancel: () => void;
 }) {
   return (
-    <div className="chat-switch-confirm" role="dialog" aria-label="Confirm branch switch">
+    <div className="chat-switch-confirm" role="dialog" aria-label={t("chatHeader.confirmBranchSwitch")}>
       <div className="chat-switch-confirm-body">
-        <p className="text-sm">
-          {props.uncommittedCount} uncommitted file{props.uncommittedCount === 1 ? "" : "s"} — switching to <strong>{props.target}</strong> requires stashing or discarding.
-        </p>
+        <p className="text-sm">{t(props.uncommittedCount === 1 ? "chatHeader.switchOne" : "chatHeader.switchMany", { count: props.uncommittedCount, target: props.target })}</p>
         <div className="chat-switch-confirm-actions">
-          <button className="btn btn-sm" type="button" title="Stash changes and switch branch" onClick={props.onStash}>
-            Stash &amp; switch
+          <button className="btn btn-sm" type="button" title={t("chatHeader.stashChangesAndSwitchBranch")} onClick={props.onStash}>
+            {t("chatHeader.stashSwitch")}
           </button>
-          <button className="btn btn-sm" type="button" title="Discard changes and switch branch" onClick={props.onDiscard}>
-            Discard &amp; switch
+          <button className="btn btn-sm" type="button" title={t("chatHeader.discardChangesAndSwitchBranch")} onClick={props.onDiscard}>
+            {t("chatHeader.discardSwitch")}
           </button>
-          <button className="btn-icon btn-icon-sm" type="button" title="Cancel switch" onClick={props.onCancel}>
+          <button className="btn-icon btn-icon-sm" type="button" title={t("chatHeader.cancelSwitch")} onClick={props.onCancel}>
             <X size={11} />
           </button>
         </div>
@@ -476,10 +482,10 @@ function ContextIndicator({ used, limit }: { used: number; limit: number | null 
   const circumference = 2 * Math.PI * r;
   const filled = circumference * percentage / 100;
   const ratio = limit && limit > 0
-    ? `${used.toLocaleString()} / ${limit.toLocaleString()} tokens (${percentage}%)`
-    : `${used.toLocaleString()} tokens; model context limit unavailable`;
+    ? t("chatHeader.tokensUsed", { used: formatNumber(used), limit: formatNumber(limit), percentage })
+    : t("chatHeader.tokensModelContextLimitUnavailable", { value1: formatNumber(used) });
   return (
-    <span className={`chat-header-context is-${percentage >= 85 ? "critical" : percentage >= 60 ? "warning" : "healthy"}`} title={`Context usage: ${ratio}`}>
+    <span className={`chat-header-context is-${percentage >= 85 ? "critical" : percentage >= 60 ? "warning" : "healthy"}`} title={t("chatHeader.contextUsage", { ratio: ratio })}>
       <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
         <circle className="chat-header-context-track" cx="10" cy="10" r={r} />
         <circle className="chat-header-context-value" cx="10" cy="10" r={r} strokeDasharray={`${filled} ${circumference - filled}`} />

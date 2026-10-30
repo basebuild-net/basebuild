@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { readFile } from "../../lib/sessions";
+import { t } from "../../i18n";
 
 export type FileViewerProps = {
   path: string | null;
@@ -32,20 +33,20 @@ export function FileViewer({ path }: FileViewerProps) {
   if (!path) {
     return (
       <div className="empty-state">
-        <h3>No file selected</h3>
-        <p>Open a file from the Files panel to view it here.</p>
+        <h3>{t("fileViewer.noFileSelected")}</h3>
+        <p>{t("fileViewer.openAFileFromThe")}</p>
       </div>
     );
   }
 
   if (loading) {
-    return <div className="terminal-container"><div className="empty-state"><p>Loading...</p></div></div>;
+    return <div className="terminal-container"><div className="empty-state"><p>{t("fileViewer.loading")}</p></div></div>;
   }
 
   if (error) {
     return (
       <div className="empty-state">
-        <h3>Could not read file</h3>
+        <h3>{t("fileViewer.couldNotReadFile")}</h3>
         <p className="text-danger">{error}</p>
       </div>
     );

@@ -3,7 +3,6 @@ import { AlertCircle, AlertTriangle, Check, Link, Loader2, Plug, RefreshCw, Sear
 import { ModalPortal } from "../../ModalPortal";
 import { OptionList, type OptionListOption } from "../../layout/OptionList";
 import { SkeletonRows } from "../../layout/Loading";
-import { formatRelativeTime } from "../../../lib/timing";
 import { recordModelUse, recordProviderUse } from "../../../lib/modelRecency";
 import { nativeLocalLlmScan, nativeProviderCatalogRefresh } from "../../../lib/native-chat";
 import type {
@@ -25,23 +24,25 @@ import {
   VOICE_LEVEL_LABELS,
   VOICE_LEVEL_TITLES,
 } from "./chatFormat";
+import { t } from "../../../i18n";
+import { formatRelativeTime } from "../../../i18n/format";
 
 type CatalogStatus = "loading" | "refreshing" | "ready" | "stale" | "error";
 
 /** Voice-capability narrowing for the model pane. */
 type VoiceFilter = "all" | "voice" | "realtime";
 
-const VOICE_FILTER_OPTIONS: OptionListOption<VoiceFilter>[] = [
-  { id: "all", label: "All", title: "Show every model this provider offers" },
+const VOICE_FILTER_OPTIONS = (): OptionListOption<VoiceFilter>[] => [
+  { id: "all", label: t("providerCatalogModal.all"), title: t("providerCatalogModal.showEveryModelThisProviderOffers") },
   {
     id: "voice",
-    label: "Voice capable",
-    title: "Show only models with a voice route: speech to text, speech out, audio turn, or realtime",
+    label: t("providerCatalogModal.voiceCapable"),
+    title: t("providerCatalogModal.showOnlyModelsWithAVoice"),
   },
   {
     id: "realtime",
-    label: "Realtime only",
-    title: "Show only full duplex speech to speech models with server side turn detection and barge-in",
+    label: t("providerCatalogModal.realtimeOnly"),
+    title: t("providerCatalogModal.showOnlyFullDuplexSpeechTo"),
   },
 ];
 
@@ -132,7 +133,7 @@ export function ProviderCatalogModal({
               <div
                 className="modal-overlay provider-catalog-overlay"
                 role="dialog"
-                aria-label="Provider and model catalog"
+                aria-label={t("providerCatalogModal.providerAndModelCatalog")}
                 onClick={() => {
                   addLog("debug", "Provider catalog modal closed", "overlay");
                   setShowProviderPicker(false);
@@ -142,21 +143,21 @@ export function ProviderCatalogModal({
                 <div className="modal provider-catalog-modal" onClick={(event) => event.stopPropagation()}>
                   <div className="modal-header">
                     <div className="provider-catalog-title">
-                      <h2>Provider &amp; model</h2>
+                      <h2>{t("providerCatalogModal.providerModel")}</h2>
                       <span>
                         {catalogStatus === "loading" || catalogStatus === "refreshing"
-                          ? `${catalog ? "Refreshing" : "Loading"} provider catalog…`
+                          ? t((catalog ? "providerCatalogModal.providerCatalog.refreshing" : "providerCatalogModal.providerCatalog.loading"))
                           : catalogStatus === "error"
-                            ? "Catalog unavailable"
+                            ? t("providerCatalogModal.catalogUnavailable")
                             : catalogStatus === "stale"
-                              ? `Refresh failed · showing ${catalog?.models.length ?? 0} cached models`
-                              : `${connectedProviders.length} connected · ${catalog?.providers.length ?? 0} providers · ${catalog?.models.length ?? 0} models`}
+                              ? t("providerCatalogModal.refreshFailedShowingCachedModels", { modelsCount: catalog?.models.length ?? 0 })
+                              : t("providerCatalogModal.connectedProvidersModels", { connectedProvidersCount: connectedProviders.length, providersCount: catalog?.providers.length ?? 0, modelsCount: catalog?.models.length ?? 0 })}
                       </span>
                     </div>
                     <button
                       className="btn btn-sm provider-catalog-rescan-btn"
                       type="button"
-                      title="Rescan for local LLM servers (LM Studio, Ollama, llama.cpp, KoboldCpp)"
+                      title={t("providerCatalogModal.rescanForLocalLlmServers")}
                       onClick={async () => {
                         addLog("debug", "Local LLM rescan started");
                         try {
@@ -169,12 +170,12 @@ export function ProviderCatalogModal({
                         }
                       }}
                     >
-                      <RefreshCw size={11} /> Rescan local
+                      <RefreshCw size={11} /> {t("providerCatalogModal.rescanLocal")}
                     </button>
                     <button
                       className="btn-icon"
                       type="button"
-                      title="Close provider and model catalog"
+                      title={t("providerCatalogModal.closeProviderAndModelCatalog")}
                       onClick={() => {
                         addLog("debug", "Provider catalog modal closed", "button");
                         setShowProviderPicker(false);
@@ -186,20 +187,20 @@ export function ProviderCatalogModal({
                   </div>
                   {catalog ? (
                   <div className="provider-catalog-body">
-                    <section className="provider-catalog-providers" aria-label="Providers">
+                    <section className="provider-catalog-providers" aria-label={t("providerCatalogModal.providers")}>
                       <div className="provider-catalog-section-heading">
-                        <span>Providers</span>
-                        <span className="text-muted">Select one to browse its models</span>
+                        <span>{t("providerCatalogModal.providers")}</span>
+                        <span className="text-muted">{t("providerCatalogModal.selectOneToBrowseIts")}</span>
                       </div>
                       <div className="provider-search-wrap">
                         <Search size={12} className="provider-search-icon" />
                         <input
                           className="input provider-search-input"
                           type="search"
-                          placeholder="Search providers and models…"
+                          placeholder={t("providerCatalogModal.searchProvidersAndModels")}
                           value={providerFilter}
                           onChange={(event) => setProviderFilter(event.target.value)}
-                          title="Search providers and models"
+                          title={t("providerCatalogModal.searchProvidersAndModels2")}
                         />
                       </div>
                       <div className="provider-card-grid">
@@ -215,18 +216,18 @@ export function ProviderCatalogModal({
                             : provider.accountCount > 0
                               ? `${provider.accountCount} ${provider.accountCount === 1 ? "account" : "accounts"}`
                               : provider.authMethod === "oauth"
-                                ? provider.apiKeyUrl ? "OAuth / API key" : "OAuth"
-                                : "API key";
+                                ? provider.apiKeyUrl ? t("providerCatalogModal.oauthApiKey") : t("providerCatalogModal.oauth")
+                                : t("providerCatalogModal.apiKey");
                           return (
                           <div
                             key={provider.id}
                             className={`provider-card is-${provider.configured ? "connected" : "available"}${provider.id === providerId ? " is-active" : ""}${isLocal ? " is-local" : ""}`}
-                            title={`${provider.label}: ${provider.configured ? "connected" : "not connected"}; ${provider.modelCount} models`}
+                            title={t((provider.configured ? "providerCatalogModal.models4.connected" : "providerCatalogModal.models4.notConnected"), { label: provider.label, modelCount: provider.modelCount })}
                           >
                             <button
                               className="provider-card-select"
                               type="button"
-                              title={`${provider.label}: ${provider.configured ? "connected" : "not connected"}; ${provider.modelCount} models. Click to browse models.`}
+                              title={t((provider.configured ? "providerCatalogModal.modelsClickToBrowseModels.connected" : "providerCatalogModal.modelsClickToBrowseModels.notConnected"), { label: provider.label, modelCount: provider.modelCount })}
                               onClick={() => {
                                 addLog("debug", "Provider selected", `provider=${provider.id}; connected=${provider.configured}`);
                                 setProviderId(provider.id);
@@ -245,20 +246,18 @@ export function ProviderCatalogModal({
                               <span className="provider-card-middle">
                                 {authBadge ? <span className="provider-card-auth" title={providerAuthOptionsLabel(provider) || authBadge}>{authBadge}</span> : null}
                                 <span className="provider-card-meta">
-                                  {provider.modelCount} models
-                                  {provider.connectedVia ? ` · ${CONNECTED_VIA_LABELS[provider.connectedVia]}` : ""}
-                                </span>
+                                  {t("providerCatalogModal.models", { modelCount: provider.modelCount, value: provider.connectedVia ? ` · ${CONNECTED_VIA_LABELS()[provider.connectedVia]}` : "" })}</span>
                                 {needsBaseUrl ? (
-                                  <span className="provider-card-flag is-warn" title="This provider uses a bespoke API that requires a custom base URL for native chat. Set a base URL to enable the native agent loop.">
-                                    <AlertTriangle size={10} /> Needs base URL
+                                  <span className="provider-card-flag is-warn" title={t("providerCatalogModal.thisProviderUsesABespoke")}>
+                                    <AlertTriangle size={10} /> {t("providerCatalogModal.needsBaseUrl")}
                                   </span>
                                 ) : null}
                                 {healthBad ? (
                                   <span
                                     className={`provider-card-flag is-${provider.aggregateHealth === "broken" ? "danger" : "warn"}`}
-                                    title={`Account health: ${provider.aggregateHealth}. Open Manage for per-account details.`}
+                                    title={t("providerCatalogModal.accountHealthOpenManageForPer", { aggregateHealth: provider.aggregateHealth })}
                                   >
-                                    <AlertTriangle size={10} /> {provider.aggregateHealth === "broken" ? "Needs attention" : "Degraded"}
+                                    <AlertTriangle size={10} /> {provider.aggregateHealth === "broken" ? t("providerCatalogModal.needsAttention") : t("providerCatalogModal.degraded")}
                                   </span>
                                 ) : null}
                                 {provider.error ? (
@@ -270,19 +269,19 @@ export function ProviderCatalogModal({
                             </button>
                             <span className="provider-card-actions">
                               {isLocal ? (
-                                <span className="provider-card-local-tag" title="No provider connected — select a provider to chat.">Local</span>
+                                <span className="provider-card-local-tag" title={t("providerCatalogModal.noProviderConnectedSelectA")}>{t("providerCatalogModal.local")}</span>
                               ) : isDetectedLocal ? (
                                 <span
                                   className={`provider-card-local-tag is-${provider.configured ? "connected" : "offline"}`}
-                                  title={`${provider.detail}${provider.configured ? "" : " · server offline — showing last-known models"}`}
+                                  title={t((provider.configured ? "providerCatalogModal.text.none" : "providerCatalogModal.text.serverOfflineShowingLast"), { detail: provider.detail })}
                                 >
-                                  <span className="provider-status-dot" /> Local
+                                  <span className="provider-status-dot" /> {t("providerCatalogModal.local")}
                                 </span>
                               ) : (
                                 <button
                                   className="btn btn-sm provider-card-action-btn"
                                   type="button"
-                                  title={`Manage ${provider.label} accounts and API keys`}
+                                  title={t("providerCatalogModal.manageAccountsAndAPIKeys", { label: provider.label })}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setShowProviderPicker(false);
@@ -292,14 +291,14 @@ export function ProviderCatalogModal({
                                     setShowLogin(true);
                                   }}
                                 >
-                                  <Settings2 size={11} /> Manage
+                                  <Settings2 size={11} /> {t("providerCatalogModal.manage")}
                                 </button>
                               )}
                               {provider.error ? (
                                 <button
                                   className="btn btn-sm provider-card-retry-btn"
                                   type="button"
-                                  title={`Retry fetching models from ${provider.label}`}
+                                  title={t("providerCatalogModal.retryFetchingModelsFrom", { label: provider.label })}
                                   onClick={async (e) => {
                                     e.stopPropagation();
                                     try {
@@ -310,7 +309,7 @@ export function ProviderCatalogModal({
                                     }
                                   }}
                                 >
-                                  Retry
+                                  {t("providerCatalogModal.retry")}
                                 </button>
                               ) : null}
                             </span>
@@ -318,24 +317,24 @@ export function ProviderCatalogModal({
                           );
                         })}
                         {visibleCatalogProviders.length === 0 ? (
-                          <p className="text-muted text-sm">No providers or models match your search.</p>
+                          <p className="text-muted text-sm">{t("providerCatalogModal.noProvidersOrModelsMatch")}</p>
                         ) : null}
                       </div>
                     </section>
-                    <section className="provider-catalog-models" aria-label="Models">
+                    <section className="provider-catalog-models" aria-label={t("providerCatalogModal.models2")}>
                       <div className="provider-catalog-section-heading">
-                        <span>{selectedProvider?.label ?? providerId} models</span>
+                        <span>{t("providerCatalogModal.models3", { label: selectedProvider?.label ?? providerId })}</span>
                         <span className={`provider-status is-${selectedProvider?.configured ? "connected" : "available"}`}>
                           <span className="provider-status-dot" />
-                          {selectedProvider?.configured ? "Connected" : "Not connected"}
+                          {selectedProvider?.configured ? t("providerCatalogModal.connected") : t("providerCatalogModal.notConnected")}
                         </span>
                       </div>
                       <div className="provider-model-filters">
                         <input
                           className="input provider-model-search"
                           value={modelFilter}
-                          placeholder="Search this provider's models"
-                          title="Filter models for the selected provider by id or label"
+                          placeholder={t("providerCatalogModal.searchThisProviderSModels")}
+                          title={t("providerCatalogModal.filterModelsForTheSelected")}
                           onChange={(event) => setModelFilter(event.target.value)}
                           onKeyDown={(event) => {
                             if (event.key === "Escape") {
@@ -346,8 +345,8 @@ export function ProviderCatalogModal({
                         />
                         <OptionList<VoiceFilter>
                           value={voiceFilter}
-                          options={VOICE_FILTER_OPTIONS}
-                          label="Filter models by voice capability"
+                          options={VOICE_FILTER_OPTIONS()}
+                          label={t("providerCatalogModal.filterModelsByVoiceCapability")}
                           compact
                           onChange={(id) => {
                             addLog("debug", "Model voice filter changed", `provider=${providerId}; filter=${id}`);
@@ -369,7 +368,7 @@ export function ProviderCatalogModal({
                           <button
                             className={`provider-model-row${model.id === modelId && model.providerId === providerId ? " is-active" : ""}`}
                             type="button"
-                            title={`${selectedProvider?.label ?? model.providerId} / ${model.id}. ${detection.tooltip}`}
+                            title={t("providerCatalogModal.text2", { label: selectedProvider?.label ?? model.providerId, id: model.id, tooltip: detection.tooltip })}
                             onClick={() => {
                               addLog("debug", "Model selected", `provider=${model.providerId}; model=${model.id}`);
                               setProviderId(model.providerId);
@@ -388,43 +387,42 @@ export function ProviderCatalogModal({
                             </span>
                             <span className="provider-model-badges">
                               {modelRecency[`${model.providerId}/${model.id}`] ? (
-                                <span className="provider-model-recency" title="Last used">
-                                  used {formatRelativeTime(modelRecency[`${model.providerId}/${model.id}`]!)}
-                                </span>
+                                <span className="provider-model-recency" title={t("providerCatalogModal.lastUsed")}>
+                                  {t("providerCatalogModal.used", { value: formatRelativeTime(modelRecency[`${model.providerId}/${model.id}`]!) })}</span>
                               ) : null}
                               {model.running ? (
-                                <span className="provider-capability is-running" title="Loaded in memory on the local server right now">
-                                  <span className="provider-status-dot" /> Running
+                                <span className="provider-capability is-running" title={t("providerCatalogModal.loadedInMemoryOnThe")}>
+                                  <span className="provider-status-dot" /> {t("providerCatalogModal.running")}
                                 </span>
                               ) : null}
                               {detection.live ? (
                                 <span className="provider-capability is-positive" title={detection.tooltip}>
-                                  <Check size={11} aria-hidden="true" /> Detected
+                                  <Check size={11} aria-hidden="true" /> {t("providerCatalogModal.detected")}
                                 </span>
                               ) : null}
                               {voiceLevel ? (
                                 <span
                                   className={`provider-capability is-voice${voiceLevel === "realtime" ? " is-voice-realtime" : ""}`}
-                                  title={VOICE_LEVEL_TITLES[voiceLevel]}
+                                  title={VOICE_LEVEL_TITLES()[voiceLevel]}
                                 >
-                                  {VOICE_LEVEL_LABELS[voiceLevel]}
+                                  {VOICE_LEVEL_LABELS()[voiceLevel]}
                                 </span>
                               ) : null}
                               {voiceLevel && billing ? (
                                 <span
                                   className={`provider-capability ${VOICE_BILLING_CLASS[billing]}`}
-                                  title={VOICE_BILLING_TITLES[billing]}
+                                  title={VOICE_BILLING_TITLES()[billing]}
                                 >
-                                  {VOICE_BILLING_LABELS[billing]}
+                                  {VOICE_BILLING_LABELS()[billing]}
                                 </span>
                               ) : null}
-                              {model.supportsTools ? <span className="provider-capability is-positive">Tools</span> : null}
-                              {model.supportsReasoning ? <span className="provider-capability">Reasoning</span> : null}
-                              <span className="provider-capability">{model.supportedEfforts.length ? model.supportedEfforts.join("/") : "Standard"}</span>
+                              {model.supportsTools ? <span className="provider-capability is-positive">{t("providerCatalogModal.tools")}</span> : null}
+                              {model.supportsReasoning ? <span className="provider-capability">{t("providerCatalogModal.reasoning")}</span> : null}
+                              <span className="provider-capability">{model.supportedEfforts.length ? model.supportedEfforts.join("/") : t("providerCatalogModal.standard")}</span>
                             </span>
                           </button>
                           {mismatch ? (
-                            <p className="provider-model-note" title={VOICE_BILLING_TITLES.api_key}>
+                            <p className="provider-model-note" title={VOICE_BILLING_TITLES().api_key}>
                               <AlertTriangle size={11} aria-hidden="true" />
                               {mismatch}
                             </p>
@@ -434,30 +432,30 @@ export function ProviderCatalogModal({
                         })}
                         {visibleModels.length === 0 ? (
                           catalogInFlight ? (
-                            <SkeletonRows rows={4} label="Loading models…" />
+                            <SkeletonRows rows={4} label={t("providerCatalogModal.loadingModels")} />
                           ) : voiceFilter !== "all" ? (
                             <div className="provider-model-empty-state">
                               <p className="text-muted text-sm">
-                                {`No ${voiceFilter === "realtime" ? "realtime voice" : "voice capable"} models under ${selectedProvider?.label ?? providerId}. Widen the filter, or pick another provider on the left.`}
+                                {t((voiceFilter === "realtime" ? "providerCatalogModal.noModelsUnderWidenTheFilter.realtimeVoice" : "providerCatalogModal.noModelsUnderWidenTheFilter.voiceCapable"), { label: selectedProvider?.label ?? providerId })}
                               </p>
                               <button
                                 className="btn btn-sm"
                                 type="button"
-                                title="Clear the voice filter and show every model this provider offers"
+                                title={t("providerCatalogModal.clearTheVoiceFilterAnd")}
                                 onClick={() => {
                                   addLog("debug", "Model voice filter changed", `provider=${providerId}; filter=all; via=empty-state`);
                                   setVoiceFilter("all");
                                 }}
                               >
-                                Show all models
+                                {t("providerCatalogModal.showAllModels")}
                               </button>
                             </div>
                           ) : selectedProvider?.id === "local-models" ? (
                             <p className="text-muted text-sm provider-model-empty">
-                              No local models detected. Start LM Studio, Ollama, llama.cpp, or KoboldCpp, then click "Rescan local".
+                              {t("providerCatalogModal.noLocalModelsDetectedStart")}
                             </p>
                           ) : (
-                            <p className="text-muted text-sm provider-model-empty">No matching models.</p>
+                            <p className="text-muted text-sm provider-model-empty">{t("providerCatalogModal.noMatchingModels")}</p>
                           )
                         ) : null}
                       </div>
@@ -466,21 +464,21 @@ export function ProviderCatalogModal({
                   ) : catalogStatus === "error" ? (
                     <div className="modal-loading" role="alert">
                       <AlertCircle size={20} />
-                      <span>Provider catalog could not load.</span>
-                      <span className="text-muted text-sm">{catalogError ?? "Unknown catalog error"}</span>
+                      <span>{t("providerCatalogModal.providerCatalogCouldNotLoad")}</span>
+                      <span className="text-muted text-sm">{catalogError ?? t("providerCatalogModal.unknownCatalogError")}</span>
                       <button
                         className="btn btn-sm btn-primary"
                         type="button"
-                        title="Retry loading the provider catalog"
+                        title={t("providerCatalogModal.retryLoadingTheProviderCatalog")}
                         onClick={() => void refreshCatalog()}
                       >
-                        <RefreshCw size={12} /> Retry
+                        <RefreshCw size={12} /> {t("providerCatalogModal.retry")}
                       </button>
                     </div>
                   ) : (
                     <div className="modal-loading" role="status" aria-live="polite">
                       <Loader2 size={20} className="spin" />
-                      <span>Loading provider catalog…</span>
+                      <span>{t("providerCatalogModal.loadingProviderCatalog")}</span>
                     </div>
                   )}
                 </div>

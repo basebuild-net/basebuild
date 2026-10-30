@@ -6,19 +6,20 @@ import type { ParsedIdeaBatch } from "../../panels/IdeaReviewWorkbench";
 import { IdeaBatchPreview, IdeaReviewWorkbench } from "../../panels/IdeaReviewWorkbench";
 import { IdeaAssessmentSummary } from "../../planning/IdeaAssessmentSummary";
 import { ActionMenu } from "../../ActionMenu";
-import { formatRelativeTime } from "../../../lib/timing";
 import type { IdeaStateValue } from "../../../state/ideas";
 import { SkeletonRows } from "../Loading";
+import { t } from "../../../i18n";
+import { formatDateTime, formatRelativeTime } from "../../../i18n/format";
 
 /** Epoch seconds (Rust) or milliseconds (JS) → milliseconds. */
 const toMs = (ts: number) => (ts < 1_000_000_000_000 ? ts * 1000 : ts);
 
-const STATUS_FILTERS: { value: IdeaStatus | "all"; label: string }[] = [
-  { value: "all", label: "Active" },
-  { value: "concept", label: "Concept" },
-  { value: "picked", label: "Picked" },
-  { value: "rejected", label: "Rejected" },
-  { value: "archived", label: "Deferred" },
+const STATUS_FILTERS = (): { value: IdeaStatus | "all"; label: string }[] => [
+  { value: "all", label: t("ideasTab.active") },
+  { value: "concept", label: t("ideasTab.concept") },
+  { value: "picked", label: t("ideasTab.picked2") },
+  { value: "rejected", label: t("ideasTab.rejected3") },
+  { value: "archived", label: t("ideasTab.deferred") },
 ];
 export type IdeaHistoryBatch = { key: string; ideas: Idea[]; batch: ParsedIdeaBatch };
 
@@ -74,12 +75,12 @@ export function IdeasTab({
   return (
     <div className="inspector-ideas stack">
       <div className="inspector-ideas-filter">
-        {STATUS_FILTERS.map((f) => (
+        {STATUS_FILTERS().map((f) => (
           <button
             key={f.value}
             className={`inspector-filter-chip${statusFilter === f.value ? " is-active" : ""}`}
             type="button"
-            title={`Filter: ${f.label}`}
+            title={t("ideasTab.filter", { label: f.label })}
             onClick={() => setStatusFilter(f.value)}
           >
             {f.label}
@@ -91,28 +92,28 @@ export function IdeasTab({
           className="idea-batch-header"
           title={
             grounding.finishedPlans.length > 0
-              ? `Finished plans: ${grounding.finishedPlans.join(", ")}`
-              : "No finished plans since last schematic update"
+              ? t("ideasTab.finishedPlans", { value: grounding.finishedPlans.join(", ") })
+              : t("ideasTab.noFinishedPlansSinceLast")
           }
         >
-          <span className="idea-batch-header-label">Grounded in:</span>
+          <span className="idea-batch-header-label">{t("ideasTab.groundedIn")}</span>
           {grounding.schematicSections.length > 0 ? (
             <span className="idea-batch-header-sections">
               {grounding.schematicSections.join(" · ")}
             </span>
           ) : (
-            <span className="idea-batch-header-sections text-muted">no schematic sections</span>
+            <span className="idea-batch-header-sections text-muted">{t("ideasTab.noSchematicSections")}</span>
           )}
           <span className="idea-batch-header-counts">
             {grounding.finishedPlanCount > 0
-              ? ` · ${grounding.finishedPlanCount} finished plan${grounding.finishedPlanCount > 1 ? "s" : ""}`
-              : " · no finished plans"}
-            {grounding.pickedCount > 0 ? ` · ${grounding.pickedCount} picked` : ""}
-            {grounding.rejectedCount > 0 ? ` · ${grounding.rejectedCount} rejected` : ""}
+              ? t((grounding.finishedPlanCount > 1 ? "ideasTab.finishedPlan.s" : "ideasTab.finishedPlan.none"), { finishedPlanCount: grounding.finishedPlanCount })
+              : t("ideasTab.noFinishedPlans")}
+            {grounding.pickedCount > 0 ? t("ideasTab.picked", { pickedCount: grounding.pickedCount }) : ""}
+            {grounding.rejectedCount > 0 ? t("ideasTab.rejected2", { rejectedCount: grounding.rejectedCount }) : ""}
           </span>
           {grounding.digestEmpty ? (
             <span className="idea-batch-header-empty text-muted">
-              {" "}— no decisions since schematic update
+              {t("ideasTab.noDecisionsSinceSchematicUpdate")}
             </span>
           ) : null}
         </div>
@@ -124,40 +125,40 @@ export function IdeasTab({
           disabled={!grounding || grounding.finishedPlanCount === 0}
           title={
             grounding && grounding.finishedPlanCount > 0
-              ? `Generate ideas weighted by ${grounding.finishedPlanCount} finished plan${grounding.finishedPlanCount > 1 ? "s" : ""} since last schematic update`
-              : "No finished plans since last schematic update — generate ideas freely instead"
+              ? t((grounding.finishedPlanCount > 1 ? "ideasTab.generateIdeasWeightedByFinishedPlan.s" : "ideasTab.generateIdeasWeightedByFinishedPlan.none"), { finishedPlanCount: grounding.finishedPlanCount })
+              : t("ideasTab.noFinishedPlansSinceLast2")
           }
           onClick={() => onGenerateFromFinishedPlans()}
         >
-          <Sparkles size={11} /> Generate from finished plans
+          <Sparkles size={11} /> {t("ideasTab.generateFromFinishedPlans")}
         </button>
       ) : null}
       {selectedIdeaIds.size > 0 ? (
-        <div className="inspector-batch-bar" title="Batch actions for selected concept ideas">
-          <span className="text-sm">{selectedIdeaIds.size} selected</span>
+        <div className="inspector-batch-bar" title={t("ideasTab.batchActionsForSelectedConcept")}>
+          <span className="text-sm">{t("ideasTab.selected", { size: selectedIdeaIds.size })}</span>
           <button
             className="btn btn-sm btn-primary"
             type="button"
-            title="Promote selected ideas into plans"
+            title={t("ideasTab.promoteSelectedIdeasIntoPlans")}
             onClick={() => void handleBatchPromote()}
           >
-            Approve selected
+            {t("ideasTab.approveSelected")}
           </button>
           <button
             className="btn btn-sm"
             type="button"
-            title="Reject all selected ideas"
+            title={t("ideasTab.rejectAllSelectedIdeas")}
             onClick={() => void handleRejectSelected()}
           >
-            Reject all
+            {t("ideasTab.rejectAll")}
           </button>
           <button
             className="btn btn-sm"
             type="button"
-            title="Clear selection"
+            title={t("ideasTab.clearSelection")}
             onClick={() => setSelectedIdeaIds(new Set())}
           >
-            Clear
+            {t("ideasTab.clear")}
           </button>
         </div>
       ) : null}
@@ -166,7 +167,7 @@ export function IdeasTab({
         <IdeaReviewWorkbench
           {...openIdeaHistory.batch}
           toolId={openIdeaHistory.key}
-          status="success"
+          status={t("ideasTab.success")}
           ideas={openIdeaHistory.ideas}
           projectPath={projectPath ?? undefined}
           currentIndex={openIdeaHistoryIndex}
@@ -181,7 +182,7 @@ export function IdeasTab({
           <IdeaBatchPreview
             key={key}
             {...batch}
-            status="success"
+            status={t("ideasTab.success2")}
             ideas={ideas}
             onOpen={() => {
               setOpenIdeaHistoryIndex(0);
@@ -190,18 +191,18 @@ export function IdeasTab({
           />
         ))}
         {ideaState.loading && displayedIdeas.length === 0 && ideaHistoryBatches.length === 0 ? (
-          <SkeletonRows rows={3} label="Loading ideas…" />
+          <SkeletonRows rows={3} label={t("ideasTab.loadingIdeas")} />
         ) : displayedIdeas.length === 0 && ideaHistoryBatches.length === 0 ? (
           <div className="inspector-ideas-empty">
-            <p className="text-muted text-sm">No ideas {statusFilter === "all" ? "yet" : `in ${statusFilter}`}.</p>
+            <p className="text-muted text-sm">{statusFilter === "all" ? t("ideasTab.noIdeasYet") : t("ideasTab.noIdeasIn", { statusFilter: statusFilter })}</p>
             {onStartIdeaRound && statusFilter === "all" ? (
               <button
                 className="btn btn-sm btn-primary"
                 type="button"
-                title="Generate ideas — one-click round grounded in the schematic, decision history, and preferences"
+                title={t("ideasTab.generateIdeasOneClickRound")}
                 onClick={() => onStartIdeaRound()}
               >
-                <Sparkles size={11} /> Generate ideas
+                <Sparkles size={11} /> {t("ideasTab.generateIdeas")}
               </button>
             ) : null}
           </div>
@@ -213,7 +214,7 @@ export function IdeasTab({
                 <input
                   type="checkbox"
                   className="idea-select-checkbox"
-                  title="Select for batch promote"
+                  title={t("ideasTab.selectForBatchPromote")}
                   checked={selectedIdeaIds.has(idea.id)}
                   onChange={(e) => {
                     setSelectedIdeaIds((prev) => {
@@ -228,12 +229,12 @@ export function IdeasTab({
               <button
                 className="chat-idea-title chat-idea-title-toggle"
                 type="button"
-                title={expandedIdeaId === idea.id ? "Collapse assessment and evidence" : "Show assessment and evidence"}
+                title={expandedIdeaId === idea.id ? t("ideasTab.collapseAssessmentAndEvidence") : t("ideasTab.showAssessmentAndEvidence")}
                 onClick={() => setExpandedIdeaId((current) => (current === idea.id ? null : idea.id))}
               >
                 {idea.title}
               </button>
-              <span className="chat-idea-date text-muted" title={`Captured ${new Date(toMs(idea.createdAt)).toLocaleString()}`}>
+              <span className="chat-idea-date text-muted" title={t("ideasTab.captured", { toLocaleString: formatDateTime(new Date(toMs(idea.createdAt))) })}>
                 {formatRelativeTime(idea.createdAt)}
               </span>
               {idea.status === "concept" ? (
@@ -241,35 +242,35 @@ export function IdeasTab({
                   <button
                     className="btn btn-sm btn-primary"
                     type="button"
-                    title={`Create and prepare an OpenSpec plan for ${idea.title}`}
+                    title={t("ideasTab.createAndPrepareAnOpenSpecPlan", { title: idea.title })}
                     disabled={promotingIdeaId === idea.id}
                     onClick={() => void handlePromoteIdea(idea)}
                   >
                     {promotingIdeaId === idea.id ? <Loader2 size={11} className="is-spinning" /> : <Rocket size={11} />}
-                    {promotingIdeaId === idea.id ? "Getting plan ready…" : "Make plan"}
+                    {promotingIdeaId === idea.id ? t("ideasTab.gettingPlanReady") : t("ideasTab.makePlan")}
                   </button>
                 </div>
               ) : (
                 <span className={`chat-idea-status ${idea.status === "rejected" ? "is-rejected" : ""}`}>
-                  {idea.status === "picked" ? "Planned" : idea.status === "rejected" ? "Rejected" : idea.status}
+                  {idea.status === "picked" ? t("ideasTab.planned") : idea.status === "rejected" ? t("ideasTab.rejected") : idea.status}
                 </span>
               )}
               <ActionMenu
-                triggerTitle="More idea actions"
+                triggerTitle={t("ideasTab.moreIdeaActions")}
                 items={[
                   ...(idea.status === "concept" ? [
                     {
                       key: "pass",
-                      label: "Pass",
-                      title: `Pass on ${idea.title}`,
+                      label: t("ideasTab.pass"),
+                      title: t("ideasTab.passOn", { title: idea.title }),
                       icon: <X size={12} />,
                       disabled: promotingIdeaId === idea.id,
                       onSelect: () => void ideaState.rejectIdea(idea.id),
                     },
                     {
                       key: "defer",
-                      label: "Defer",
-                      title: `Defer ${idea.title} for later`,
+                      label: t("ideasTab.defer"),
+                      title: t("ideasTab.deferForLater", { title: idea.title }),
                       icon: <Archive size={12} />,
                       disabled: promotingIdeaId === idea.id,
                       onSelect: () => void ideaState.updateIdeaStatus(idea.id, "archived"),
@@ -277,8 +278,8 @@ export function IdeasTab({
                   ] : []),
                   {
                     key: "delete",
-                    label: "Delete",
-                    title: "Delete this idea",
+                    label: t("ideasTab.delete"),
+                    title: t("ideasTab.deleteThisIdea"),
                     icon: <Trash2 size={12} />,
                     danger: true,
                     onSelect: () => void ideaState.removeIdea(idea.id),
@@ -300,9 +301,9 @@ export function IdeasTab({
                 {(idea.anchor || idea.grounding) ? (
                   <span
                     className="idea-card-evidence"
-                    title={idea.grounding || "Grounded in the project schematic"}
+                    title={idea.grounding || t("ideasTab.groundedInTheProjectSchematic")}
                   >
-                    {idea.anchor || "Project grounded"}
+                    {idea.anchor || t("ideasTab.projectGrounded")}
                   </span>
                 ) : null}
               </>

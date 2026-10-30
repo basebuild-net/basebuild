@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ChevronRight, FileCode, Folder, RefreshCw } from "lucide-react";
 import { listFiles, type DirEntry } from "../../lib/files";
 import { SkeletonRows } from "../layout/Loading";
+import { t } from "../../i18n";
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -51,7 +52,7 @@ export function FilesPanel({ projectPath, onOpenFile }: FilesPanelProps) {
   }, [load]);
 
   if (!projectPath) {
-    return <p className="text-muted text-sm pad">Open a project to browse files.</p>;
+    return <p className="text-muted text-sm pad">{t("filesPanel.openAProjectToBrowse")}</p>;
   }
   if (error) return <p className="text-danger text-sm pad">{error}</p>;
 
@@ -64,8 +65,8 @@ export function FilesPanel({ projectPath, onOpenFile }: FilesPanelProps) {
         <button
           className="btn-icon btn-icon-sm"
           type="button"
-          title="Refresh"
-          aria-label="Refresh"
+          title={t("filesPanel.refresh")}
+          aria-label={t("filesPanel.refresh")}
           onClick={() => void load()}
         >
           <RefreshCw size={12} className={loading ? "spin" : ""} />
@@ -73,14 +74,14 @@ export function FilesPanel({ projectPath, onOpenFile }: FilesPanelProps) {
       </div>
       <div className="files-list">
         {loading && entries.length === 0 ? (
-          <SkeletonRows rows={6} label="Loading files…" />
+          <SkeletonRows rows={6} label={t("filesPanel.loadingFiles")} />
         ) : null}
         {path && path !== projectPath ? (
           <button
             className="files-item"
             type="button"
             onClick={() => setPath(projectPath)}
-            title="Back to project root"
+            title={t("filesPanel.backToProjectRoot")}
           >
             <ChevronRight size={12} className="icon-rotate-180" />
             <span>..</span>

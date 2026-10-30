@@ -18,6 +18,8 @@ import type {
   SyncOverallOutcome,
   UsageSyncSource,
 } from "../../../lib/usageSync";
+import { t } from "../../../i18n";
+import { formatDateTime, formatRelativeTime } from "../../../i18n/format";
 
 export function AccountPanel({ account }: { account: AccountState }) {
   const [polling, setPolling] = useState(false);
@@ -29,7 +31,7 @@ export function AccountPanel({ account }: { account: AccountState }) {
     setPolling(true);
     try {
       const result = await authStartDeviceFlow({
-        clientName: "Basebuild Desktop",
+        clientName: t("accountTab.basebuildDesktop"),
         platform: navigator.platform,
       });
       setDeviceCode(result.deviceCode);
@@ -45,11 +47,11 @@ export function AccountPanel({ account }: { account: AccountState }) {
             setPolling(false);
             setDeviceCode(null);
           } else if (pollResult.status === "denied") {
-            setError("Sign-in was denied.");
+            setError(t("accountTab.signInWasDenied"));
             setPolling(false);
             setDeviceCode(null);
           } else {
-            setError("The sign-in code expired. Please try again.");
+            setError(t("accountTab.theSignInCodeExpiredPlease"));
             setPolling(false);
             setDeviceCode(null);
           }
@@ -68,13 +70,13 @@ export function AccountPanel({ account }: { account: AccountState }) {
 
 
   if (account.loading) {
-    return <p className="text-muted">Loading account…</p>;
+    return <p className="text-muted">{t("accountTab.loadingAccount")}</p>;
   }
 
   if (account.profile) {
     return (
       <div className="stack">
-        <h3>Account</h3>
+        <h3>{t("accountTab.account")}</h3>
         <div className="row gap-sm account-profile-row">
           {account.profile.image && !imgFailed ? (
             <img
@@ -96,10 +98,10 @@ export function AccountPanel({ account }: { account: AccountState }) {
         <button
           className="btn btn-sm"
           type="button"
-          title="Sign out and revoke this device's token"
+          title={t("accountTab.signOutAndRevokeThis")}
           onClick={() => void account.signOut()}
         >
-          <LogOut size={12} /> Sign out
+          <LogOut size={12} /> {t("accountTab.signOut")}
         </button>
         {error ? <p className="text-danger text-sm">{error}</p> : null}
       </div>
@@ -108,21 +110,20 @@ export function AccountPanel({ account }: { account: AccountState }) {
 
   return (
     <div className="stack">
-      <h3>Account</h3>
+      <h3>{t("accountTab.account")}</h3>
       <p className="text-muted text-sm">
-        Sign in with your basebuild.net account to sync usage through MCP
-        without creating an API key. The app works as a guest without signing in.
+        {t("accountTab.signInWithYourBasebuild")}
       </p>
       {polling ? (
-        <p className="text-muted text-sm">Waiting for browser approval… Check your browser to approve the sign-in.</p>
+        <p className="text-muted text-sm">{t("accountTab.waitingForBrowserApprovalCheck")}</p>
       ) : (
         <button
           className="btn btn-primary"
           type="button"
-          title="Open browser to sign in to basebuild.net"
+          title={t("accountTab.openBrowserToSignIn")}
           onClick={() => void signIn()}
         >
-          <User size={12} /> Sign in
+          <User size={12} /> {t("accountTab.signIn")}
         </button>
       )}
       {error ? <p className="text-danger text-sm">{error}</p> : null}
@@ -130,30 +131,36 @@ export function AccountPanel({ account }: { account: AccountState }) {
   );
 }
 
-const SOURCE_LABELS: Record<UsageSyncSource, string> = {
-  native: "Basebuild chat",
-  omp: "Oh My Pi",
-  "claude-code": "Claude Code",
-  codex: "Codex CLI",
-  opencode: "OpenCode",
-};
+function SOURCE_LABELS(): Record<UsageSyncSource, string> {
+  return {
+    native: t("accountTab.basebuildChat"),
+    omp: t("accountTab.ohMyPi"),
+    "claude-code": t("accountTab.claudeCode"),
+    codex: t("accountTab.codexCli"),
+    opencode: t("accountTab.opencode"),
+  };
+}
 
 /// What each source contributes, shown as the row tooltip. "OMP" and
 /// "Basebuild" alone did not say which usage a row actually covers.
-const SOURCE_HINTS: Record<UsageSyncSource, string> = {
-  native: "chats you run inside Basebuild",
-  omp: "usage reported by the Oh My Pi CLI",
-  "claude-code": "usage recorded by Claude Code sessions",
-  codex: "usage recorded by the Codex CLI",
-  opencode: "usage recorded by OpenCode sessions",
-};
+function SOURCE_HINTS(): Record<UsageSyncSource, string> {
+  return {
+    native: t("accountTab.chatsYouRunInsideBasebuild"),
+    omp: t("accountTab.usageReportedByTheOhMy"),
+    "claude-code": t("accountTab.usageRecordedByClaudeCodeSessions"),
+    codex: t("accountTab.usageRecordedByTheCodexCli"),
+    opencode: t("accountTab.usageRecordedByOpencodeSessions"),
+  };
+}
 
-const OUTCOME_LABELS: Record<SyncOverallOutcome, string> = {
-  success: "Synced",
-  partial: "Partial",
-  failed: "Failed",
-  nothing_to_sync: "Up to date",
-};
+function OUTCOME_LABELS(): Record<SyncOverallOutcome, string> {
+  return {
+    success: t("accountTab.outcomeLabelsSuccess"),
+    partial: t("accountTab.partial"),
+    failed: t("accountTab.failed2"),
+    nothing_to_sync: t("accountTab.upToDate"),
+  };
+}
 
 export function usageSyncOffReasonText(status: AutoSyncStatus): string | null {
   // The backoff window is the one "off" reason that keeps the gates open:
@@ -161,21 +168,21 @@ export function usageSyncOffReasonText(status: AutoSyncStatus): string | null {
   if (status.offReason === "retry_backoff") {
     const at = status.retryAfter ? formatSyncTime(status.retryAfter) : null;
     return at
-      ? `A previous attempt failed. The next scheduled retry is at ${at} — or retry now.`
-      : "A previous attempt failed. A retry is waiting for its backoff window.";
+      ? t("accountTab.aPreviousAttemptFailedTheNext", { at })
+      : t("accountTab.aPreviousAttemptFailedARetry");
   }
   if (status.gatesPass) return null;
   switch (status.offReason) {
     case "usage_sharing_disabled":
-      return "Usage sharing is off. Turn on Share anonymous aggregate usage below to sync.";
+      return t("accountTab.usageSharingIsOffTurnOn");
     case "auto_sync_disabled":
-      return "Auto-sync is off. Turn it on to schedule usage sync.";
+      return t("accountTab.autoSyncIsOffTurnIt");
     case "consent_required":
-      return "Usage sharing isn't on yet. Turn on Share anonymous aggregate usage below to sync.";
+      return t("accountTab.usageSharingIsnTOnYet");
     case "no_sources_available":
-      return "No supported local usage sources are currently available.";
+      return t("accountTab.noSupportedLocalUsageSourcesAre");
     default:
-      return "Usage sync is off. Review Share anonymous aggregate usage below.";
+      return t("accountTab.usageSyncIsOffReviewShare");
   }
 }
 
@@ -190,65 +197,47 @@ function sourceState(source: SourceSyncStatus): {
 } {
   if (!source.available) {
     return {
-      label: "Not installed",
+      label: t("accountTab.notInstalled"),
       className: "is-muted",
-      detail: source.availabilityReason ?? "No local usage store found",
+      detail: source.availabilityReason ?? t("accountTab.noLocalUsageStoreFound"),
     };
   }
   if (source.lastError || source.pendingRetry) {
     return {
-      label: "Retrying",
+      label: t("accountTab.retrying2"),
       className: "is-warning",
-      detail: source.lastError ?? "Queued for the next attempt",
+      detail: source.lastError ?? t("accountTab.queuedForTheNextAttempt"),
     };
   }
   // Queued work is the difference between "caught up" and "we just haven't
   // sent your last message yet" — reporting both as "no new usage" is what
   // made the panel look stuck right after sending a message.
   const queued = source.pendingRequests ?? 0;
-  const queuedText = `${queued} request${queued === 1 ? "" : "s"} waiting for the next sync`;
+  const queuedText = queued === 1 ? t("accountTab.requestsWaitingOne", { count: queued }) : t("accountTab.requestsWaitingOther", { count: queued });
   if (source.lastSuccessAt) {
     return {
-      label: "Synced",
+      label: t("accountTab.synced"),
       className: "is-ok",
       detail: queued
-        ? `${formatRelativeTime(source.lastSuccessAt)} · ${queuedText}`
-        : formatRelativeTime(source.lastSuccessAt),
+        ? `${formatRelativeTime(source.lastSuccessAt, "long")} · ${queuedText}`
+        : formatRelativeTime(source.lastSuccessAt, "long"),
     };
   }
   if (queued) {
-    return { label: "Queued", className: "is-warning", detail: queuedText };
+    return { label: t("accountTab.queued"), className: "is-warning", detail: queuedText };
   }
-  return { label: "Waiting", className: "is-muted", detail: "No new usage yet" };
+  return { label: t("accountTab.waiting"), className: "is-muted", detail: t("accountTab.noNewUsageYet") };
 }
 
 function formatSyncTime(timestamp?: number): string {
-  return timestamp ? new Date(timestamp * 1000).toLocaleString() : "Never";
-}
-
-/// "2 minutes ago" reads faster than a locale timestamp in a status list.
-/// The absolute time stays available as the row's tooltip.
-function formatRelativeTime(timestamp: number): string {
-  const seconds = Math.max(0, Math.floor(Date.now() / 1000) - timestamp);
-  if (seconds < 60) return "just now";
-  const units: [number, string][] = [
-    [86400 * 7, "week"],
-    [86400, "day"],
-    [3600, "hour"],
-    [60, "minute"],
-  ];
-  for (const [size, name] of units) {
-    const value = Math.floor(seconds / size);
-    if (value >= 1) return `${value} ${name}${value === 1 ? "" : "s"} ago`;
-  }
-  return "just now";
+  return timestamp ? formatDateTime(new Date(timestamp * 1000)) : t("accountTab.never");
 }
 
 function formatUsageWindowLabel(window: string): string {
-  if (window === "7d") return "Weekly (7d)";
-  if (window === "1d" || window === "24h") return `Daily (${window})`;
-  if (/^\d+h$/.test(window)) return `Session (${window})`;
-  if (/^(28|30|31)d$/.test(window)) return `Monthly (${window})`;
+  if (window === "7d") return t("accountTab.weekly7d");
+  if (window === "1d" || window === "24h") return t("accountTab.daily", { window });
+  if (/^\d+h$/.test(window)) return t("accountTab.session", { window });
+  if (/^(28|30|31)d$/.test(window)) return t("accountTab.monthly", { window });
   return window;
 }
 
@@ -288,22 +277,22 @@ function formatCountdown(epochMs: number): string {
 
 function formatDrainTooltip(row: DrainEstimate): string {
   const parts = [
-    `${row.intervals} solved interval${row.intervals === 1 ? "" : "s"}`,
-    `${row.requests} request${row.requests === 1 ? "" : "s"} measured`,
-    `${formatRequestCount(row.requestsPerWindow)} requests per full window`,
+    row.intervals === 1 ? t("accountTab.solvedIntervalsOne", { count: row.intervals }) : t("accountTab.solvedIntervalsOther", { count: row.intervals }),
+    row.requests === 1 ? t("accountTab.requestsMeasuredOne", { count: row.requests }) : t("accountTab.requestsMeasuredOther", { count: row.requests }),
+    t("accountTab.requestsPerFullWindow", { value1: formatRequestCount(row.requestsPerWindow) }),
   ];
   if (row.hoursUsedThisWindow != null) {
     parts.push(
-      `${formatModelHours(row.hoursUsedThisWindow)} of model time spent since this window opened`,
+      t("accountTab.ofModelTimeSpentSinceThis", { value1: formatModelHours(row.hoursUsedThisWindow) }),
     );
   }
   if (row.hoursPerWeek != null) {
-    parts.push(`${row.hoursPerWeek.toFixed(1)}h of model runtime per week`);
+    parts.push(t("accountTab.hOfModelRuntimePerWeek", { value1: row.hoursPerWeek.toFixed(1) }));
   } else {
-    parts.push("weekly allowance unknown: the provider does not name this window's length");
+    parts.push(t("accountTab.weeklyAllowanceUnknownTheProviderDoes"));
   }
-  if (row.models.length > 0) parts.push(`models: ${row.models.join(", ")}`);
-  if (row.resetsAt) parts.push(`resets ${new Date(row.resetsAt).toLocaleString()}`);
+  if (row.models.length > 0) parts.push(t("accountTab.models", { models: row.models.join(", ") }));
+  if (row.resetsAt) parts.push(t("accountTab.resets", { v1: formatDateTime(new Date(row.resetsAt)) }));
   return parts.join(" · ");
 }
 
@@ -359,29 +348,29 @@ export function UsageSyncPanel() {
     (source) => source.pendingRetry || source.lastError,
   ) ?? false;
   const outcomeLabel = status?.overallOutcome
-    ? OUTCOME_LABELS[status.overallOutcome]
-    : "Not synced";
+    ? OUTCOME_LABELS()[status.overallOutcome]
+    : t("accountTab.notSynced");
 
   return (
     <div className="stack">
-      <h3>Usage</h3>
+      <h3>{t("accountTab.usage")}</h3>
 
       {status?.attribution === "account" && !projected && !error ? (
         <>
           <div className="card">
-            <h4>Session and weekly usage</h4>
-            <SkeletonRows rows={2} label="Loading provider usage limits…" />
+            <h4>{t("accountTab.sessionAndWeeklyUsage")}</h4>
+            <SkeletonRows rows={2} label={t("accountTab.loadingProviderUsageLimits")} />
           </div>
           <div className="card">
-            <h4>Per-model usage</h4>
-            <SkeletonRows rows={4} label="Loading per-model usage…" />
+            <h4>{t("accountTab.perModelUsage")}</h4>
+            <SkeletonRows rows={4} label={t("accountTab.loadingPerModelUsage")} />
           </div>
         </>
       ) : null}
 
       {liveRows.length > 0 ? (
         <div className="card">
-          <h4>Session and weekly usage</h4>
+          <h4>{t("accountTab.sessionAndWeeklyUsage")}</h4>
           {liveRows.map((row) => {
             const pct = Math.round(Math.min(1, Math.max(0, row.usedFraction)) * 100);
             const label = formatUsageWindowLabel(row.window);
@@ -389,7 +378,7 @@ export function UsageSyncPanel() {
               <div
                 key={`${row.provider}-${row.window}`}
                 className={`usage-window-row ${row.isStale ? "is-stale" : ""}`}
-                title={`${row.provider} ${label}: ${pct}% used${row.resetsAt ? `, resets ${row.resetsAt}` : ""}${row.isStale ? ", stale" : ""}`}
+                title={t((row.isStale ? "accountTab.used.stale" : "accountTab.used.none"), { provider: row.provider, label: label, pct: pct, value: row.resetsAt ? t("accountTab.resets2", { resetsAt: row.resetsAt }) : "" })}
               >
                 <span className="usage-window-label">
                   <strong className="text-sm">{label}</strong>
@@ -399,12 +388,12 @@ export function UsageSyncPanel() {
                   className="usage-window-bar"
                   value={pct}
                   max={100}
-                  aria-label={`${row.provider} ${label} usage`}
+                  aria-label={t("accountTab.usage2", { provider: row.provider, label: label })}
                 >
                   {pct}%
                 </progress>
                 <span className="text-sm mono">{pct}%</span>
-                {row.isStale ? <span className="text-muted text-sm">stale</span> : null}
+                {row.isStale ? <span className="text-muted text-sm">{t("accountTab.stale")}</span> : null}
               </div>
             );
           })}
@@ -413,23 +402,20 @@ export function UsageSyncPanel() {
 
       {drain.length > 0 ? (
         <div className="card">
-          <h4>Plan drain rate</h4>
+          <h4>{t("accountTab.planDrainRate")}</h4>
           <p className="text-muted text-sm">
-            Solved on this machine by pairing consecutive quota readings against the
-            traffic measured between them. No provider publishes what a request costs
-            against a subscription, how much of the window you have already spent, or
-            how much is left; all three are measured here.
+            {t("accountTab.solvedOnThisMachineBy")}
           </p>
           <table className="usage-table usage-drain-table">
             <thead>
               <tr>
-                <th>Window</th>
-                <th>Left</th>
-                <th>Used this window</th>
-                <th>Requests left</th>
-                <th>Per request</th>
-                <th>Runs out</th>
-                <th>Confidence</th>
+                <th>{t("accountTab.window")}</th>
+                <th>{t("accountTab.left")}</th>
+                <th>{t("accountTab.usedThisWindow")}</th>
+                <th>{t("accountTab.requestsLeft")}</th>
+                <th>{t("accountTab.perRequest")}</th>
+                <th>{t("accountTab.runsOut")}</th>
+                <th>{t("accountTab.confidence")}</th>
               </tr>
             </thead>
             <tbody>
@@ -440,21 +426,21 @@ export function UsageSyncPanel() {
                 >
                   <td>
                     {row.provider}
-                    {row.windowLabel ? ` · ${row.windowLabel}` : ""}
-                    {row.modelId ? ` · ${row.modelId}` : ""}
+                    {row.windowLabel ? t("accountTab.text", { windowLabel: row.windowLabel }) : ""}
+                    {row.modelId ? t("accountTab.text2", { modelId: row.modelId }) : ""}
                   </td>
                   <td>{Math.round(row.remainingFraction * 100)}%</td>
                   <td>
                     {row.hoursUsedThisWindow == null
                       ? "—"
-                      : `${formatModelHours(row.hoursUsedThisWindow)} · ${formatRequestCount(row.requestsUsedThisWindow)} req`}
+                      : t("accountTab.req", { hoursUsedThisWindow: formatModelHours(row.hoursUsedThisWindow), requestsUsedThisWindow: formatRequestCount(row.requestsUsedThisWindow) })}
                   </td>
                   <td>{formatRequestCount(row.requestsRemaining)}</td>
                   <td>{formatDrainPercent(row.fractionPerRequest)}</td>
                   <td>
                     {row.projectedExhaustionAt
                       ? formatCountdown(row.projectedExhaustionAt)
-                      : "not draining"}
+                      : t("accountTab.notDraining")}
                   </td>
                   <td className={`usage-drain-confidence is-${row.confidence}`}>
                     {row.confidence}
@@ -468,16 +454,16 @@ export function UsageSyncPanel() {
 
       {snapshotRows.length > 0 ? (
         <div className="card">
-          <h4>Per-model usage</h4>
-          <p className="text-muted text-sm">Daily averages from the last 7 days.</p>
+          <h4>{t("accountTab.perModelUsage")}</h4>
+          <p className="text-muted text-sm">{t("accountTab.dailyAveragesFromTheLast")}</p>
           <table className="usage-table">
             <thead>
               <tr>
-                <th>Provider</th>
-                <th>Model</th>
-                <th>Req/day</th>
-                <th>Hrs/day</th>
-                <th>$/day</th>
+                <th>{t("accountTab.provider")}</th>
+                <th>{t("accountTab.model")}</th>
+                <th>{t("accountTab.reqDay")}</th>
+                <th>{t("accountTab.hrsDay")}</th>
+                <th>{t("accountTab.day")}</th>
               </tr>
             </thead>
             <tbody>
@@ -487,7 +473,7 @@ export function UsageSyncPanel() {
                   <td>{row.model}</td>
                   <td>{Math.round(row.requestsPerDay)}</td>
                   <td>{row.hoursPerDay.toFixed(1)}</td>
-                  <td>{row.costPerDay != null ? `$${row.costPerDay.toFixed(2)}` : "-"}</td>
+                  <td>{row.costPerDay != null ? t("accountTab.text3", { value: row.costPerDay.toFixed(2) }) : "-"}</td>
                 </tr>
               ))}
             </tbody>
@@ -496,43 +482,39 @@ export function UsageSyncPanel() {
       ) : null}
       <div className="usage-sharing-summary">
         <div className="usage-sharing-block">
-          <h4>What uploads</h4>
+          <h4>{t("accountTab.whatUploads")}</h4>
           <p className="text-muted text-sm">
-            Privacy-safe request spans and quota snapshots in bounded windows: client source,
-            provider, model, token counts, cost, timing, outcome, and plan utilization with reset
-            timing.
+            {t("accountTab.privacySafeRequestSpansAnd")}
           </p>
         </div>
         <div className="usage-sharing-block">
-          <h4>What never uploads</h4>
+          <h4>{t("accountTab.whatNeverUploads")}</h4>
           <p className="text-muted text-sm">
-            Prompts, responses, reasoning, tool arguments, source code, terminal output, file or
-            repository paths, URLs, account labels, credentials, authentication tokens, secrets, or
-            hardware identifiers.
+            {t("accountTab.promptsResponsesReasoningToolArguments")}
           </p>
         </div>
       </div>
 
       {status ? (
-        <div className="usage-attribution" title="Usage attribution for future accepted uploads">
+        <div className="usage-attribution" title={t("accountTab.usageAttributionForFutureAccepted")}>
           {status.attribution === "account" ? <User size={14} /> : <ShieldCheck size={14} />}
           <div>
             <strong className="text-sm">
-              {status.attribution === "account" ? "Account attribution" : "Private installation attribution"}
+              {status.attribution === "account" ? t("accountTab.accountAttribution") : t("accountTab.privateInstallationAttribution")}
             </strong>
             <p className="text-muted text-sm">
               {status.attribution === "account"
-                ? "Accepted usage is attributed to your signed-in basebuild.net account."
-                : "Accepted usage is attributed only to this private installation. It is not a hardware ID and is not merged into an account later."}
+                ? t("accountTab.acceptedUsageIsAttributedTo")
+                : t("accountTab.acceptedUsageIsAttributedOnly")}
             </p>
           </div>
         </div>
       ) : (
-        <SkeletonRows rows={2} label="Loading usage attribution…" />
+        <SkeletonRows rows={2} label={t("accountTab.loadingUsageAttribution")} />
       )}
 
       {offReason ? (
-        <p className="usage-sync-off text-sm" title="Why usage sync is currently off">
+        <p className="usage-sync-off text-sm" title={t("accountTab.whyUsageSyncIsCurrently")}>
           <AlertCircle size={14} /> {offReason}
         </p>
       ) : null}
@@ -547,43 +529,42 @@ export function UsageSyncPanel() {
               checked={status.enabled}
               disabled={toggling}
               onChange={(event) => void toggleAutoSync(event.target.checked)}
-              title="Sync usage automatically: periodically and shortly after usage changes"
+              title={t("accountTab.syncUsageAutomaticallyPeriodicallyAnd")}
             />
           ) : (
-            <SkeletonControl label="the automatic sync setting" />
+            <SkeletonControl label={t("accountTab.theAutomaticSyncSetting")} />
           )}
-          <span className="text-sm">Sync usage automatically (periodically &amp; on changes)</span>
+          <span className="text-sm">{t("accountTab.syncUsageAutomaticallyPeriodicallyOn")}</span>
         </label>
         <button
           className="btn btn-sm"
           type="button"
-          title={status ? "Sync usage and quota observations now" : "Loading sync status…"}
+          title={status ? t("accountTab.syncUsageAndQuotaObservations") : t("accountTab.loadingSyncStatus")}
           disabled={!status || syncing || retrying || !status.gatesPass}
           onClick={() => void syncNow()}
         >
           <RefreshCw size={12} className={syncing ? "spin" : undefined} />{" "}
-          {syncing ? "Syncing..." : "Sync now"}
+          {syncing ? t("accountTab.syncing") : t("accountTab.syncNow")}
         </button>
         {hasRetryableSource ? (
           <button
             className="btn btn-sm"
             type="button"
-            title="Retry pending usage sources now"
+            title={t("accountTab.retryPendingUsageSourcesNow")}
             disabled={syncing || retrying || !status?.gatesPass}
             onClick={() => void retryNow()}
           >
             <RotateCcw size={12} className={retrying ? "spin" : undefined} />{" "}
-            {retrying ? "Retrying..." : "Retry sync"}
+            {retrying ? t("accountTab.retrying") : t("accountTab.retrySync")}
           </button>
         ) : null}
         {!status ? (
           <span className="text-muted text-sm">
-            Last sync: <SkeletonText width={14} />
+            {t("accountTab.lastSync")} <SkeletonText width={14} />
           </span>
         ) : status.lastSyncAt ? (
           <span className="text-muted text-sm">
-            Last sync: {formatSyncTime(status.lastSyncAt)}
-          </span>
+            {t("accountTab.lastSync2", { lastSyncAt: formatSyncTime(status.lastSyncAt) })}</span>
         ) : null}
       </div>
 
@@ -591,27 +572,26 @@ export function UsageSyncPanel() {
           until `status` arrived is what made it pop in from nowhere. */}
       <section className="usage-source-section" aria-labelledby="usage-source-heading">
         <div className="row-between">
-          <h4 id="usage-source-heading">Source status</h4>
+          <h4 id="usage-source-heading">{t("accountTab.sourceStatus")}</h4>
           <span
             className={`usage-sync-outcome is-${status?.overallOutcome ?? "idle"}`}
-            title="Result of the most recent coordinated sync"
+            title={t("accountTab.resultOfTheMostRecent")}
           >
-            {status ? outcomeLabel : "Checking…"}
+            {status ? outcomeLabel : t("accountTab.checking")}
           </span>
         </div>
         <p className="text-muted text-sm">
-          Every local tool Basebuild can read usage from. Installed tools are
-          listed first; the rest are shown so you can see what would be picked up.
+          {t("accountTab.everyLocalToolBasebuildCan")}
         </p>
         {!status ? (
-          <SkeletonRows rows={5} label="Loading source status…" />
+          <SkeletonRows rows={5} label={t("accountTab.loadingSourceStatus")} />
         ) : status.sources.length > 0 ? (
           <div className="usage-source-list">
             {[...status.sources]
               .sort((a, b) =>
                 a.available !== b.available
                   ? Number(b.available) - Number(a.available)
-                  : SOURCE_LABELS[a.source].localeCompare(SOURCE_LABELS[b.source]),
+                  : SOURCE_LABELS()[a.source].localeCompare(SOURCE_LABELS()[b.source]),
               )
               .map((source) => {
                 const state = sourceState(source);
@@ -619,14 +599,14 @@ export function UsageSyncPanel() {
                   <div
                     className={`usage-source-row ${source.available ? "" : "is-unavailable"}`}
                     key={source.source}
-                    title={`${SOURCE_LABELS[source.source]} — ${SOURCE_HINTS[source.source]}. Last accepted upload: ${formatSyncTime(source.lastSuccessAt)}`}
+                    title={t("accountTab.lastAcceptedUpload", { value: SOURCE_LABELS()[source.source], value2: SOURCE_HINTS()[source.source], lastSuccessAt: formatSyncTime(source.lastSuccessAt) })}
                   >
                     <div className="usage-source-name">
                       {state.className === "is-ok" ? <CheckCircle2 size={14} /> : null}
                       {state.className === "is-warning" ? <Clock3 size={14} /> : null}
                       {state.className === "is-error" ? <AlertCircle size={14} /> : null}
                       {state.className === "is-muted" ? <ShieldCheck size={14} /> : null}
-                      <strong className="text-sm">{SOURCE_LABELS[source.source]}</strong>
+                      <strong className="text-sm">{SOURCE_LABELS()[source.source]}</strong>
                     </div>
                     <span className={`usage-source-state ${state.className}`}>{state.label}</span>
                     <span
@@ -643,18 +623,17 @@ export function UsageSyncPanel() {
               })}
           </div>
         ) : (
-          <p className="text-muted text-sm">Source status will appear after the coordinator starts.</p>
+          <p className="text-muted text-sm">{t("accountTab.sourceStatusWillAppearAfter")}</p>
         )}
       </section>
 
       {status?.lastError ? (
         <p className="text-danger text-sm" title={status.lastError}>
-          Last coordinator error: {status.lastError}
-        </p>
+          {t("accountTab.lastCoordinatorError", { lastError: status.lastError })}</p>
       ) : null}
       {lastSyncResult ? (
         <p className={`text-sm ${lastSyncResult.ok ? "text-muted" : "text-danger"}`} title={lastSyncResult.message}>
-          {lastSyncResult.ok ? "Success: " : "Failed: "}
+          {lastSyncResult.ok ? t("accountTab.success") : t("accountTab.failed")}
           {lastSyncResult.message}
         </p>
       ) : null}
@@ -748,23 +727,21 @@ function ProviderPlansPanel({ gatesPass }: { gatesPass: boolean }) {
 
   return (
     <div className="card">
-      <h4>Provider Plans</h4>
+      <h4>{t("accountTab.providerPlans")}</h4>
       <p className="text-muted text-sm">
-        Detected natively from your provider credentials. Providers whose API does not expose a plan
-        show a picker. Declaring your exact plan gives basebuild.net a 100%-confidence attribution
-        instead of a guess.
+        {t("accountTab.detectedNativelyFromYourProvider")}
       </p>
       {!gatesPass ? (
         <p className="text-muted text-sm">
-          Turn on Share anonymous aggregate usage to sync declared plans.
+          {t("accountTab.turnOnShareAnonymousAggregate")}
         </p>
       ) : null}
-      {loading ? <p className="text-muted text-sm">Detecting…</p> : null}
+      {loading ? <p className="text-muted text-sm">{t("accountTab.detecting")}</p> : null}
       {detected.map((d) => {
         const options = catalog.get(d.provider) ?? [];
         return (
           <div key={d.provider} className="stack gap-xs">
-            <div className="usage-plan-row row gap-sm flex-wrap" title={`${d.provider}: ${d.source}`}>
+            <div className="usage-plan-row row gap-sm flex-wrap" title={t("accountTab.text4", { provider: d.provider, source: d.source })}>
               <span className="text-sm usage-plan-provider">{d.provider}</span>
               {d.needsDeclaration ? (
                 <select
@@ -772,24 +749,24 @@ function ProviderPlansPanel({ gatesPass }: { gatesPass: boolean }) {
                   value={selections.get(d.provider) ?? ""}
                   disabled={saving || options.length === 0}
                   onChange={(e) => pickPlan(d.provider, e.target.value)}
-                  title={`Declare your ${d.provider} plan`}
+                  title={t("accountTab.declareYourPlan", { provider: d.provider })}
                 >
                   <option value="">
-                    {options.length === 0 ? "No catalog plans" : "Select your plan…"}
+                    {options.length === 0 ? t("accountTab.noCatalogPlans") : t("accountTab.selectYourPlan")}
                   </option>
                   {options.map((o) => (
                     <option key={o.id} value={o.id}>{o.label}</option>
                   ))}
                 </select>
               ) : (
-                <span className="text-sm" title={`Detected via ${d.source}`}>
-                  ✓ {d.detectedPlanType ?? "detected"}
-                  <span className="text-muted"> · {d.source === "native" ? "native credential" : d.source}</span>
+                <span className="text-sm" title={t("accountTab.detectedVia", { source: d.source })}>
+                  ✓ {d.detectedPlanType ?? t("accountTab.detected")}
+                  <span className="text-muted"> · {d.source === "native" ? t("accountTab.nativeCredential") : d.source}</span>
                 </span>
               )}
               {d.confidence === "inferred" ? (
-                <span className="text-muted text-sm" title="Predicted from usage volume, not provider-confirmed">
-                  inferred
+                <span className="text-muted text-sm" title={t("accountTab.predictedFromUsageVolumeNot")}>
+                  {t("accountTab.inferred")}
                 </span>
               ) : null}
             </div>
@@ -803,9 +780,9 @@ function ProviderPlansPanel({ gatesPass }: { gatesPass: boolean }) {
           type="button"
           disabled={saving || !gatesPass}
           onClick={() => void savePlans()}
-          title="Save declared plans to basebuild.net"
+          title={t("accountTab.saveDeclaredPlansToBasebuild")}
         >
-          {saving ? "Saving…" : `Save ${selections.size} plan${selections.size === 1 ? "" : "s"}`}
+          {saving ? t("accountTab.saving") : t((selections.size === 1 ? "accountTab.savePlan.none" : "accountTab.savePlan.s"), { size: selections.size })}
         </button>
       ) : null}
       {message ? <p className="text-muted text-sm">✓ {message}</p> : null}

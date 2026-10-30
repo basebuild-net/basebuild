@@ -127,6 +127,7 @@ import { assignPlanWithProfile, getLaunchProfile, validateReadiness, type Launch
 import { isTerminalRunStatus, pipelineListRunsByProject } from "../../lib/pipeline";
 import { usePlanningEvents } from "../../state/planningEvents";
 import { humanizeChatTitle } from "../../lib/titles";
+import { t } from "../../i18n";
 export type ToolId = "terminal";
 
 
@@ -138,7 +139,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 const DEFAULT_SHELL = () => {
-  if (typeof window !== "undefined" && window.navigator.platform.includes("Win")) return "powershell.exe";
+  if (typeof window !== "undefined" && window.navigator.platform.includes("Win" /* i18n-exempt: platform detection id */)) return "powershell.exe";
   return "bash";
 };
 
@@ -291,7 +292,7 @@ export function AppShell({ updates }: AppShellProps) {
     // tab loader and becomes a false orphan.
     if (workspaceRestore?.lastSessionId) return;
     if (session.activeSession?.title === "New Session") return;
-    void session.createTab("chat", "Chat 1");
+    void session.createTab("chat", t("appShell.chat1"));
   }, [activeProjectPath, session.activeSessionId, session.tabs.length, session.activeSession?.title, session, projectRestoreLoading, workspaceRestore]);
   // Seed a first chat only for a genuinely empty project. Active hidden
   // surfaces intentionally leave the center empty until the user restores one
@@ -304,7 +305,7 @@ export function AppShell({ updates }: AppShellProps) {
     const newPanel: Panel = {
       id: newPanelId(),
       type: "chat",
-      title: "Chat 1",
+      title: t("appShell.chat12"),
       chatSessionId: null,
       terminalId: null,
       filePath: null,
@@ -473,7 +474,7 @@ export function AppShell({ updates }: AppShellProps) {
         const newPanel: Panel = {
           id: chatSessionId,
           type: "chat",
-          title: `Run ${chatSessionId.slice(-6)}`,
+          title: t("appShell.run", { v1: chatSessionId.slice(-6) }),
           chatSessionId,
           terminalId: null,
           filePath: null,
@@ -707,7 +708,7 @@ export function AppShell({ updates }: AppShellProps) {
           projectPath,
           projectName,
           recentOutput: terminalOutputBuffer,
-          existingTitle: activeSession?.title ?? "New Session",
+          existingTitle: activeSession?.title ?? t("appShell.newSession"),
           tabKinds: activeSession ? session.tabs.map((t) => t.kind) : [],
         });
         if (newTitle && sessionId) {
@@ -730,12 +731,12 @@ export function AppShell({ updates }: AppShellProps) {
       if (path) {
         await setLastFocusedProject(path);
         setActiveProjectPath(path);
-        handleShowToast("Project opened", path.split(/[\\/]/).pop() ?? path, "success");
+        handleShowToast(t("appShell.projectOpened"), path.split(/[\\/]/).pop() ?? path, "success");
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       addLog("error", "Failed to open project folder", message);
-      handleShowToast("Failed to open project", message, "error");
+      handleShowToast(t("appShell.failedToOpenProject"), message, "error");
     }
   }, [sidebar, addLog, handleShowToast]);
   const handleSelectProject = useCallback(
@@ -745,10 +746,10 @@ export function AppShell({ updates }: AppShellProps) {
       try {
         await setLastFocusedProject(path);
         setActiveProjectPath(path);
-        handleShowToast("Project activated", path.split(/[\\/]/).pop() ?? path, "info");
+        handleShowToast(t("appShell.projectActivated"), path.split(/[\\/]/).pop() ?? path, "info");
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        handleShowToast("Failed to activate project", msg, "error");
+        handleShowToast(t("appShell.failedToActivateProject"), msg, "error");
       }
     },
     [sidebar, handleShowToast],
@@ -764,7 +765,7 @@ export function AppShell({ updates }: AppShellProps) {
       if (path === activeProjectPath) {
         setActiveProjectPath(null);
       }
-      handleShowToast("Project removed", path.split(/[\\/]/).pop() ?? path, "info");
+      handleShowToast(t("appShell.projectRemoved"), path.split(/[\\/]/).pop() ?? path, "info");
     },
     [sidebar, activeProjectPath, handleShowToast],
   );
@@ -779,7 +780,7 @@ export function AppShell({ updates }: AppShellProps) {
   const handleCopyProjectPath = useCallback(
     (path: string) => {
       void navigator.clipboard.writeText(path);
-      handleShowToast("Copied", path, "info");
+      handleShowToast(t("appShell.copied"), path, "info");
     },
     [handleShowToast],
   );
@@ -792,14 +793,14 @@ export function AppShell({ updates }: AppShellProps) {
     testRunPlanRunIdRef.current = null;
     setTestRunLogs([]);
     setTestRunRunning(true);
-    handleShowToast("Test Run Mode", "Initializing test project and running the full plan lifecycle…", "info");
+    handleShowToast(t("appShell.testRunMode"), t("appShell.initializingTestProjectAndRunningThe"), "info");
     // Mirror log lines to both the global log store and the modal's terminal.
     const log = (msg: string) => {
       addLog("debug", "Test Run Mode", msg);
       setTestRunLogs((prev) => [...prev, msg]);
     };
     const cancelled = () => {
-      if (testRunCancelRef.current) throw new Error("Test run cancelled by user");
+      if (testRunCancelRef.current) throw new Error(t("appShell.testRunCancelledByUser"));
     };
     try {
       // ── 1. Initialize (or reuse) the test project ──────────────────────
@@ -816,22 +817,22 @@ export function AppShell({ updates }: AppShellProps) {
 
       // ── 3. Create a workspace session + concept idea ───────────────────
       log("Creating session + idea…");
-      const wsSession = await createSession(projectPath, "Test Run Mode");
+      const wsSession = await createSession(projectPath, t("appShell.testRunMode2"));
       await ensureDefaultCategories(wsSession.id);
       const idea = await createIdea(
         wsSession.id,
-        "Test Run Mode smoke test",
-        "Automated idea created by Test Run Mode to verify the full plan lifecycle.",
+        t("appShell.testRunModeSmokeTest"),
+        t("appShell.automatedIdeaCreatedByTestRun"),
       );
 
       // ── 4. Promote idea → plan (draft) ─────────────────────────────────
       log("Promoting idea → plan…");
       const promoteResult = await batchPromoteIdeas(wsSession.id, [idea.id]);
       if (promoteResult.errors.length > 0) {
-        throw new Error(`Promote failed: ${promoteResult.errors[0].error}`);
+        throw new Error(t("appShell.promoteFailed", { error: promoteResult.errors[0].error }));
       }
       const plan = promoteResult.created[0];
-      if (!plan) throw new Error("No plan created during promotion");
+      if (!plan) throw new Error(t("appShell.noPlanCreatedDuringPromotion"));
 
       // ── 5. Move to openspec — kicks off generate_openspec pipeline ─────
       //    in the background. We must WAIT for it to finish before
@@ -850,13 +851,13 @@ export function AppShell({ updates }: AppShellProps) {
         const openspecRun = runs.find((r) => r.kind === "generate_openspec" && r.planId === plan.id);
         if (openspecRun && isTerminalRunStatus(openspecRun.status)) {
           if (openspecRun.status !== "succeeded") {
-            throw new Error(`OpenSpec generation ${openspecRun.status}: ${openspecRun.error ?? "unknown error"}`);
+            throw new Error(t("appShell.openspecGeneration", { status: openspecRun.status, value2: openspecRun.error ?? t("appShell.unknownError") }));
           }
           openspecDone = true;
           break;
         }
       }
-      if (!openspecDone) throw new Error("Timed out waiting for OpenSpec generation to complete");
+      if (!openspecDone) throw new Error(t("appShell.timedOutWaitingForOpenspecGeneration"));
       log("OpenSpec generation complete");
 
       // ── 6. Approve: openspec → ready ───────────────────────────────────
@@ -867,7 +868,7 @@ export function AppShell({ updates }: AppShellProps) {
       log("Starting chat session + assigning plan…");
       const chatSession = await nativeChatStart({
         projectPath,
-        title: "Test Run Mode",
+        title: t("appShell.testRunMode3"),
         providerId: model.providerId,
         modelId: model.modelId,
         effortLevel: model.effortLevel,
@@ -883,7 +884,7 @@ export function AppShell({ updates }: AppShellProps) {
       log("Sending start message to agent…");
       await nativeChatSend({
         sessionId: chatSession.id,
-        content: "You are running in FULLY AUTONOMOUS test mode. Do NOT ask the user any questions. Do NOT use the ask_user tool. Make reasonable decisions on your own and proceed. Begin working on the assigned plan now. Read the OpenSpec change artifacts (proposal.md, design.md, specs/, tasks.md) and work through tasks.md top to bottom. Check off each task as you complete it. When all tasks are done, report what you finished. If you encounter ambiguity, pick the most reasonable option and continue — never stop to ask.",
+        content: "You are running in FULLY AUTONOMOUS test mode. Do NOT ask the user any questions. Do NOT use the ask_user tool. Make reasonable decisions on your own and proceed. Begin working on the assigned plan now. Read the OpenSpec change artifacts (proposal.md, design.md, specs/, tasks.md) and work through tasks.md top to bottom. Check off each task as you complete it. When all tasks are done, report what you finished. If you encounter ambiguity, pick the most reasonable option and continue — never stop to ask." /* i18n-exempt: model prompt */,
         providerId: model.providerId,
         modelId: model.modelId,
         effortLevel: model.effortLevel,
@@ -907,12 +908,12 @@ export function AppShell({ updates }: AppShellProps) {
         await sleep(3000);
         cancelled();
         const session = await nativeChatGet(chatSession.id);
-        if (!session) throw new Error("Chat session disappeared during agent run");
+        if (!session) throw new Error(t("appShell.chatSessionDisappearedDuringAgentRun"));
         if (session.runState === "needs_input") {
           autoReplyCount++;
           log(`Agent needs input (auto-resolving #${autoReplyCount})…`);
           if (autoReplyCount > 20) {
-            throw new Error("Agent asked for input too many times — aborting test run");
+            throw new Error(t("appShell.agentAskedForInputTooMany"));
           }
           // List pending interactions and resolve them all.
           const pending = await nativeInteractionListPending(chatSession.id);
@@ -922,7 +923,7 @@ export function AppShell({ updates }: AppShellProps) {
               if (q.kind === "options" || q.kind === "multi") {
                 // Pick the recommended option, or the first option.
                 const idx = q.recommended ?? 0;
-                const opt = q.options?.[idx]?.label ?? q.options?.[0]?.label ?? "Continue";
+                const opt = q.options?.[idx]?.label ?? q.options?.[0]?.label ?? "Continue" /* i18n-exempt: message sent to the agent */;
                 return { questionId: q.id, selected: [opt] };
               }
               if (q.kind === "confirm") {
@@ -932,7 +933,7 @@ export function AppShell({ updates }: AppShellProps) {
                 return { questionId: q.id, value: q.scale?.min ?? 1 };
               }
               // text — tell the agent to proceed autonomously.
-              return { questionId: q.id, text: "Proceed autonomously. Make a reasonable decision and continue working on the plan." };
+              return { questionId: q.id, text: "Proceed autonomously. Make a reasonable decision and continue working on the plan." /* i18n-exempt: model prompt */ };
             });
             log(`Resolving interaction "${interaction.title ?? "(untitled)"}" with ${answers.length} answer(s)…`);
             await nativeInteractionResolve(interaction.id, answers);
@@ -943,7 +944,7 @@ export function AppShell({ updates }: AppShellProps) {
         }
         // runState === "running" → keep polling
       }
-      if (!agentDone) throw new Error("Timed out waiting for agent to finish");
+      if (!agentDone) throw new Error(t("appShell.timedOutWaitingForAgentTo"));
       log("Agent finished");
 
       // ── 10. Complete the run ───────────────────────────────────────────
@@ -955,12 +956,12 @@ export function AppShell({ updates }: AppShellProps) {
       setActiveProjectPath(projectPath);
 
       log("Test Run Mode complete — plan reached finished");
-      handleShowToast("Test Run Mode complete", "Plan reached finished — check the Plans tab.", "success");
+      handleShowToast(t("appShell.testRunModeComplete"), t("appShell.planReachedFinishedCheckThePlans"), "success");
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       addLog("error", "Test Run Mode failed", msg);
       setTestRunLogs((prev) => [...prev, `✗ ${msg}`]);
-      handleShowToast("Test Run Mode failed", msg, "error");
+      handleShowToast(t("appShell.testRunModeFailed"), msg, "error");
     } finally {
       setTestRunRunning(false);
       testRunChatSessionIdRef.current = null;
@@ -973,14 +974,14 @@ export function AppShell({ updates }: AppShellProps) {
    *  the agent loop and plan run are terminated cleanly. */
   const handleCancelTestRun = useCallback(async () => {
     testRunCancelRef.current = true;
-    setTestRunLogs((prev) => [...prev, "Cancelling test run…"]);
+    setTestRunLogs((prev) => [...prev, t("appShell.cancellingTestRun")]);
     const sessionId = testRunChatSessionIdRef.current;
     const runId = testRunPlanRunIdRef.current;
     const tasks: Promise<unknown>[] = [];
     if (sessionId) tasks.push(nativeChatCancel(sessionId).catch((e) => addLog("warn", "nativeChatCancel failed", e instanceof Error ? e.message : String(e))));
     if (runId) tasks.push(cancelPlanRun(runId, false).catch((e) => addLog("warn", "cancelPlanRun failed", e instanceof Error ? e.message : String(e))));
     await Promise.all(tasks);
-    setTestRunLogs((prev) => [...prev, "Test run cancelled."]);
+    setTestRunLogs((prev) => [...prev, t("appShell.testRunCancelled")]);
     setTestRunRunning(false);
   }, [addLog]);
 
@@ -1000,25 +1001,25 @@ export function AppShell({ updates }: AppShellProps) {
         }),
       );
       await sidebar.refreshSessions();
-      handleShowToast("Chats cleared", `${sessions.length} chat${sessions.length === 1 ? "" : "s"} removed`, "info");
+      handleShowToast(t("appShell.chatsCleared"), sessions.length === 1 ? t("appShell.chatsRemovedOne", { count: sessions.length }) : t("appShell.chatsRemovedOther", { count: sessions.length }), "info");
     },
     [sidebar, addLog, handleShowToast],
   );
 
   const handleCreateSession = useCallback(async () => {
     await session.createSession();
-    handleShowToast("Chat created", "New chat session started.", "success");
+    handleShowToast(t("appShell.chatCreated"), t("appShell.newChatSessionStarted"), "success");
   }, [session, handleShowToast]);
   const handleCreateTerminalTab = useCallback(async () => {
     if (!session.activeSessionId) return;
     try {
       const shell = DEFAULT_SHELL();
       const term = await createTerminal(shell, activeProjectPath ?? undefined);
-      await session.createTab("terminal", `Terminal ${term.id}`, term.id);
-      handleShowToast("Terminal created", `${shell} shell ready.`, "success");
+      await session.createTab("terminal", t("appShell.terminal2", { id: term.id }), term.id);
+      handleShowToast(t("appShell.terminalCreated"), t("appShell.shellReady", { shell }), "success");
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      handleShowToast("Failed to create terminal", msg, "error");
+      handleShowToast(t("appShell.failedToCreateTerminal"), msg, "error");
     }
   }, [session, activeProjectPath, handleShowToast]);
 
@@ -1031,7 +1032,7 @@ export function AppShell({ updates }: AppShellProps) {
     (panel: Panel, anchorId: string | null = null, side: DropSide = "right"): boolean => {
       if (projectRestoreLoading) {
         addLog("warn", "Panel creation blocked", "The project is still loading; please wait.");
-        handleShowToast("Project still loading", "Wait for the project to finish restoring.", "warning");
+        handleShowToast(t("appShell.projectStillLoading"), t("appShell.waitForTheProjectToFinish"), "warning");
         return false;
       }
       const result = insertPanel(panelGridState, panel, { side, anchorId });
@@ -1069,27 +1070,27 @@ export function AppShell({ updates }: AppShellProps) {
   const handleCreatePlanFromIdea = useCallback(
     async (idea: Idea, _chatSessionId: string | null) => {
       if (!session.activeSessionId) {
-        throw new Error("Open a project before preparing a plan.");
+        throw new Error(t("appShell.openAProjectBeforePreparingA"));
       }
       const result = await batchPromoteIdeas(session.activeSessionId, [idea.id]);
       const created = result.created[0];
       if (!created) {
-        throw new Error(result.errors[0]?.error ?? "The idea could not be promoted.");
+        throw new Error(result.errors[0]?.error ?? t("appShell.theIdeaCouldNotBePromoted"));
       }
 
       await plans.refreshPlans();
       setPlansModalTab("plans");
       setPlansModalOpen(true);
-      handleShowToast("Getting plan ready", `${created.referenceId} ${created.title}`, "info");
+      handleShowToast(t("appShell.gettingPlanReady"), `${created.referenceId} ${created.title}`, "info");
 
       void Promise.resolve(plans.setPlanStatus(created.id, "openspec"))
         .then(() => {
-          handleShowToast("OpenSpec plan ready", `${created.referenceId} ${created.title}`, "success");
+          handleShowToast(t("appShell.openspecPlanReady"), `${created.referenceId} ${created.title}`, "success");
         })
         .catch((error) => {
           const message = error instanceof Error ? error.message : String(error);
           addLog("error", "OpenSpec plan preparation failed", message);
-          handleShowToast("Plan preparation failed", message, "error");
+          handleShowToast(t("appShell.planPreparationFailed"), message, "error");
         });
     },
     [plans, session.activeSessionId, addLog, handleShowToast],
@@ -1116,15 +1117,15 @@ export function AppShell({ updates }: AppShellProps) {
         );
         if (owner) {
           handleShowToast(
-            "Chat owns active work",
-            "Keep the chat with Close, or cancel the linked run from Background agents before removing it.",
+            t("appShell.chatOwnsActiveWork"),
+            t("appShell.keepTheChatWithCloseOr"),
             "warning",
           );
           return;
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        handleShowToast("Could not verify chat ownership", message, "error");
+        handleShowToast(t("appShell.couldNotVerifyChatOwnership"), message, "error");
         return;
       }
     }
@@ -1178,14 +1179,14 @@ export function AppShell({ updates }: AppShellProps) {
       setPendingDelivery({ text: action.text, mode: action.mode });
       setDestinationPickerOpen(true);
       setPlansModalOpen(false);
-      handleShowToast("Generating categories", "Pick a destination chat to deliver the prompt.", "info");
+      handleShowToast(t("appShell.generatingCategories"), t("appShell.pickADestinationChatToDeliver"), "info");
     },
     [addLog, handleShowToast],
   );
   const handleStartSchematicWizard = useCallback(
     async (section?: string) => {
       if (!session.activeSessionId) {
-        handleShowToast("No active session", "Open a project first to start the schematic wizard.", "warning");
+        handleShowToast(t("appShell.noActiveSession"), t("appShell.openAProjectFirstToStart"), "warning");
         return;
       }
       let skillBody = "";
@@ -1200,7 +1201,7 @@ export function AppShell({ updates }: AppShellProps) {
       setPendingDelivery({ text: action.text, mode: action.mode });
       setDestinationPickerOpen(true);
       setPlansModalOpen(false);
-      handleShowToast("Schematic wizard started", section ? `Focusing: ${section}` : "Pick a destination chat to begin.", "info");
+      handleShowToast(t("appShell.schematicWizardStarted"), section ? t("appShell.focusing", { section }) : t("appShell.pickADestinationChatToBegin"), "info");
     },
     [session, addLog, handleShowToast],
   );
@@ -1213,7 +1214,7 @@ export function AppShell({ updates }: AppShellProps) {
     setPendingDelivery({ text: action.text, mode: action.mode, action: action.action });
     setDestinationPickerOpen(true);
     setPlansModalOpen(false);
-    handleShowToast("Generating from finished plans", `${grounding.finishedPlanCount} finished plan${grounding.finishedPlanCount > 1 ? "s" : ""} since last schematic update.`, "info");
+    handleShowToast(t("appShell.generatingFromFinishedPlans"), grounding.finishedPlanCount === 1 ? t("appShell.finishedPlansSinceSchematicOne", { count: grounding.finishedPlanCount }) : t("appShell.finishedPlansSinceSchematicOther", { count: grounding.finishedPlanCount }), "info");
   }, [addLog, handleShowToast]);
 
   // Guided idea rounds keep the existing schematic soft gate, then collect a
@@ -1221,7 +1222,7 @@ export function AppShell({ updates }: AppShellProps) {
   const handleStartIdeaRound = useCallback((proceedDespiteGate = false) => {
     if (!session.activeSessionId) {
       addLog("debug", "Idea round setup skipped", "no active session");
-      handleShowToast("No active session", "Open a project first to run an idea round.", "warning");
+      handleShowToast(t("appShell.noActiveSession2"), t("appShell.openAProjectFirstToRun"), "warning");
       return;
     }
     const health = schematic.report?.health ?? (schematic.exists ? "partial" : "missing");
@@ -1249,7 +1250,7 @@ export function AppShell({ updates }: AppShellProps) {
       addLog("info", "Idea round started", `round=${roundId} gate=${health} categories=${categories.map((category) => category.id).join(",") || "project-wide"} ideas=${setup.ideaCount}`);
     } catch (e) {
       addLog("error", "Failed to start idea round", e instanceof Error ? e.message : String(e));
-      handleShowToast("Round failed to start", "Could not start the idea round. See logs.", "error");
+      handleShowToast(t("appShell.roundFailedToStart"), t("appShell.couldNotStartTheIdeaRound"), "error");
       return;
     }
     pendingRoundRef.current = roundId;
@@ -1257,7 +1258,7 @@ export function AppShell({ updates }: AppShellProps) {
     setPendingDelivery({ text: action.text, mode: action.mode, action: action.action });
     setDestinationPickerOpen(true);
     setPlansModalOpen(false);
-    handleShowToast("Idea round ready", "Choose an existing chat or create a dedicated one.", "info");
+    handleShowToast(t("appShell.ideaRoundReady"), t("appShell.chooseAnExistingChatOrCreate"), "info");
   }, [session.activeSessionId, schematic.report, schematic.exists, ideaState.categories, addLog, handleShowToast]);
 
   const handleOpenSchematic = useCallback(() => {
@@ -1267,7 +1268,7 @@ export function AppShell({ updates }: AppShellProps) {
 
    const handleOpenSchematicFile = useCallback(async () => {
     if (!activeProjectPath) return;
-    await schematic.write(schematic.content ?? `# Project Schematic\n\n## Purpose\n`);
+    await schematic.write(schematic.content ?? `# Project Schematic\n\n## Purpose\n` /* i18n-exempt: document template seeded into the schematic file */);
     await revealInExplorer(`${activeProjectPath}/.basebuild/project-schematic.md`);
   }, [activeProjectPath, schematic]);
 
@@ -1280,7 +1281,7 @@ export function AppShell({ updates }: AppShellProps) {
       if (!editingPlan) return;
       void plans.updatePlan(editingPlan.id, draft);
       setEditingPlan(null);
-      handleShowToast("Plan saved", `${editingPlan.referenceId} ${editingPlan.title}`, "success");
+      handleShowToast(t("appShell.planSaved"), `${editingPlan.referenceId} ${editingPlan.title}`, "success");
     },
     [editingPlan, plans, handleShowToast],
   );
@@ -1297,7 +1298,7 @@ export function AppShell({ updates }: AppShellProps) {
 
   const handleCopyReference = useCallback((refId: string) => {
     void navigator.clipboard.writeText(`#${refId}`);
-    handleShowToast("Reference copied", `#${refId} copied to clipboard.`, "info");
+    handleShowToast(t("appShell.referenceCopied"), t("appShell.copiedToClipboard", { refId }), "info");
   }, [handleShowToast]);
 
   const handleAssignPlan = useCallback((plan: Plan, profile: LaunchProfile) => {
@@ -1337,13 +1338,13 @@ export function AppShell({ updates }: AppShellProps) {
       try {
         const result = await validateReadiness(plan.id);
         if (result.errors.length > 0) {
-          handleShowToast("Plan is not ready", result.errors[0], "error");
+          handleShowToast(t("appShell.planIsNotReady"), result.errors[0], "error");
           return;
         }
         await plans.setPlanStatus(plan.id, "ready");
-        handleShowToast("Plan approved", `#${plan.referenceId} is ready — apply it to a chat.`, "success");
+        handleShowToast(t("appShell.planApproved"), t("appShell.isReadyApplyItToA", { referenceId: plan.referenceId }), "success");
       } catch (e) {
-        handleShowToast("Approve failed", e instanceof Error ? e.message : String(e), "error");
+        handleShowToast(t("appShell.approveFailed"), e instanceof Error ? e.message : String(e), "error");
       }
     })();
   }, [plans, handleShowToast]);
@@ -1359,12 +1360,12 @@ export function AppShell({ updates }: AppShellProps) {
         }
         await plans.setPlanStatus(plan.id, "openspec");
         handleShowToast(
-          plan.status === "draft" ? "Generating plan" : "Redoing plan",
-          "OpenSpec is generating in the background — check the agents icon in the taskbar for progress.",
+          plan.status === "draft" ? t("appShell.generatingPlan") : t("appShell.redoingPlan"),
+          t("appShell.openspecIsGeneratingInTheBackground"),
           "info",
         );
       } catch (e) {
-        handleShowToast("Plan generation failed", e instanceof Error ? e.message : String(e), "error");
+        handleShowToast(t("appShell.planGenerationFailed"), e instanceof Error ? e.message : String(e), "error");
       }
     })();
   }, [plans, handleShowToast]);
@@ -1375,18 +1376,18 @@ export function AppShell({ updates }: AppShellProps) {
     async (kind: "terminal" | "empty" | "chat" | "omp") => {
       if (!session.activeSessionId) return;
       if (kind === "empty") {
-        await session.createTab("empty", "Schematic");
+        await session.createTab("empty", t("appShell.schematic"));
         return;
       }
       if (kind === "chat") {
         const chatCount = session.tabs.filter((t) => t.kind === "chat").length + 1;
-        await session.createTab("chat", `Chat ${chatCount}`);
+        await session.createTab("chat", t("appShell.chat6", { chatCount }));
         return;
       }
       if (kind === "omp") {
         // Spawn OMP as a raw terminal in the project's working directory.
         const term = await createTerminal("omp", activeProjectPath ?? undefined);
-        await session.createTab("omp", `Oh My Pi Chat`, term.id);
+        await session.createTab("omp", t("appShell.ohMyPiChat"), term.id);
         return;
       }
       await handleCreateTerminalTab();
@@ -1400,11 +1401,11 @@ export function AppShell({ updates }: AppShellProps) {
     (anchorId: string | null, _side: DropSide): Panel => {
       const id = newPanelId();
       if (!session.activeSessionId) {
-        return { id, type: "chat", title: "Chat", chatSessionId: null, terminalId: null, filePath: null, createdAt: Date.now() };
+        return { id, type: "chat", title: t("appShell.chat8"), chatSessionId: null, terminalId: null, filePath: null, createdAt: Date.now() };
       }
       const chatCount = session.tabs.filter((t) => t.kind === "chat").length + 1;
-      void session.createTab("chat", `Chat ${chatCount}`);
-      return { id, type: "chat", title: `Chat ${chatCount}`, chatSessionId: null, terminalId: null, filePath: null, createdAt: Date.now() };
+      void session.createTab("chat", t("appShell.chat10", { chatCount }));
+      return { id, type: "chat", title: t("appShell.chat13", { chatCount }), chatSessionId: null, terminalId: null, filePath: null, createdAt: Date.now() };
     },
     [session],
   );
@@ -1447,7 +1448,7 @@ export function AppShell({ updates }: AppShellProps) {
 
       if (type === "chat") {
         const chatCount = session.tabs.filter((t) => t.kind === "chat").length + 1;
-        const pending = reserve("chat", `Chat ${chatCount}`);
+        const pending = reserve("chat", t("appShell.chat15", { chatCount }));
         if (options?.hidden) {
           // Unlinked chat: add to hiddenPanels instead of the visible tree.
           setPanelGridState((prev) => ({
@@ -1466,7 +1467,7 @@ export function AppShell({ updates }: AppShellProps) {
         // Acquire the chat tab after the reservation is visible.
         void (async () => {
           try {
-            const tab = await session.createTab("chat", `Chat ${chatCount}`);
+            const tab = await session.createTab("chat", t("appShell.chat17", { chatCount }));
             if (!tab) {
               addLog("warn", "Chat tab creation returned no tab", panelId);
             } else {
@@ -1475,7 +1476,7 @@ export function AppShell({ updates }: AppShellProps) {
                 pendingNewPanelPrompts.current.set(tab.id, pendingPrompt);
               }
             }
-            handleShowToast("Chat created", `Chat ${chatCount} ready.`, "success");
+            handleShowToast(t("appShell.chatCreated2"), t("appShell.chatReady", { chatCount }), "success");
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             addLog("error", "Chat tab creation failed", message);
@@ -1485,7 +1486,7 @@ export function AppShell({ updates }: AppShellProps) {
               }
               return removePanelFromGrid(prev, panelId);
             });
-            handleShowToast("Failed to create chat", message, "error");
+            handleShowToast(t("appShell.failedToCreateChat"), message, "error");
           } finally {
             releaseGuard();
           }
@@ -1495,7 +1496,7 @@ export function AppShell({ updates }: AppShellProps) {
 
       if (type === "terminal" || type === "omp") {
         const shell = type === "omp" ? "omp" : DEFAULT_SHELL();
-        const baseTitle = type === "omp" ? "Oh My Pi Chat" : "Terminal";
+        const baseTitle = type === "omp" ? t("appShell.ohMyPiChat2") : t("appShell.terminal3");
         const pending = reserve(type, baseTitle);
         if (!commitInsert(pending, panelGridState.activePanelId, "right")) {
           addLog("debug", `${baseTitle} panel insert failed`, panelId);
@@ -1506,23 +1507,23 @@ export function AppShell({ updates }: AppShellProps) {
         void (async () => {
           try {
             const term = await createTerminal(shell, activeProjectPath ?? undefined);
-            await session.createTab(type, type === "omp" ? "Oh My Pi Chat" : `Terminal ${term.id}`, term.id);
+            await session.createTab(type, type === "omp" ? t("appShell.ohMyPiChat3") : t("appShell.terminal4", { id: term.id }), term.id);
             // Bind the terminal id and clear `creating`.
             setPanelGridState((prev) => ({
               ...prev,
               root: updatePanelInTree(prev.root, panelId, {
                 terminalId: term.id,
-                title: type === "omp" ? "Oh My Pi Chat" : `Terminal ${term.id}`,
+                title: type === "omp" ? t("appShell.ohMyPiChat4") : t("appShell.terminal5", { id: term.id }),
                 creating: false,
               }),
             }));
             addLog("debug", `${baseTitle} created`, `panel=${panelId} term=${term.id}`);
-            handleShowToast(`${baseTitle} created`, `${shell} shell ready.`, "success");
+            handleShowToast(t("appShell.panelCreated", { baseTitle }), t("appShell.shellReady2", { shell }), "success");
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             addLog("error", `${baseTitle} creation failed`, message);
             setPanelGridState((prev) => removePanelFromGrid(prev, panelId));
-            handleShowToast(`Failed to create ${baseTitle}`, message, "error");
+            handleShowToast(t("appShell.failedToCreate", { baseTitle }), message, "error");
           } finally {
             releaseGuard();
           }
@@ -1530,7 +1531,7 @@ export function AppShell({ updates }: AppShellProps) {
         return;
       }
       // schematic — no backing resource, insert directly.
-      const panel: Panel = { id: panelId, type: "schematic", title: "Schematic", chatSessionId: null, terminalId: null, filePath: null, createdAt: Date.now() };
+      const panel: Panel = { id: panelId, type: "schematic", title: t("appShell.schematic3"), chatSessionId: null, terminalId: null, filePath: null, createdAt: Date.now() };
       commitInsert(panel, panelGridState.activePanelId, "right");
       addLog("debug", "Schematic panel created", panelId);
       releaseGuard();
@@ -1634,12 +1635,12 @@ export function AppShell({ updates }: AppShellProps) {
           return (
             <div className="empty-state">
               <TerminalSquare size={32} className="text-muted" />
-              <h3>Terminal not connected</h3>
-              <p>The terminal process from the previous session is no longer running.</p>
+              <h3>{t("appShell.terminalNotConnected")}</h3>
+              <p>{t("appShell.theTerminalProcessFromThe")}</p>
               <button
                 className="btn btn-primary"
                 type="button"
-                title="Create a new terminal"
+                title={t("appShell.createANewTerminal")}
                 onClick={() => {
                   void (async () => {
                     const shell = DEFAULT_SHELL();
@@ -1648,13 +1649,13 @@ export function AppShell({ updates }: AppShellProps) {
                       ...prev,
                       root: updatePanelInTree(prev.root, panel.id, {
                         terminalId: term.id,
-                        title: `Terminal ${term.id}`,
+                        title: t("appShell.terminal6", { id: term.id }),
                       }),
                     }));
                   })();
                 }}
               >
-                Reconnect
+                {t("appShell.reconnect")}
               </button>
             </div>
           );
@@ -1672,7 +1673,7 @@ export function AppShell({ updates }: AppShellProps) {
                     ...prev,
                     root: updatePanelInTree(prev.root, panel.id, {
                       terminalId: term.id,
-                      title: `Terminal ${term.id}`,
+                      title: t("appShell.terminal7", { id: term.id }),
                     }),
                   }));
                 })();
@@ -1703,7 +1704,7 @@ export function AppShell({ updates }: AppShellProps) {
               ...prev,
               root: updatePanelInTree(prev.root, panel.id, {
                 terminalId: term.id,
-                title: `OMP ${term.id}`,
+                title: t("appShell.omp4", { id: term.id }),
               }),
             }));
           })();
@@ -1950,7 +1951,7 @@ export function AppShell({ updates }: AppShellProps) {
     async (chatSessionId: string) => {
       if (!session.activeSessionId) return;
       // Resolve a human title for the panel; fall back to the session id tail.
-      let title = `Chat ${chatSessionId.slice(-6)}`;
+      let title = t("appShell.chat19", { v1: chatSessionId.slice(-6) });
       try {
         const chat = await nativeChatGet(chatSessionId);
         if (chat?.title) title = humanizeChatTitle(chat.title);
@@ -2025,20 +2026,20 @@ export function AppShell({ updates }: AppShellProps) {
         // Offer re-assign so the user can restart the agent.
         if (plan.status === "running") {
           handleShowToast(
-            "Plan has no active chat",
-            `#${plan.referenceId} is marked running but its run never linked a chat session. Re-assigning will start a fresh agent.`,
+            t("appShell.planHasNoActiveChat"),
+            t("appShell.isMarkedRunningButItsRun", { referenceId: plan.referenceId }),
             "info",
           );
           handleQuickAssignPlan(plan);
         } else {
           handleShowToast(
-            "No run chat",
-            `#${plan.referenceId} has no chat session bound to a run yet.`,
+            t("appShell.noRunChat"),
+            t("appShell.hasNoChatSessionBoundTo", { referenceId: plan.referenceId }),
             "info",
           );
         }
       } catch (e) {
-        handleShowToast("Could not open run chat", e instanceof Error ? e.message : String(e), "error");
+        handleShowToast(t("appShell.couldNotOpenRunChat"), e instanceof Error ? e.message : String(e), "error");
       }
     },
     [handleOpenChatSession, handleShowToast, handleQuickAssignPlan],
@@ -2060,10 +2061,10 @@ export function AppShell({ updates }: AppShellProps) {
             if (match) {
               setGlobalInteraction(match);
             } else {
-              handleShowToast("Question resolved", "This question was already answered or cancelled.", "info");
+              handleShowToast(t("appShell.questionResolved"), t("appShell.thisQuestionWasAlreadyAnsweredOr"), "info");
             }
           } catch (e) {
-            handleShowToast("Could not open question", e instanceof Error ? e.message : String(e), "error");
+            handleShowToast(t("appShell.couldNotOpenQuestion"), e instanceof Error ? e.message : String(e), "error");
           }
         })();
       } else if (n.kind === "plan_status_changed" || n.kind === "plan_created") {
@@ -2126,7 +2127,7 @@ export function AppShell({ updates }: AppShellProps) {
     <div className="app-container app-container-chat-first">
       {restorePhase !== "ready" ? <WorkspaceSplash phase={restorePhase} /> : null}
       <div className="window-taskbar" role="banner">
-        <span className="window-taskbar-title" title="Basebuild">Basebuild</span>
+        <span className="window-taskbar-title" title={t("appShell.basebuild")}>{t("appShell.basebuild")}</span>
         <div className="window-taskbar-right">
           <TaskbarNotifications onNavigate={handleNotificationNavigate} appToasts={appToasts} onDismissAppToast={dismissAppToast} />
           <BackgroundAgents
@@ -2215,25 +2216,25 @@ export function AppShell({ updates }: AppShellProps) {
                 onGenerateMoreIdeas={() => handleStartIdeaRound()}
                 onCreateIdea={async (title, description, categoryId) => {
                   await ideaState.createIdea(title, description, categoryId ?? undefined);
-                  handleShowToast("Idea created", title, "success");
+                  handleShowToast(t("appShell.ideaCreated"), title, "success");
                 }}
                 onUpdateIdea={async (id, title, description, categoryId) => {
                   await ideaState.updateIdea(id, title, description, categoryId);
-                  handleShowToast("Idea updated", title, "success");
+                  handleShowToast(t("appShell.ideaUpdated"), title, "success");
                 }}
                 onSetIdeaStatus={async (id, status) => {
                   await ideaState.updateIdeaStatus(id, status);
                 }}
                 onDeleteIdea={async (id) => {
                   await ideaState.removeIdea(id);
-                  handleShowToast("Idea deleted", "The idea was removed.", "info");
+                  handleShowToast(t("appShell.ideaDeleted"), t("appShell.theIdeaWasRemoved"), "info");
                 }}
                 onPromoteIdeas={async (ids) => {
                   await ideaState.promoteIdeas(ids);
                   await plans.refreshPlans();
                   handleShowToast(
-                    ids.length === 1 ? "Idea upgraded" : "Ideas upgraded",
-                    `${ids.length} draft plan${ids.length === 1 ? "" : "s"} created.`,
+                    ids.length === 1 ? t("appShell.ideaUpgraded") : t("appShell.ideasUpgraded"),
+                    ids.length === 1 ? t("appShell.draftPlansCreatedOne", { count: ids.length }) : t("appShell.draftPlansCreatedOther", { count: ids.length }),
                     "success",
                   );
                 }}
@@ -2270,9 +2271,9 @@ export function AppShell({ updates }: AppShellProps) {
                 onRedoPlan={handleRedoPlan}
                 onDeletePlan={(planId: string) => {
                   return plans.deletePlan(planId).then(() => {
-                    handleShowToast("Plan deleted", "The plan was removed.", "info");
+                    handleShowToast(t("appShell.planDeleted"), t("appShell.thePlanWasRemoved"), "info");
                   }).catch((e: unknown) => {
-                    handleShowToast("Delete failed", e instanceof Error ? e.message : String(e), "error");
+                    handleShowToast(t("appShell.deleteFailed"), e instanceof Error ? e.message : String(e), "error");
                   });
                 }}
               />
@@ -2282,18 +2283,18 @@ export function AppShell({ updates }: AppShellProps) {
             {!activeProjectPath ? (
               <div className="empty-state">
                 <TerminalSquare size={32} className="text-muted" />
-                <h3>No project open</h3>
-                <p>Open a folder to start managing terminals, files, source control, and plans.</p>
-                <button className="btn btn-primary" type="button" title={sidebar.pickerInFlight ? "Opening folder picker…" : "Open a project folder"} onClick={handleOpenFolder} disabled={sidebar.pickerInFlight}>Open project</button>
+                <h3>{t("appShell.noProjectOpen")}</h3>
+                <p>{t("appShell.openAFolderToStart")}</p>
+                <button className="btn btn-primary" type="button" title={sidebar.pickerInFlight ? t("appShell.openingFolderPicker") : t("appShell.openAProjectFolder")} onClick={handleOpenFolder} disabled={sidebar.pickerInFlight}>{t("appShell.openProject")}</button>
               </div>
             ) : null}
             {activeProjectPath && projectRestoreError ? (
               <div className="project-restore-error" role="alert">
-                <h3>Project restore failed</h3>
+                <h3>{t("appShell.projectRestoreFailed")}</h3>
                 <p>{projectRestoreError}</p>
                 <div className="empty-state-actions">
-                  <button className="btn btn-primary" type="button" title="Retry project restore" onClick={handleRetryRestore}>Retry</button>
-                  <button className="btn" type="button" title="Switch to another project" onClick={() => setActiveProjectPath(null)}>Switch project</button>
+                  <button className="btn btn-primary" type="button" title={t("appShell.retryProjectRestore")} onClick={handleRetryRestore}>{t("appShell.retry")}</button>
+                  <button className="btn" type="button" title={t("appShell.switchToAnotherProject")} onClick={() => setActiveProjectPath(null)}>{t("appShell.switchProject")}</button>
                 </div>
               </div>
             ) : null}
@@ -2345,11 +2346,11 @@ export function AppShell({ updates }: AppShellProps) {
       </Suspense>
       {changesModalOpen && activeProjectPath ? (
         <ModalPortal>
-        <div className="modal-overlay" role="dialog" aria-label="Changes" onClick={() => setChangesModalOpen(false)}>
+        <div className="modal-overlay" role="dialog" aria-label={t("appShell.changes")} onClick={() => setChangesModalOpen(false)}>
           <div className="modal modal-changes" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>Changes</h2>
-              <button className="btn-icon" type="button" title="Close (Esc)" onClick={() => setChangesModalOpen(false)}><X size={14} /></button>
+              <h2>{t("appShell.changes")}</h2>
+              <button className="btn-icon" type="button" title={t("appShell.closeEsc")} onClick={() => setChangesModalOpen(false)}><X size={14} /></button>
             </div>
             <div className="modal-body">
               <Suspense fallback={<ModalLoading />}><SourcePanel projectPath={activeProjectPath} /></Suspense>
@@ -2360,11 +2361,11 @@ export function AppShell({ updates }: AppShellProps) {
       ) : null}
       {plansModalOpen && activeProjectPath ? (
         <ModalPortal>
-        <div className="modal-overlay" role="dialog" aria-label="Plans & Ideas" onClick={() => setPlansModalOpen(false)}>
+        <div className="modal-overlay" role="dialog" aria-label={t("appShell.plansIdeas")} onClick={() => setPlansModalOpen(false)}>
           <div className="modal modal-plans" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>Plans & Ideas</h2>
-              <button className="btn-icon" type="button" title="Close (Esc)" onClick={() => setPlansModalOpen(false)}><X size={14} /></button>
+              <h2>{t("appShell.plansIdeas")}</h2>
+              <button className="btn-icon" type="button" title={t("appShell.closeEsc")} onClick={() => setPlansModalOpen(false)}><X size={14} /></button>
             </div>
             <div className="modal-body">
               <Suspense fallback={<ModalLoading />}>
@@ -2401,11 +2402,11 @@ export function AppShell({ updates }: AppShellProps) {
       ) : null}
       {schematicModalOpen && activeProjectPath ? (
         <ModalPortal>
-        <div className="modal-overlay" role="dialog" aria-label="Project Schematic" onClick={() => setSchematicModalOpen(false)}>
+        <div className="modal-overlay" role="dialog" aria-label={t("appShell.projectSchematic")} onClick={() => setSchematicModalOpen(false)}>
           <div className="modal modal-schematic" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
-              <h2>Project Schematic</h2>
-              <button className="btn-icon" type="button" title="Close project schematic" onClick={() => setSchematicModalOpen(false)}><X size={14} /></button>
+              <h2>{t("appShell.projectSchematic")}</h2>
+              <button className="btn-icon" type="button" title={t("appShell.closeProjectSchematic")} onClick={() => setSchematicModalOpen(false)}><X size={14} /></button>
             </div>
             <div className="modal-body">
               <ProjectSchematicTab
@@ -2421,15 +2422,15 @@ export function AppShell({ updates }: AppShellProps) {
       <CrashReportNotice onViewReports={() => setDebugPanelOpen(true)} />
       <Suspense fallback={<ModalLoading />}><LogPanel open={logPanelOpen} onClose={() => setLogPanelOpen(false)} /></Suspense>
       {debugPanelOpen ? (
-        <div className="debug-panel-overlay" role="dialog" aria-label="Debug Panel">
+        <div className="debug-panel-overlay" role="dialog" aria-label={t("appShell.debugPanel")}>
           <div className="debug-panel-modal">
             <div className="debug-panel-header">
-              <h2>Debug Panel</h2>
+              <h2>{t("appShell.debugPanel")}</h2>
               <button
                 className="btn-icon"
                 type="button"
-                title="Close debug panel"
-                aria-label="Close debug panel"
+                title={t("appShell.closeDebugPanel")}
+                aria-label={t("appShell.closeDebugPanel")}
                 onClick={() => setDebugPanelOpen(false)}
               >
                 <X size={16} />
@@ -2500,7 +2501,7 @@ export function AppShell({ updates }: AppShellProps) {
           }
         }}
         panels={flattenPanels(panelGridState.root)}
-        title={pendingAssign ? "Assign plan to chat" : "Send to…"}
+        title={pendingAssign ? t("appShell.assignPlanToChat") : t("appShell.sendTo")}
         projectPath={activeProjectPath}
         mode={pendingAssign ? "assign" : "deliver"}
         onSelect={(choice: DestinationChoice) => {
@@ -2530,10 +2531,10 @@ export function AppShell({ updates }: AppShellProps) {
                 } else {
                   // New conversation — create a chat session for the plan
                   // (with the confirmed model), then assign and open it.
-                  if (!activeProjectPath) throw new Error("No active project");
+                  if (!activeProjectPath) throw new Error(t("appShell.noActiveProject"));
                   const chat = await nativeChatStart({
                     projectPath: activeProjectPath,
-                    title: `Plan: ${assign.plan.title}`,
+                    title: t("appShell.plan", { title: assign.plan.title }),
                     providerId: choice.model?.providerId ?? null,
                     modelId: choice.model?.modelId ?? null,
                     effortLevel: choice.model?.effortLevel ?? null,
@@ -2545,7 +2546,7 @@ export function AppShell({ updates }: AppShellProps) {
                   chatSessionId,
                   profile,
                 });
-                handleShowToast("Plan assigned to chat", `${assign.plan.referenceId} ${assign.plan.title}`, "success");
+                handleShowToast(t("appShell.planAssignedToChat"), `${assign.plan.referenceId} ${assign.plan.title}`, "success");
                 if (focusPanelId) {
                   setPanelGridState((prev) => ({ ...prev, activePanelId: focusPanelId }));
                 }
@@ -2554,7 +2555,7 @@ export function AppShell({ updates }: AppShellProps) {
                 // caused duplicate-panel errors and orphaned tabs).
               } catch (e) {
                 const msg = e instanceof Error ? e.message : String(e);
-                handleShowToast("Failed to assign plan", msg, "error");
+                handleShowToast(t("appShell.failedToAssignPlan"), msg, "error");
               } finally {
                 setPendingAssign(null);
                 setDestinationPickerOpen(false);
@@ -2623,11 +2624,11 @@ export function AppShell({ updates }: AppShellProps) {
       />
       {globalInteraction ? (
         <ModalPortal>
-          <div className="modal-overlay" role="dialog" aria-label="Background agent question" onClick={() => setGlobalInteraction(null)}>
+          <div className="modal-overlay" role="dialog" aria-label={t("appShell.backgroundAgentQuestion")} onClick={() => setGlobalInteraction(null)}>
             <div className="modal modal-interaction" onClick={(e) => e.stopPropagation()}>
               <div className="modal-header">
-                <span className="modal-title">Background agent needs your input</span>
-                <button className="btn-icon" type="button" title="Close" onClick={() => setGlobalInteraction(null)}>
+                <span className="modal-title">{t("appShell.backgroundAgentNeedsYourInput")}</span>
+                <button className="btn-icon" type="button" title={t("appShell.close")} onClick={() => setGlobalInteraction(null)}>
                   <X size={14} />
                 </button>
               </div>

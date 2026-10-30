@@ -10,6 +10,7 @@ use crate::{
         PlanningPromptEntry, CATEGORY_GENERATION, CHAT_SYSTEM, IDEA_GENERATION, PLAN_GENERATION,
     },
     services::{skill_registry_service::SkillRegistryService, storage_service::StorageService},
+    services::settings_service::SettingsService,
 };
 
 use rusqlite::{params, OptionalExtension};
@@ -91,6 +92,19 @@ pub const ALL_KEYS: &[&str] = &[
     CATEGORY_GENERATION,
 ];
 
+/// Model-facing instruction appended to every prompt when the UI is zh-CN.
+const ZH_CN_DIRECTIVE: &str = "Reply to the user in Simplified Chinese (简体中文) unless the user writes in another language. Keep code, identifiers, commands, file paths, and file contents in their original language.";
+
+/// Append the language directive for `locale` (`en` or `zh-CN`). English
+/// prompts are returned unchanged.
+pub fn append_locale_directive(prompt: String, locale: &str) -> String {
+    if locale == "zh-CN" {
+        format!("{prompt}\n\n{ZH_CN_DIRECTIVE}")
+    } else {
+        prompt
+    }
+}
+
 impl PlanningPromptService {
     /// Get the effective prompt for a key: the saved override if present,
     /// otherwise the compiled default. Returns an error for unknown keys.
@@ -107,6 +121,14 @@ impl PlanningPromptService {
             .optional()
             .map_err(|e| e.to_string())?;
         Ok(override_value.unwrap_or(default))
+    }
+
+    /// Like `get`, plus the UI-language directive when the app is set to
+    /// zh-CN. Use for every prompt that is sent to a model.
+    pub fn get_localized(key: &str) -> DbResult<String> {
+        Self::get(key).map(|prompt| {
+            append_locale_directive(prompt, &SettingsService::effective_ui_locale())
+        })
     }
 
     /// Save an override for a key. An empty value is treated as "use default"
@@ -495,5 +517,13 @@ mod tests {
         assert!(text.contains("Recent decisions"));
         assert!(text.contains("Idea A"));
         assert!(text.contains("[picked]"));
+    }
+
+    #[test]
+    fn locale_directive_is_only_added_for_zh_cn() {
+        assert_eq!(append_locale_directive("base".into(), "en"), "base");
+        let zh = append_locale_directive("base".into(), "zh-CN");
+        assert!(zh.starts_with("base\n\n"));
+        assert!(zh.contains("Simplified Chinese"));
     }
 }

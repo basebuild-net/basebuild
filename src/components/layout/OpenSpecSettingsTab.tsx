@@ -7,6 +7,7 @@ import {
   type OpenSpecRuntimeStatus,
 } from "../../lib/openspecRuntime";
 import { LoadingBlock } from "./Loading";
+import { t } from "../../i18n";
 
 type OpenSpecSettingsTabProps = {
   projectPath: string | null;
@@ -70,34 +71,33 @@ export function OpenSpecSettingsTab({ projectPath }: OpenSpecSettingsTabProps) {
   return (
     <div className="stack">
       <div className="settings-section-header">
-        <h3>OpenSpec Runtime</h3>
+        <h3>{t("openSpecSettingsTab.openSpecRuntime")}</h3>
         <button
           className="btn btn-sm"
           type="button"
-          title="Re-check OpenSpec runtime status"
+          title={t("openSpecSettingsTab.reCheckOpenspecRuntimeStatus")}
           onClick={() => void refresh()}
           disabled={loading}
         >
-          <RefreshCw size={12} className={loading ? "spin" : ""} /> Refresh
+          <RefreshCw size={12} className={loading ? "spin" : ""} /> {t("openSpecSettingsTab.refresh")}
         </button>
       </div>
 
       {initialLoading ? (
-        <LoadingBlock label="Checking OpenSpec runtime…" />
+        <LoadingBlock label={t("openSpecSettingsTab.checkingOpenspecRuntime")} />
       ) : (
         <>
           {/* Status badge */}
           <div
             className={`requirement-row ${isReady ? "is-ok" : isError ? "is-warn" : "is-warn"}`}
-            title={`OpenSpec runtime: ${state}`}
+            title={t("openSpecSettingsTab.openSpecRuntime2", { state: state })}
           >
             <span className={`requirement-badge ${isReady ? "is-ok" : "is-warn"}`}>
               {isReady ? <Check size={14} /> : isError ? <AlertTriangle size={14} /> : <Wrench size={14} />}
             </span>
             <div>
               <div className="requirement-name">
-                OpenSpec: {state}
-              </div>
+                {t("openSpecSettingsTab.openSpec", { state: state })}</div>
               {status?.message ? (
                 <div className="requirement-detail text-muted text-sm">{status.message}</div>
               ) : null}
@@ -107,22 +107,22 @@ export function OpenSpecSettingsTab({ projectPath }: OpenSpecSettingsTabProps) {
           {/* Details grid */}
           <div className="update-version-grid">
             <div className="update-version-cell">
-              <div className="text-muted text-sm">Version</div>
+              <div className="text-muted text-sm">{t("openSpecSettingsTab.version")}</div>
               <div className="mono">{status?.version ?? "—"}</div>
             </div>
             <div className="update-version-cell">
-              <div className="text-muted text-sm">Schema</div>
+              <div className="text-muted text-sm">{t("openSpecSettingsTab.schema")}</div>
               <div className="mono">{status?.schema ?? "—"}</div>
             </div>
             <div className="update-version-cell">
-              <div className="text-muted text-sm">Executable</div>
+              <div className="text-muted text-sm">{t("openSpecSettingsTab.executable")}</div>
               <div className="mono text-sm" title={status?.executablePath ?? undefined}>
-                {status?.executablePath ?? "not found"}
+                {status?.executablePath ?? t("openSpecSettingsTab.notFound")}
               </div>
             </div>
             <div className="update-version-cell">
-              <div className="text-muted text-sm">Project Ready</div>
-              <div className="mono">{status?.projectReady ? "Yes" : "No"}</div>
+              <div className="text-muted text-sm">{t("openSpecSettingsTab.projectReady")}</div>
+              <div className="mono">{status?.projectReady ? t("openSpecSettingsTab.yes") : t("openSpecSettingsTab.no")}</div>
             </div>
           </div>
 
@@ -131,34 +131,33 @@ export function OpenSpecSettingsTab({ projectPath }: OpenSpecSettingsTabProps) {
             <button
               className="btn btn-sm"
               type="button"
-              title="Attempt to install OpenSpec (requires a configured source)"
+              title={t("openSpecSettingsTab.attemptToInstallOpenspecRequires")}
               onClick={() => void handleInstall()}
               disabled={isInstalling || loading}
             >
-              <Wrench size={12} /> Install
+              <Wrench size={12} /> {t("openSpecSettingsTab.install")}
             </button>
             <button
               className="btn btn-sm"
               type="button"
-              title="Check for OpenSpec updates (requires a configured source)"
+              title={t("openSpecSettingsTab.checkForOpenspecUpdatesRequires")}
               onClick={() => void handleUpdate()}
               disabled={isInstalling || loading || isMissing}
             >
-              <RefreshCw size={12} /> Update
+              <RefreshCw size={12} /> {t("openSpecSettingsTab.update")}
             </button>
           </div>
 
           {/* Manual path guidance */}
           {isMissing ? (
-            <div className="requirement-row is-warn" title="Manual setup guidance">
+            <div className="requirement-row is-warn" title={t("openSpecSettingsTab.manualSetupGuidance")}>
               <span className="requirement-badge is-warn">
                 <Terminal size={14} />
               </span>
               <div>
-                <div className="requirement-name">Manual setup</div>
+                <div className="requirement-name">{t("openSpecSettingsTab.manualSetup")}</div>
                 <div className="requirement-detail text-muted text-sm">
-                  Install OpenSpec on your system and ensure the <code className="mono">openspec</code> command is on your PATH.
-                  Then click Refresh. Alternatively, set a manual executable path once path configuration is available.
+                  {t("openSpecSettingsTab.installOpenspecOnYourSystem")} <code className="mono">{t("openSpecSettingsTab.openspec")}</code> {t("openSpecSettingsTab.commandIsOnYourPath")}
                 </div>
               </div>
             </div>
@@ -168,12 +167,12 @@ export function OpenSpecSettingsTab({ projectPath }: OpenSpecSettingsTabProps) {
 
       {/* Error display */}
       {actionError ? (
-        <div className="requirement-row is-warn" title="Action error">
+        <div className="requirement-row is-warn" title={t("openSpecSettingsTab.actionError")}>
           <span className="requirement-badge is-warn">
             <AlertTriangle size={14} />
           </span>
           <div>
-            <div className="requirement-name">Action error</div>
+            <div className="requirement-name">{t("openSpecSettingsTab.actionError")}</div>
             <div className="requirement-detail text-muted text-sm mono">{actionError}</div>
           </div>
         </div>

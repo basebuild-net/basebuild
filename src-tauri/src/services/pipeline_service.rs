@@ -341,7 +341,7 @@ impl PipelineService {
         let schematic = Self::load_schematic(&request.project_path);
         let convo = Self::load_conversation(&request.session_id);
 
-        let system = crate::services::planning_prompt_service::PlanningPromptService::get(
+        let system = crate::services::planning_prompt_service::PlanningPromptService::get_localized(
             crate::models::planning_prompt::CATEGORY_GENERATION,
         )
         .unwrap_or_else(|_| {
@@ -419,7 +419,7 @@ impl PipelineService {
         let convo = Self::load_conversation(&request.session_id);
         let category_hint = request.input.as_deref().unwrap_or("");
 
-        let system = crate::services::planning_prompt_service::PlanningPromptService::get(
+        let system = crate::services::planning_prompt_service::PlanningPromptService::get_localized(
             crate::models::planning_prompt::IDEA_GENERATION,
         )
         .unwrap_or_else(|_| {
@@ -609,7 +609,7 @@ impl PipelineService {
         Self::record_run_model(run_id, &provider_id, &model_id);
         let schematic = Self::load_schematic(&request.project_path);
 
-        let system = crate::services::planning_prompt_service::PlanningPromptService::get(
+        let system = crate::services::planning_prompt_service::PlanningPromptService::get_localized(
             crate::models::planning_prompt::PLAN_GENERATION,
         )
         .unwrap_or_else(|_| {

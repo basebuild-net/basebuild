@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Check, Copy } from "lucide-react";
+import { t } from "../../i18n";
 
 type CopyButtonProps = {
   text: string;
@@ -27,11 +28,11 @@ export function CopyButton({ text, label, className }: CopyButtonProps) {
     <button
       type="button"
       className={className ?? "btn btn-ghost btn-icon-sm"}
-      title={copied ? "Copied to clipboard" : "Copy to clipboard"}
+      title={copied ? t("copyButton.copiedToClipboard") : t("copyButton.copyToClipboard")}
       onClick={() => void handleCopy()}
     >
       {copied ? <Check size={12} /> : <Copy size={12} />}
-      {label ? <span>{copied ? "Copied" : label}</span> : null}
+      {label ? <span>{copied ? t("copyButton.copied") : label}</span> : null}
     </button>
   );
 }

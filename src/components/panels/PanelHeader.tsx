@@ -11,6 +11,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import type { SurfaceKind, SurfaceRecord } from "../../lib/workspaceState";
 import { humanizeChatTitle } from "../../lib/titles";
+import { t } from "../../i18n";
 
 const surfaceIcons: Record<SurfaceKind, LucideIcon> = {
   chat: MessageSquare,
@@ -53,13 +54,13 @@ export function PanelHeader(props: PanelHeaderProps) {
   } = props;
 
   const Icon = surfaceIcons[surface.kind] ?? MessageSquare;
-  const displayTitle = displayTitleOverride ?? humanizeChatTitle(surface.title ?? "Untitled");
+  const displayTitle = displayTitleOverride ?? humanizeChatTitle(surface.title ?? t("panelHeader.untitled"));
   const splitHorizontalTitle = splitDisabled
-    ? splitDisabledReason ?? "Split disabled — not enough space"
-    : "Split horizontally (top and bottom)";
+    ? splitDisabledReason ?? t("panelHeader.splitDisabledNotEnoughSpace")
+    : t("panelHeader.splitHorizontallyTopAndBottom");
   const splitVerticalTitle = splitDisabled
-    ? splitDisabledReason ?? "Split disabled — not enough space"
-    : "Split vertically (left and right)";
+    ? splitDisabledReason ?? t("panelHeader.splitDisabledNotEnoughSpace")
+    : t("panelHeader.splitVerticallyLeftAndRight");
 
   return (
     <div
@@ -69,13 +70,13 @@ export function PanelHeader(props: PanelHeaderProps) {
       data-surface-id={surface.id}
       data-surface-kind={surface.kind}
     >
-      <span className="panel-header-drag-handle" title="Drag this title bar to move, link, or unlink the chat">
+      <span className="panel-header-drag-handle" title={t("panelHeader.dragThisTitleBarTo")}>
         <GripVertical size={11} />
       </span>
       <span className="panel-header-surface-icon" title={displayTitle}>
         <Icon size={12} />
       </span>
-      <span className="panel-header-surface-title" title={`${displayTitle} — drag to move, link, or unlink`}>
+      <span className="panel-header-surface-title" title={t("panelHeader.dragToMoveLinkOrUnlink", { displayTitle: displayTitle })}>
         {displayTitle}
       </span>
       <div className="panel-header-actions">
@@ -100,7 +101,7 @@ export function PanelHeader(props: PanelHeaderProps) {
         <button
           className="btn-icon btn-icon-sm"
           type="button"
-          title={minimizable ? "Minimize to background agents" : "Close and move to History"}
+          title={minimizable ? t("panelHeader.minimizeToBackgroundAgents") : t("panelHeader.closeAndMoveToHistory")}
           onClick={(event) => { event.stopPropagation(); onClose(); }}
         >
           <X size={11} />

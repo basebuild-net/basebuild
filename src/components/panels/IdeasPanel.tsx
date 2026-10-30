@@ -6,12 +6,15 @@ import type { IdeaStatus } from "../../lib/ideas";
 
 import { OptionList, type OptionListOption } from "../layout/OptionList";
 import { SkeletonRows, SkeletonText } from "../layout/Loading";
-const STATUS_LABELS: Record<IdeaStatus, string> = {
-  concept: "Concept",
-  picked: "Picked",
-  rejected: "Rejected",
-  archived: "Archived",
-};
+import { t } from "../../i18n";
+function STATUS_LABELS(): Record<IdeaStatus, string> {
+  return {
+    concept: t("ideasPanel.concept"),
+    picked: t("ideasPanel.picked"),
+    rejected: t("ideasPanel.rejected"),
+    archived: t("ideasPanel.archived"),
+  };
+}
 
 const STATUS_CLASS: Record<IdeaStatus, string> = {
   concept: "is-concept",
@@ -20,11 +23,11 @@ const STATUS_CLASS: Record<IdeaStatus, string> = {
   archived: "is-archived",
 };
 
-const STATUS_OPTION_ITEMS: OptionListOption<IdeaStatus>[] = [
-  { id: "concept", label: STATUS_LABELS.concept, title: "Idea is still a concept" },
-  { id: "picked", label: STATUS_LABELS.picked, title: "Idea has been picked for planning" },
-  { id: "rejected", label: STATUS_LABELS.rejected, title: "Idea has been rejected" },
-  { id: "archived", label: STATUS_LABELS.archived, title: "Idea has been archived" },
+const STATUS_OPTION_ITEMS = (): OptionListOption<IdeaStatus>[] => [
+  { id: "concept", label: STATUS_LABELS().concept, title: t("ideasPanel.ideaIsStillAConcept") },
+  { id: "picked", label: STATUS_LABELS().picked, title: t("ideasPanel.ideaHasBeenPickedForPlanning") },
+  { id: "rejected", label: STATUS_LABELS().rejected, title: t("ideasPanel.ideaHasBeenRejected") },
+  { id: "archived", label: STATUS_LABELS().archived, title: t("ideasPanel.ideaHasBeenArchived") },
 ];
 const STATUS_ORDER: IdeaStatus[] = ["concept", "picked", "rejected", "archived"];
 
@@ -83,8 +86,8 @@ export function IdeasPanel({ sessionId }: IdeasPanelProps) {
     return (
       <div className="empty-state">
         <Lightbulb size={32} className="text-muted" />
-        <h3>No active session</h3>
-        <p>Create or select a session to start generating ideas.</p>
+        <h3>{t("ideasPanel.noActiveSession")}</h3>
+        <p>{t("ideasPanel.createOrSelectASession")}</p>
       </div>
     );
   }
@@ -100,21 +103,21 @@ export function IdeasPanel({ sessionId }: IdeasPanelProps) {
       {/* Toolbar */}
       <div className="row-between">
         <h3 className="text-sm ideas-header-label">
-          Ideas & Plans ({ideas.length})
+          {t("ideasPanel.ideasPlans", { ideasCount: ideas.length })}
         </h3>
         <div className="row gap-sm">
           {ideas.length > 0 ? (
             <>
-              <button className="btn btn-ghost text-sm" title="Select all" onClick={selectAll} type="button">Select all</button>
-              <button className="btn btn-ghost text-sm" title="Deselect" onClick={selectNone} type="button">Clear</button>
+              <button className="btn btn-ghost text-sm" title={t("ideasPanel.selectAll")} onClick={selectAll} type="button">{t("ideasPanel.selectAll")}</button>
+              <button className="btn btn-ghost text-sm" title={t("ideasPanel.deselect")} onClick={selectNone} type="button">{t("ideasPanel.clear")}</button>
               {selectedIds.size > 0 ? (
                 <button
                   className="btn btn-primary text-sm"
-                  title="Promote selected ideas to draft plans"
+                  title={t("ideasPanel.promoteSelectedIdeasToDraft")}
                   onClick={() => void promoteSelected()}
                   type="button"
                 >
-                  Promote ({selectedIds.size})
+                  {t("ideasPanel.promote", { size: selectedIds.size })}
                 </button>
               ) : null}
             </>
@@ -143,17 +146,17 @@ export function IdeasPanel({ sessionId }: IdeasPanelProps) {
         <div className="row gap-sm">
           <input
             className="input"
-            placeholder="Category name..."
+            placeholder={t("ideasPanel.categoryName")}
             value={newCategoryName}
             onChange={(e) => setNewCategoryName(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") void handleCreateCategory(); }}
             autoFocus
           />
-          <button className="btn btn-primary" title="Add category" onClick={() => void handleCreateCategory()} type="button">Add</button>
+          <button className="btn btn-primary" title={t("ideasPanel.addCategory")} onClick={() => void handleCreateCategory()} type="button">{t("ideasPanel.add")}</button>
         </div>
       ) : (
-        <button className="btn btn-ghost text-sm" title="Create new category" onClick={() => setShowCategoryInput(true)} type="button">
-          <Plus size={12} /> New category
+        <button className="btn btn-ghost text-sm" title={t("ideasPanel.createNewCategory")} onClick={() => setShowCategoryInput(true)} type="button">
+          <Plus size={12} /> {t("ideasPanel.newCategory")}
         </button>
       )}
 
@@ -161,13 +164,13 @@ export function IdeasPanel({ sessionId }: IdeasPanelProps) {
       <div className="row gap-sm">
         <input
           className="input"
-          placeholder="Add a quick idea..."
+          placeholder={t("ideasPanel.addAQuickIdea")}
           value={newIdeaTitle}
           onChange={(e) => setNewIdeaTitle(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") void handleCreateIdea(); }}
         />
-        <button className="btn btn-primary" title="Add idea" disabled={!newIdeaTitle.trim()} onClick={() => void handleCreateIdea()} type="button">
-          <Plus size={12} /> Add
+        <button className="btn btn-primary" title={t("ideasPanel.addIdea")} disabled={!newIdeaTitle.trim()} onClick={() => void handleCreateIdea()} type="button">
+          <Plus size={12} /> {t("ideasPanel.add")}
         </button>
       </div>
 
@@ -175,13 +178,13 @@ export function IdeasPanel({ sessionId }: IdeasPanelProps) {
       {grouped.map((group) =>
         group.items.length === 0 ? null : (
           <div className="idea-section" key={group.status}>
-            <h3>{STATUS_LABELS[group.status]} ({group.items.length})</h3>
+            <h3>{STATUS_LABELS()[group.status]} ({group.items.length})</h3>
             {group.items.map((idea) => (
               <div className="idea-card" key={idea.id}>
                 <div className="idea-card-header">
                   <button
                     className="btn-icon btn-icon-sm"
-                    title={selectedIds.has(idea.id) ? "Deselect" : "Select"}
+                    title={selectedIds.has(idea.id) ? t("ideasPanel.deselect") : t("ideasPanel.select")}
                     onClick={() => toggleSelect(idea.id)}
                     type="button"
                   >
@@ -190,15 +193,15 @@ export function IdeasPanel({ sessionId }: IdeasPanelProps) {
                   <span className="idea-card-title">{idea.title}</span>
                   <OptionList
                     value={idea.status}
-                    options={STATUS_OPTION_ITEMS}
+                    options={STATUS_OPTION_ITEMS()}
                     onChange={(id) => void updateIdeaStatus(idea.id, id)}
-                    label="Idea status"
+                    label={t("ideasPanel.ideaStatus")}
                     compact
                   />
-                  <span className={`idea-status ${STATUS_CLASS[idea.status]}`}>{STATUS_LABELS[idea.status]}</span>
+                  <span className={`idea-status ${STATUS_CLASS[idea.status]}`}>{STATUS_LABELS()[idea.status]}</span>
                   <button
                     className="btn-icon btn-icon-sm text-danger"
-                    title="Delete idea"
+                    title={t("ideasPanel.deleteIdea")}
                     onClick={() => void removeIdea(idea.id)}
                     type="button"
                   >
@@ -213,12 +216,12 @@ export function IdeasPanel({ sessionId }: IdeasPanelProps) {
       )}
 
       {loading ? (
-        <SkeletonRows rows={3} label="Loading ideas…" />
+        <SkeletonRows rows={3} label={t("ideasPanel.loadingIdeas")} />
       ) : ideas.length === 0 ? (
         <div className="empty-state">
           <Lightbulb size={32} className="text-muted" />
-          <h3>No ideas yet</h3>
-          <p>Add a quick idea above, or use the "Generate Ideas" button to let AI suggest work.</p>
+          <h3>{t("ideasPanel.noIdeasYet")}</h3>
+          <p>{t("ideasPanel.addAQuickIdeaAbove")}</p>
         </div>
       ) : null}
     </div>

@@ -1,10 +1,11 @@
+import { t } from "../../i18n";
 export function ConfigPanel({ projectPath: _projectPath }: { projectPath: string | null }) {
   return (
     <div className="stack">
-      <h3>Config Packs</h3>
-      <p className="text-muted text-sm">Coming soon.</p>
+      <h3>{t("configPanel.configPacks")}</h3>
+      <p className="text-muted text-sm">{t("configPanel.comingSoon")}</p>
       <p className="text-muted text-sm">
-        Share basebuild GUI system prompt, skills, MCPs, and other configurations.
+        {t("configPanel.shareBasebuildGuiSystemPrompt")}
       </p>
     </div>
   );

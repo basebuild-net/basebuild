@@ -2,6 +2,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import type { ToolId } from "./AppShell";
+import { t } from "../../i18n";
 
 export type ToolItem = { id: ToolId; icon: LucideIcon; label: string; tooltip: string };
 
@@ -23,12 +24,12 @@ export function ToolRail({
   onToggleCollapse,
 }: ToolRailProps) {
   return (
-    <aside className="tool-rail" aria-label="Tools">
+    <aside className="tool-rail" aria-label={t("toolRail.tools")}>
       <div className="tool-rail-header">
         <button
           className="btn-icon"
-          title={collapsed ? "Expand tool rail" : "Collapse tool rail"}
-          aria-label={collapsed ? "Expand tool rail" : "Collapse tool rail"}
+          title={collapsed ? t("toolRail.expandToolRail") : t("toolRail.collapseToolRail")}
+          aria-label={collapsed ? t("toolRail.expandToolRail") : t("toolRail.collapseToolRail")}
           type="button"
           onClick={onToggleCollapse}
         >

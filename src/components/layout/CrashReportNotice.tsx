@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { AlertTriangle, X, ChevronRight } from "lucide-react";
 
 import { useStability } from "../../state/stability";
+import { t } from "../../i18n";
 
 type CrashReportNoticeProps = {
   onViewReports: () => void;
@@ -27,25 +28,25 @@ export function CrashReportNotice({ onViewReports }: CrashReportNoticeProps) {
       <AlertTriangle size={16} />
       <span className="crash-notice-text">
         {unseenCount === 1
-          ? "1 crash or freeze report found from last session."
-          : `${unseenCount} crash or freeze reports found from last session.`}
+          ? t("crashReportNotice.oneCrashOrFreezeReport")
+          : t("crashReportNotice.crashOrFreezeReportsFoundFrom", { unseenCount: unseenCount })}
       </span>
       <button
         className="crash-notice-action"
         type="button"
-        title="View reports in Debug Panel"
+        title={t("crashReportNotice.viewReportsInDebugPanel")}
         onClick={() => {
           setDismissed(true);
           onViewReports();
         }}
       >
-        View <ChevronRight size={12} className="icon-inline" />
+        {t("crashReportNotice.view")} <ChevronRight size={12} className="icon-inline" />
       </button>
       <button
         className="crash-notice-dismiss"
         type="button"
-        title="Dismiss"
-        aria-label="Dismiss"
+        title={t("crashReportNotice.dismiss")}
+        aria-label={t("crashReportNotice.dismiss")}
         onClick={() => setDismissed(true)}
       >
         <X size={14} />

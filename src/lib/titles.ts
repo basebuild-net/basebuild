@@ -1,3 +1,5 @@
+import { t } from "../i18n";
+
 /** Human-readable chat/panel titles.
  *
  *  Sessions auto-titled from a first message that was a command invocation
@@ -7,6 +9,7 @@
  */
 export function humanizeChatTitle(raw: string): string {
   const trimmed = raw.trim();
+  if (trimmed === "New Chat" || trimmed === "Native Chat") return t("chatPanel.newChat");
   if (trimmed.includes("<command")) {
     const nameStart = trimmed.indexOf('name="');
     if (nameStart >= 0) {
