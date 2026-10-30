@@ -70,10 +70,10 @@ search/browse configuration, multi-column content, previews, forms, or catalogs
 may obscure the chat: focused configuration is the current task.
 
 
-## Localization (en and zh-CN)
+## Localization (en, zh-CN, and zh-TW)
 
 - Every user-facing string goes through `t("key", { params })` from
-  `src/i18n`. Add the key to both `src/i18n/en/*` and `src/i18n/zh-CN/*` in the
+  `src/i18n`. Add the key to `src/i18n/en/*` and `src/i18n/zh-CN/*` in the
   same change. `MessageKey` derives from `en`, so a typo fails the type check.
 - Lookup maps (`const KEYS = { idle: "chatHeader.runStateIdle" }`) hold keys,
   not text. Call `t(KEYS[value])` at render so the active locale applies.
@@ -87,11 +87,17 @@ may obscure the chat: focused configuration is the current task.
   exception with an `i18n-exempt: <reason>` comment on the same line or the line
   above.
 - `npm run check:i18n` (`scripts/check-i18n.mjs`) enforces: every `t()` key
-  exists in en; `t()` params match the placeholders; zh-CN covers the same keys
-  as en; no unused keys (a string literal counts as a use, so lookup maps are
+  exists in en; `t()` params match the placeholders; zh-CN and zh-TW cover the
+  same keys as en with the same placeholders; zh-TW matches the generator output;
+  no unused keys (a string literal counts as a use, so lookup maps are
   covered); and no hard-coded English in JSX text, UI attributes, prose literals,
   or template literals. Rule `1e` flags 3+ letter English words in template text,
   skipping machine-facing attributes and calls.
+- `src/i18n/zh-TW/*` is generated from zh-CN by `scripts/generate-zh-hant.mjs`
+  (`npm run i18n:zh-hant`). Never edit it by hand. Change the zh-CN text, or the
+  `OVERRIDES` table in the generator for Taiwan wording OpenCC gets wrong, then
+  regenerate. Key changes therefore need only the en and zh-CN edits plus a
+  regeneration.
 - Text inputs that act on Enter or arrow keys (submit, rename, history, palette
   navigation) must first bail out when `isImeComposing(event)` from
   `src/lib/keyboard.ts` is true. Chinese, Japanese, and Korean input methods use

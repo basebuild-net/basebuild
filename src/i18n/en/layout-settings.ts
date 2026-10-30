@@ -270,5 +270,7 @@ export const layoutSettingsEn = {
   "localePicker.englishTitle": "Use English",
   "localePicker.simplifiedChinese": "简体中文",
   "localePicker.simplifiedChineseTitle": "Use Simplified Chinese",
+  "localePicker.traditionalChinese": "繁體中文",
+  "localePicker.traditionalChineseTitle": "Use Traditional Chinese",
   "firstRunModal.chooseYourLanguage": "Choose your language",
 } as const;

@@ -95,13 +95,16 @@ pub const ALL_KEYS: &[&str] = &[
 /// Model-facing instruction appended to every prompt when the UI is zh-CN.
 const ZH_CN_DIRECTIVE: &str = "Reply to the user in Simplified Chinese (简体中文) unless the user writes in another language. Keep code, identifiers, commands, file paths, and file contents in their original language.";
 
-/// Append the language directive for `locale` (`en` or `zh-CN`). English
-/// prompts are returned unchanged.
+/// Model-facing instruction appended to every prompt when the UI is zh-TW.
+const ZH_TW_DIRECTIVE: &str = "Reply to the user in Traditional Chinese (繁體中文, Taiwan usage) unless the user writes in another language. Keep code, identifiers, commands, file paths, and file contents in their original language.";
+
+/// Append the language directive for `locale` (`en`, `zh-CN`, or `zh-TW`).
+/// English prompts are returned unchanged.
 pub fn append_locale_directive(prompt: String, locale: &str) -> String {
-    if locale == "zh-CN" {
-        format!("{prompt}\n\n{ZH_CN_DIRECTIVE}")
-    } else {
-        prompt
+    match locale {
+        "zh-CN" => format!("{prompt}\n\n{ZH_CN_DIRECTIVE}"),
+        "zh-TW" => format!("{prompt}\n\n{ZH_TW_DIRECTIVE}"),
+        _ => prompt,
     }
 }
 
@@ -124,7 +127,7 @@ impl PlanningPromptService {
     }
 
     /// Like `get`, plus the UI-language directive when the app is set to
-    /// zh-CN. Use for every prompt that is sent to a model.
+    /// zh-CN or zh-TW. Use for every prompt that is sent to a model.
     pub fn get_localized(key: &str) -> DbResult<String> {
         Self::get(key).map(|prompt| {
             append_locale_directive(prompt, &SettingsService::effective_ui_locale())
@@ -520,10 +523,13 @@ mod tests {
     }
 
     #[test]
-    fn locale_directive_is_only_added_for_zh_cn() {
+    fn locale_directive_is_only_added_for_chinese_locales() {
         assert_eq!(append_locale_directive("base".into(), "en"), "base");
         let zh = append_locale_directive("base".into(), "zh-CN");
         assert!(zh.starts_with("base\n\n"));
         assert!(zh.contains("Simplified Chinese"));
+        let zh_tw = append_locale_directive("base".into(), "zh-TW");
+        assert!(zh_tw.starts_with("base\n\n"));
+        assert!(zh_tw.contains("Traditional Chinese"));
     }
 }

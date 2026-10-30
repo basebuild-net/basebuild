@@ -989,12 +989,14 @@ never as chat prose alone:
 ## UI language and model replies
 
 `SettingsService::get_ui_locale()` returns the persisted `preference`
-(`system`, `en`, or `zh-CN`) and the `effective` locale (`en` or `zh-CN`) that
+(`system`, `en`, `zh-CN`, or `zh-TW`) and the `effective` locale (`en`, `zh-CN`,
+or `zh-TW`) that
 the frontend resolved it to. Rust reads `effective` for the native tray labels
 (`tray_label` in `lib.rs`) and for model-facing prompts.
 
-`PlanningPromptService::get_localized` appends `ZH_CN_DIRECTIVE` when the
-effective locale is `zh-CN`. The model then replies in Simplified Chinese unless
+`PlanningPromptService::get_localized` appends `ZH_CN_DIRECTIVE` (Simplified) or
+`ZH_TW_DIRECTIVE` (Traditional) when the effective locale is `zh-CN` or `zh-TW`.
+The model then replies in that script unless
 the user writes in another language, and code, identifiers, commands, paths, and
 file contents keep their original language. The prompt text itself stays
 English. Chat, category, idea, and plan generation all call `get_localized`; any

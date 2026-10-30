@@ -17,8 +17,8 @@ type DbResult<T> = Result<T, String>;
 
 const UI_LOCALE_KEY: &str = "ui_locale";
 
-/// UI language selection. `preference` is one of `system`, `en`, `zh-CN`;
-/// `effective` is the resolved locale, `en` or `zh-CN`.
+/// UI language selection. `preference` is one of `system`, `en`, `zh-CN`,
+/// `zh-TW`; `effective` is the resolved locale, `en`, `zh-CN`, or `zh-TW`.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UiLocale {
@@ -40,11 +40,12 @@ impl UiLocale {
     /// yields an unsupported locale.
     fn sanitized(self) -> Self {
         let preference = match self.preference.as_str() {
-            "system" | "en" | "zh-CN" => self.preference,
+            "system" | "en" | "zh-CN" | "zh-TW" => self.preference,
             _ => "system".to_string(),
         };
         let effective = match self.effective.as_str() {
             "zh-CN" => "zh-CN".to_string(),
+            "zh-TW" => "zh-TW".to_string(),
             _ => "en".to_string(),
         };
         Self {
@@ -273,9 +274,9 @@ impl SettingsService {
     // ─── UI locale ───
 
     /// Persisted UI language. `preference` is what the user chose (`system`,
-    /// `en`, or `zh-CN`); `effective` is the concrete locale the frontend
-    /// resolved it to (`en` or `zh-CN`). Rust reads `effective` for tray labels
-    /// and the model-facing language directive.
+    /// `en`, `zh-CN`, or `zh-TW`); `effective` is the concrete locale the
+    /// frontend resolved it to (`en`, `zh-CN`, or `zh-TW`). Rust reads
+    /// `effective` for tray labels and the model-facing language directive.
     pub fn get_ui_locale() -> DbResult<UiLocale> {
         let conn = StorageService::connect()?;
         let value: Option<String> = conn
@@ -311,8 +312,8 @@ impl SettingsService {
         Ok(locale)
     }
 
-    /// Effective locale for Rust-side copy (`en` or `zh-CN`). Never errors:
-    /// an unreadable row degrades to English.
+    /// Effective locale for Rust-side copy (`en`, `zh-CN`, or `zh-TW`). Never
+    /// errors: an unreadable row degrades to English.
     pub fn effective_ui_locale() -> String {
         Self::get_ui_locale()
             .map(|l| l.effective)
