@@ -250,11 +250,9 @@ export function ChatHeader(props: ChatHeaderProps) {
       onDrop={props.onDrop}
     >
       <div className="chat-column-header-left">
-        {props.runState !== "idle" ? (
-          <span className={`chat-header-run-state is-${props.runState}`} title={t("chatHeader.agentState", { runState: t(RUN_STATE_KEYS[props.runState]) })}>
-            {t(RUN_STATE_KEYS[props.runState])}
-          </span>
-        ) : null}
+        <span className={`chat-header-run-state is-${props.runState}`} title={t("chatHeader.agentState", { runState: t(RUN_STATE_KEYS[props.runState]) })}>
+          {t(RUN_STATE_KEYS[props.runState])}
+        </span>
         <ContextIndicator used={props.contextUsed} limit={props.contextLimit} />
         <button
           className={`chat-column-mode-pill${props.agentMode === "build" ? " is-build" : " is-plan"}`}
