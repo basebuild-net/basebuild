@@ -6,7 +6,7 @@ use parking_lot::Mutex;
 use rusqlite::{params, OptionalExtension};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::events::{AUTH_CHANGED, USAGE_SYNC_STATUS};
 use crate::models::usage_envelope::{
@@ -675,7 +675,7 @@ fn rejection_is_permanent(code: Option<&str>) -> bool {
 /// batch this client cannot represent, and a batch the server refuses each
 /// affect only themselves. Before this, any one of them failed the whole
 /// envelope and starved every other source indefinitely.
-pub fn sync_envelope_native() -> Result<EnvelopeSyncReport, String> {
+pub fn sync_envelope_native(client_version: &str) -> Result<EnvelopeSyncReport, String> {
     let mode = resolve_auth_mode()?;
     let collections = crate::services::usage_source_service::collect_all_sources();
     let sources = crate::services::usage_source_service::registered_sources();
@@ -722,7 +722,7 @@ pub fn sync_envelope_native() -> Result<EnvelopeSyncReport, String> {
         });
     }
 
-    let (envelope, rejected) = assemble_envelope(batches, now_seconds());
+    let (envelope, rejected) = assemble_envelope(batches, now_seconds(), client_version);
     for rejection in rejected {
         if rejection.deferred {
             eprintln!(
@@ -864,7 +864,7 @@ pub fn sync_envelope_native() -> Result<EnvelopeSyncReport, String> {
 /// Sync the durable version 2 spool through the same MCP tool as version 1.
 /// Collection runs once, then the existing spool drains without producing a
 /// fresh coverage/quota batch between network requests.
-pub fn sync_envelope_v2() -> Result<EnvelopeSyncReport, String> {
+pub fn sync_envelope_v2(client_version: &str) -> Result<EnvelopeSyncReport, String> {
     eprintln!("[SYNC V2] sync attempt started");
     let mode = resolve_auth_mode()?;
     if let Err(error) =
@@ -881,7 +881,7 @@ pub fn sync_envelope_v2() -> Result<EnvelopeSyncReport, String> {
     let mut total = EnvelopeSyncReport::default();
     let mut passes = 0usize;
     for pass in 1..=max_passes {
-        let report = sync_envelope_v2_pass(&mode, &sources)?;
+        let report = sync_envelope_v2_pass(&mode, &sources, client_version)?;
         passes = pass;
         let should_stop = report.retryable > 0 || report.is_idle();
         total.accepted += report.accepted;
@@ -906,6 +906,7 @@ pub fn sync_envelope_v2() -> Result<EnvelopeSyncReport, String> {
 fn sync_envelope_v2_pass(
     mode: &AuthMode,
     sources: &[Box<dyn crate::services::usage_source_service::UsageSource>],
+    client_version: &str,
 ) -> Result<EnvelopeSyncReport, String> {
     let batches =
         crate::services::usage_v2_collector_service::UsageV2CollectorService::pending_batches()?;
@@ -955,7 +956,7 @@ fn sync_envelope_v2_pass(
     };
 
     let mut report = EnvelopeSyncReport::default();
-    let (envelope, rejected) = assemble_v2_envelope(batches, now_seconds());
+    let (envelope, rejected) = assemble_v2_envelope(batches, now_seconds(), client_version);
     for rejection in rejected {
         if rejection.deferred {
             report.retryable += 1;
@@ -1997,6 +1998,7 @@ fn backoff_elapsed(now: i64) -> bool {
 }
 
 pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
+    let client_version = app.package_info().version.to_string();
     eprintln!("[SYNC] trigger_sync reason={reason} skip_freshness={skip_freshness}");
     if !gates_pass() {
         eprintln!("[SYNC] gates_pass=false — aborting (need: signed in + upload permission + auto-sync enabled)");
@@ -2065,7 +2067,7 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
             return;
         }
         eprintln!("[SYNC] thread started, calling v2 envelope then v1 envelope");
-        let v2_envelope_result = sync_envelope_v2();
+        let v2_envelope_result = sync_envelope_v2(&client_version);
         eprintln!(
             "[SYNC] sync_envelope_v2: {}",
             match &v2_envelope_result {
@@ -2073,7 +2075,7 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
                 Err(error) => format!("ERR: {error}"),
             }
         );
-        let v1_envelope_result = sync_envelope_native();
+        let v1_envelope_result = sync_envelope_native(&client_version);
         eprintln!(
             "[SYNC] sync_envelope_native: {}",
             match &v1_envelope_result {
@@ -2378,7 +2380,7 @@ pub fn stop_autosync_loop() {
 /// pushes everything if gates pass. Called from `RunEvent::ExitRequested` so
 /// the app doesn't exit until the push completes (or times out after 10s).
 /// Best-effort: errors are logged, never propagated — we must not block exit.
-pub fn sync_on_exit() {
+pub fn sync_on_exit(client_version: &str) {
     eprintln!("[SYNC] sync_on_exit — final push before exit");
     if let Err(error) =
         crate::services::usage_v2_collector_service::UsageV2CollectorService::stop_and_spool()
@@ -2393,9 +2395,10 @@ pub fn sync_on_exit() {
     stop_autosync_loop();
     // Blocking sync with a timeout — we can't hang the exit forever.
     let (tx, rx) = std::sync::mpsc::channel();
+    let client_version = client_version.to_string();
     thread::spawn(move || {
-        let envelope_v2 = sync_envelope_v2();
-        let envelope = sync_envelope_native();
+        let envelope_v2 = sync_envelope_v2(&client_version);
+        let envelope = sync_envelope_native(&client_version);
         let rows = sync_messages_native();
         let raw = sync_raw_usage_native();
         let feedback = sync_execution_advisor_feedback_native();
@@ -2872,7 +2875,7 @@ mod tests {
             "the harness history must still be collected, not skipped wholesale"
         );
 
-        let (envelope, rejected) = assemble_envelope(batches, now);
+        let (envelope, rejected) = assemble_envelope(batches, now, env!("CARGO_PKG_VERSION"));
         let envelope = envelope.expect("an envelope must be shippable");
         validate_envelope(&envelope).expect("assembled envelope must be wire-valid");
         assert!(
@@ -3002,7 +3005,8 @@ mod tests {
         .unwrap();
         drop(conn);
 
-        let report = sync_envelope_native().expect("envelope push must reach the server");
+        let report = sync_envelope_native(env!("CARGO_PKG_VERSION"))
+            .expect("envelope push must reach the server");
         eprintln!("[live] {}", report.message);
         // The harness sources read the developer's real history, so the batch
         // count varies by machine; what must hold is that everything offered
@@ -3013,7 +3017,8 @@ mod tests {
 
         // The cursors advanced, so an immediate second pass has nothing owed —
         // proof the accept path is wired, not just the transport.
-        let again = sync_envelope_native().expect("second pass must succeed");
+        let again =
+            sync_envelope_native(env!("CARGO_PKG_VERSION")).expect("second pass must succeed");
         assert!(again.is_idle(), "expected nothing to sync, got {again:?}");
     }
 
@@ -3096,7 +3101,8 @@ mod tests {
         // spool. Re-collecting between passes used to add quota/coverage batches
         // faster than one-per-source envelopes could remove them, permanently
         // starving request spans behind the sampling backlog.
-        let report = sync_envelope_v2().expect("v2 envelope push must reach the server");
+        let report = sync_envelope_v2(env!("CARGO_PKG_VERSION"))
+            .expect("v2 envelope push must reach the server");
         eprintln!("[live v2] {}", report.message);
         assert_eq!(report.retryable, 0, "nothing may be left pending");
         let accepted = report.accepted;
