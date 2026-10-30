@@ -2125,8 +2125,8 @@ export function AppShell({ updates }: AppShellProps) {
     <PanelStatusProvider>
     <div className="app-container app-container-chat-first">
       {restorePhase !== "ready" ? <WorkspaceSplash phase={restorePhase} /> : null}
-      <div className="window-taskbar" role="banner">
-        <span className="window-taskbar-title" title="Basebuild">Basebuild</span>
+      <div className="window-taskbar" role="banner" data-tauri-drag-region>
+        <span className="window-taskbar-title" title="Basebuild" data-tauri-drag-region>Basebuild</span>
         <div className="window-taskbar-right">
           <TaskbarNotifications onNavigate={handleNotificationNavigate} appToasts={appToasts} onDismissAppToast={dismissAppToast} />
           <BackgroundAgents

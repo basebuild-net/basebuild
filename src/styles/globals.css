@@ -424,6 +424,22 @@ html, body, #root {
 .window-controls { -webkit-app-region: no-drag; app-region: no-drag; }
 .window-taskbar-right { -webkit-app-region: no-drag; app-region: no-drag; }
 
+/* macOS: native traffic lights sit over the left of an overlay title bar, so
+   the bar is taller, reserves their space, and blends into the window chrome. */
+html[data-platform="macos"] .window-taskbar {
+  height: 40px;
+  padding-left: 84px;
+  padding-right: 12px;
+  background: var(--bb-chrome);
+}
+html[data-platform="macos"] .window-taskbar-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--bb-text-secondary);
+}
+
 /* ─── Account button (taskbar) ─── */
 .account-button { position: relative; }
 .account-button-loading { width: 18px; height: 18px; background: var(--bb-surface); }

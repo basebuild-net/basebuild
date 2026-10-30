@@ -1,8 +1,16 @@
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Minus, Square, X } from "lucide-react";
+import { desktopPlatform } from "../../lib/platform";
 
+/** Custom min/max/close for frameless Windows and Linux windows. macOS keeps
+ *  its native traffic lights (overlay title bar), so this renders nothing there. */
 export function WindowControls() {
+  if (desktopPlatform === "macos") return null;
+  return <CustomWindowControls />;
+}
+
+function CustomWindowControls() {
   const [maximized, setMaximized] = useState(false);
 
   useEffect(() => {

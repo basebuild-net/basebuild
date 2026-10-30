@@ -3,6 +3,9 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import "./styles/globals.css";
 import { initUiScale } from "./lib/uiScale";
+import { applyPlatformAttribute } from "./lib/platform";
+
+applyPlatformAttribute();
 
 // Promote the pre-paint CSS-zoom bootstrap to native webview zoom (which
 // does not persist across restarts) before the shell renders.
