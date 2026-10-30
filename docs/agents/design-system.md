@@ -92,6 +92,11 @@ may obscure the chat: focused configuration is the current task.
   covered); and no hard-coded English in JSX text, UI attributes, prose literals,
   or template literals. Rule `1e` flags 3+ letter English words in template text,
   skipping machine-facing attributes and calls.
+- Text inputs that act on Enter or arrow keys (submit, rename, history, palette
+  navigation) must first bail out when `isImeComposing(event)` from
+  `src/lib/keyboard.ts` is true. Chinese, Japanese, and Korean input methods use
+  Enter to confirm a candidate and arrows to move through candidates; WebKit on
+  macOS reports the confirming Enter as keyCode 229 after `compositionend`.
 
 ## CSS rules
 

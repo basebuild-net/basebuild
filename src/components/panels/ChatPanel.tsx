@@ -167,6 +167,7 @@ import { ProviderManageModal } from "./chat/ProviderManageModal";
 import { ProviderCatalogModal } from "./chat/ProviderCatalogModal";
 import { t } from "../../i18n";
 import { formatDateTime, formatRelativeTime } from "../../i18n/format";
+import { isImeComposing } from "../../lib/keyboard";
 type ChatPanelProps = {
   projectPath: string;
   chatSessionId?: string | null;
@@ -3230,6 +3231,7 @@ export function ChatPanel({
               if (els[0]) els[0].scrollIntoView({ block: "center" });
             }}
             onKeyDown={(e) => {
+              if (isImeComposing(e)) return;
               if (e.key === "Escape") {
                 setShowSearch(false);
                 setSearchQuery("");
@@ -3748,6 +3750,7 @@ export function ChatPanel({
                 savedDraftRef.current = "";
               }}
               onKeyDown={(e) => {
+                if (isImeComposing(e)) return;
                 if (showCommandPalette && nativeMode) {
                   const query = input.trim().slice(1);
                   const ranked = filterAndRank(BUILTIN_COMMANDS, query, commandRecency);

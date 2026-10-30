@@ -4,6 +4,7 @@ import { Play, Zap } from "lucide-react";
 import { useOmpState, type OmpController } from "../../state/omp";
 import { LoadingBlock } from "../layout/Loading";
 import { t } from "../../i18n";
+import { isImeComposing } from "../../lib/keyboard";
 
 type OmpPanelProps = {
   state: OmpController;
@@ -99,7 +100,7 @@ export function OmpPanel({ state }: OmpPanelProps) {
               type="text"
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") void runPrompt(); }}
+              onKeyDown={(e) => { if (e.key === "Enter" && !isImeComposing(e)) void runPrompt(); }}
             />
             <button className="btn btn-primary" title={t("ompPanel.runOmpPrompt")} disabled={state.busy} onClick={() => void runPrompt()} type="button">
               <Play size={14} /> {t("ompPanel.run")}
