@@ -69,6 +69,30 @@ search/browse configuration, multi-column content, previews, forms, or catalogs
 (provider/model, Schematic, Planning, Changes, Files, Settings). Modal layouts
 may obscure the chat: focused configuration is the current task.
 
+
+## Localization (en and zh-CN)
+
+- Every user-facing string goes through `t("key", { params })` from
+  `src/i18n`. Add the key to both `src/i18n/en/*` and `src/i18n/zh-CN/*` in the
+  same change. `MessageKey` derives from `en`, so a typo fails the type check.
+- Lookup maps (`const KEYS = { idle: "chatHeader.runStateIdle" }`) hold keys,
+  not text. Call `t(KEYS[value])` at render so the active locale applies.
+- Dates, times, and numbers use `src/i18n/format.ts` (`formatRelativeTime`,
+  `formatDateTime`, `formatNumber`). Do not call `toLocale*()` without a locale
+  and do not build "ago" strings by hand.
+- Tooltips (`title=`), `aria-label`, and placeholders are translated like any
+  other UI text.
+- Keep English on purpose for brand names, identifiers, debug `addLog` lines,
+  model-facing prompt text, and copied export markdown. Mark a deliberate
+  exception with an `i18n-exempt: <reason>` comment on the same line or the line
+  above.
+- `npm run check:i18n` (`scripts/check-i18n.mjs`) enforces: every `t()` key
+  exists in en; `t()` params match the placeholders; zh-CN covers the same keys
+  as en; no unused keys (a string literal counts as a use, so lookup maps are
+  covered); and no hard-coded English in JSX text, UI attributes, prose literals,
+  or template literals. Rule `1e` flags 3+ letter English words in template text,
+  skipping machine-facing attributes and calls.
+
 ## CSS rules
 
 - `src/styles/globals.css` is the only stylesheet. No CSS modules, no styled
