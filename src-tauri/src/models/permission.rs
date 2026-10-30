@@ -91,13 +91,13 @@ pub enum ApprovalMode {
     Auto,
 }
 
-/// Default is Auto (run everything): no prompts, everything auto-allowed
-/// within workspace scoping. Users opt into Balanced/Safe per project.
-/// Note: `from_str` still falls back to Balanced for unknown *stored*
-/// values — a corrupt explicit setting degrades conservatively.
+/// Default is Balanced: read-only tools run without prompts, mutating tools
+/// (writes, edits, shell commands) ask first. Users opt into Auto or Safe per
+/// project. `from_str` also falls back to Balanced for unknown *stored*
+/// values, so a corrupt explicit setting degrades to the same posture.
 impl Default for ApprovalMode {
     fn default() -> Self {
-        Self::Auto
+        Self::Balanced
     }
 }
 
@@ -259,9 +259,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn approval_mode_defaults_to_auto() {
-        // Product decision: new projects run everything without prompts.
-        assert_eq!(ApprovalMode::default(), ApprovalMode::Auto);
+    fn approval_mode_defaults_to_balanced() {
+        // New projects prompt before mutating tools until the user opts into Auto.
+        assert_eq!(ApprovalMode::default(), ApprovalMode::Balanced);
     }
 
     #[test]
@@ -269,7 +269,7 @@ mod tests {
         assert_eq!(ApprovalMode::from_str("safe"), ApprovalMode::Safe);
         assert_eq!(ApprovalMode::from_str("balanced"), ApprovalMode::Balanced);
         assert_eq!(ApprovalMode::from_str("auto"), ApprovalMode::Auto);
-        // Unknown *stored* values degrade to Balanced, not the Auto default.
+        // Unknown *stored* values degrade to Balanced, the default posture.
         assert_eq!(ApprovalMode::from_str("garbage"), ApprovalMode::Balanced);
     }
 }

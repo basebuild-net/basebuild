@@ -17,16 +17,19 @@ use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 
 use crate::models::permission::{PermissionDecision, SessionRule};
+use crate::services::context_service::{estimate_tokens, PLAN_MODE_NOTICE};
 use crate::services::provider_client::{
-    resolve_client_for_model, ChatMsg, ProviderRequest, ToolCallRequest, ToolSchema,
+    resolve_client_for_model, ChatMsg, ProviderRequest, ProviderResponse, ToolCallRequest,
+    ToolSchema,
 };
 use crate::services::settings_service::SettingsService;
+use crate::services::todo_service::TodoService;
 use crate::services::tool_runtime_service::{
-    redact_tool_arguments, registry, ToolDef, ToolKind, ToolResult,
+    allowed_in_plan_mode, redact_tool_arguments, registry, ToolDef, ToolKind, ToolResult,
 };
 
 /// Maximum loop iterations before stopping.
-const MAX_ITERATIONS: usize = 25;
+const MAX_ITERATIONS: usize = 100;
 /// Retries on empty provider responses before giving up. Local models
 /// (LM Studio, Ollama) intermittently return empty streams — a nudge retry
 /// recovers most cases without surfacing a confusing error.
@@ -279,6 +282,68 @@ pub struct RunResult {
     pub truncated: bool,
     /// Tool events recorded during the run.
     pub tool_events: Vec<ToolEventRecord>,
+    /// Token usage summed over the run's provider requests.
+    pub usage: RunUsage,
+}
+
+/// Token usage for one run. Provider-reported counts are used when present.
+/// The estimator fills in when a provider omits usage, which local
+/// OpenAI-compatible servers often do.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RunUsage {
+    /// Prompt tokens summed over every provider request in the run.
+    pub input_tokens: i64,
+    /// Completion tokens summed over every provider request in the run.
+    pub output_tokens: i64,
+    pub cache_read_tokens: i64,
+    pub cache_write_tokens: i64,
+    /// Prompt plus output of the most recent request. The prompt is re-sent
+    /// each iteration, so this is the size the context circle should show.
+    pub last_context_tokens: i64,
+}
+
+impl RunUsage {
+    fn record(&mut self, request: &ProviderRequest, response: &ProviderResponse) {
+        let input = response
+            .input_tokens
+            .unwrap_or_else(|| estimate_request_tokens(request));
+        let output = response.output_tokens.unwrap_or_else(|| {
+            estimate_tokens(&response.content)
+                + response.reasoning.as_deref().map(estimate_tokens).unwrap_or(0)
+        });
+        self.input_tokens += input;
+        self.output_tokens += output;
+        self.cache_read_tokens += response.cache_read_tokens.unwrap_or(0);
+        self.cache_write_tokens += response.cache_write_tokens.unwrap_or(0);
+        self.last_context_tokens = input + output;
+    }
+}
+
+/// Estimate the prompt size of a request for providers that report no usage.
+fn estimate_request_tokens(request: &ProviderRequest) -> i64 {
+    let system = request.system.as_deref().map(estimate_tokens).unwrap_or(0);
+    let tools: i64 = request
+        .tools
+        .iter()
+        .map(|tool| {
+            estimate_tokens(&tool.name)
+                + estimate_tokens(&tool.description)
+                + estimate_tokens(&tool.parameters.to_string())
+        })
+        .sum();
+    let messages: i64 = request
+        .messages
+        .iter()
+        .map(|message| {
+            estimate_tokens(&message.content)
+                + message
+                    .tool_calls
+                    .iter()
+                    .map(|call| estimate_tokens(&call.arguments))
+                    .sum::<i64>()
+        })
+        .sum();
+    system + tools + messages
 }
 
 /// One provider iteration's assistant output within a run. Persisted as its
@@ -549,6 +614,7 @@ fn run_loop_inner(
     let mut truncated = false;
     let mut iteration = 0;
     let mut empty_retries = 0;
+    let mut usage = RunUsage::default();
 
     loop {
         iteration += 1;
@@ -562,9 +628,12 @@ fn run_loop_inner(
                 hit_cap: false,
                 truncated,
                 tool_events,
+                usage,
             };
         }
         if iteration > MAX_ITERATIONS {
+            // The UI shows this row with a Continue action that starts a new turn.
+            emit_system_row(app, session_id, "iteration-cap", MAX_ITERATIONS);
             return RunResult {
                 content: String::new(),
                 reasoning: None,
@@ -574,12 +643,22 @@ fn run_loop_inner(
                 hit_cap: true,
                 truncated,
                 tool_events,
+                usage,
             };
         }
 
+        // Plan mode is read every iteration so `/plan` and approval take effect
+        // on the next provider request. An unreadable flag fails closed.
+        let plan_mode =
+            crate::services::native_chat_service::NativeChatService::is_plan_mode(session_id)
+                .unwrap_or(true);
+        let turn_tools = tools_for_turn(&tools, plan_mode);
+        let turn_system = system_for_turn(system, plan_mode);
+
         // Context budget guard: trim old turns if over budget.
         let budget = context_budget(provider_id, model_id);
-        let (trimmed_messages, did_truncate) = trim_to_budget(&messages, system, &tools, budget);
+        let (trimmed_messages, did_truncate) =
+            trim_to_budget(&messages, &turn_system, &turn_tools, budget);
         if did_truncate {
             truncated = true;
             emit_system_row(app, session_id, "truncated", 0);
@@ -617,11 +696,11 @@ fn run_loop_inner(
         let req = ProviderRequest {
             model_id: wire_model_id,
             effort_level: effort_level.to_string(),
-            system: Some(system.to_string()),
+            system: Some(turn_system.clone()),
             messages: messages.clone(),
             api_key: api_key.clone(),
             base_url: base_url.clone(),
-            tools: tools.clone(),
+            tools: turn_tools.clone(),
         };
 
         let (api_kind, model_base_url) =
@@ -720,9 +799,12 @@ fn run_loop_inner(
                     hit_cap: false,
                     truncated,
                     tool_events,
+                    usage,
                 };
             }
         };
+
+        usage.record(&req, &response);
 
         if let Some(message_id) = draft_message_id.as_deref() {
             let _ =
@@ -803,6 +885,7 @@ fn run_loop_inner(
                 hit_cap: false,
                 truncated,
                 tool_events,
+                usage,
             };
         }
 
@@ -821,6 +904,7 @@ fn run_loop_inner(
             app,
             session_id,
             planning_session_id,
+            plan_mode,
             iteration,
             draft_message_id.as_deref(),
             &mut tool_events,
@@ -863,6 +947,7 @@ fn process_tool_calls(
     app: &AppHandle,
     session_id: &str,
     planning_session_id: Option<&str>,
+    plan_mode: bool,
     iteration: usize,
     message_id: Option<&str>,
     tool_events: &mut Vec<ToolEventRecord>,
@@ -926,18 +1011,37 @@ fn process_tool_calls(
             results.push((calls[idx].clone(), result));
         }
     }
+    // Intercept todo_write: validate and persist the whole checklist, then
+    // refresh the UI. Never reaches the generic executor.
+    for (idx, call) in calls.iter().enumerate() {
+        if call.name == "todo_write" {
+            let result = execute_todo_write(app, session_id, call);
+            record_tool_event(
+                app,
+                session_id,
+                message_id,
+                call,
+                &result,
+                iteration,
+                tool_events,
+            );
+            results.push((calls[idx].clone(), result));
+        }
+    }
     // Filter out intercepted calls so they aren't double-processed.
     let remaining: Vec<(usize, &ToolCallRequest)> = calls
         .iter()
         .enumerate()
-        .filter(|(_, c)| c.name != "propose_ideas" && c.name != "ask_user")
+        .filter(|(_, c)| {
+            c.name != "propose_ideas" && c.name != "ask_user" && c.name != "todo_write"
+        })
         .collect();
 
     let read_only: Vec<(usize, &ToolCallRequest)> = remaining
         .iter()
         .filter(|(_, c)| {
             tool_def_for(&c.name, tool_defs)
-                .map(|d| d.kind == ToolKind::ReadOnly)
+                .map(|d| matches!(d.kind, ToolKind::ReadOnly | ToolKind::Network))
                 .unwrap_or(false)
         })
         .cloned()
@@ -984,7 +1088,7 @@ fn process_tool_calls(
                 }
             } else if let Some(def) = def {
                 execute_with_gateway(
-                    &def, &call, &workspace, &project, &mut rules, &app, &session,
+                    &def, &call, &workspace, &project, &mut rules, &app, &session, plan_mode,
                 )
             } else {
                 ToolResult {
@@ -1045,6 +1149,7 @@ fn process_tool_calls(
                 session_rules,
                 app,
                 session_id,
+                plan_mode,
             )
         } else {
             ToolResult {
@@ -1071,6 +1176,29 @@ fn process_tool_calls(
 
     results
 }
+
+/// Intercept the todo_write tool: validate the whole checklist, persist it for
+/// the session, and push it to the UI. Never reaches the generic executor.
+fn execute_todo_write(app: &AppHandle, session_id: &str, call: &ToolCallRequest) -> ToolResult {
+    let args: Value = serde_json::from_str(&call.arguments).unwrap_or(json!({}));
+    let items = match TodoService::parse_arguments(&args) {
+        Ok(items) => items,
+        Err(error) => return ToolResult::failure(error),
+    };
+    if let Err(error) = TodoService::replace(session_id, &items) {
+        return ToolResult::failure(error);
+    }
+    let _ = app.emit(
+        "native-chat://todos",
+        json!({ "sessionId": session_id, "todos": items }),
+    );
+    let open = items.iter().filter(|item| item.status != "completed").count();
+    ToolResult::success(format!(
+        "Todo list updated: {} items, {open} still open.",
+        items.len()
+    ))
+}
+
 /// Intercept the propose_ideas tool: parse arguments and capture each idea to
 /// the ideas catalog as a concept idea (optionally category-tagged). Returns a
 /// success result with the count. One idea per call so the UI can render cards
@@ -1431,12 +1559,18 @@ fn execute_with_gateway(
     session_rules: &mut Vec<SessionRule>,
     app: &AppHandle,
     session_id: &str,
+    plan_mode: bool,
 ) -> ToolResult {
     let args: Value = serde_json::from_str(&call.arguments).unwrap_or(json!({}));
     let command = args.get("command").and_then(Value::as_str);
 
-    let mut decision =
-        SettingsService::resolve_tool_call(project_path, &call.name, command, session_rules);
+    let mut decision = SettingsService::resolve_tool_call(
+        project_path,
+        &call.name,
+        command,
+        session_rules,
+        plan_mode,
+    );
 
     if call.name == "get_execution_advice" {
         let is_external_provider =
@@ -1610,8 +1744,28 @@ fn tool_def_for<'a>(name: &str, defs: &'a [ToolDef]) -> Option<&'a ToolDef> {
     defs.iter().find(|d| d.schema.name == name)
 }
 
+/// Tools offered to the provider for one turn. Plan mode hides mutating tools
+/// so the model plans instead of attempting edits. The gateway refuses any call
+/// that still arrives.
+fn tools_for_turn(tools: &[ToolSchema], plan_mode: bool) -> Vec<ToolSchema> {
+    tools
+        .iter()
+        .filter(|tool| !plan_mode || allowed_in_plan_mode(&tool.name))
+        .cloned()
+        .collect()
+}
+
+/// System prompt for one turn. Plan mode appends the planning notice.
+fn system_for_turn(system: &str, plan_mode: bool) -> String {
+    if plan_mode {
+        format!("{system}\n\n{PLAN_MODE_NOTICE}")
+    } else {
+        system.to_string()
+    }
+}
+
 /// Get the context budget for a model (conservative default if unknown).
-fn context_budget(provider_id: &str, model_id: &str) -> i64 {
+pub(crate) fn context_budget(provider_id: &str, model_id: &str) -> i64 {
     // Look up the model's context_window from the DB cache. Local models
     // (LM Studio, Ollama) often have larger windows (128K+) than the
     // conservative 32K default; using the real value prevents unnecessary
@@ -1693,16 +1847,6 @@ fn trim_to_budget(
     }
     (trimmed, true)
 }
-/// Estimate tokens for a string (whitespace-split word count).
-fn estimate_tokens(text: &str) -> i64 {
-    let trimmed = text.trim();
-    if trimmed.is_empty() {
-        0
-    } else {
-        trimmed.split_whitespace().count().max(1) as i64
-    }
-}
-
 /// Emit a system row to the transcript.
 fn emit_system_row(app: &AppHandle, session_id: &str, kind: &str, value: usize) {
     let _ = app.emit(
@@ -1716,6 +1860,45 @@ use std::sync::LazyLock;
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn plan_mode_hides_mutating_tools_from_the_provider() {
+        let tools: Vec<ToolSchema> = registry().iter().map(|t| t.schema.clone()).collect();
+        let names = |list: &[ToolSchema]| -> Vec<String> {
+            list.iter().map(|t| t.name.clone()).collect()
+        };
+        assert_eq!(names(&tools_for_turn(&tools, false)).len(), tools.len());
+        let planned = names(&tools_for_turn(&tools, true));
+        for allowed in ["read_file", "list_files", "search_files", "web_fetch", "todo_write"] {
+            assert!(planned.iter().any(|name| name == allowed), "{allowed}");
+        }
+        for blocked in ["write_file", "run_command"] {
+            assert!(!planned.iter().any(|name| name == blocked), "{blocked}");
+        }
+    }
+
+    #[test]
+    fn plan_mode_appends_the_planning_notice_to_the_system_prompt() {
+        assert_eq!(system_for_turn("base", false), "base");
+        let planned = system_for_turn("base", true);
+        assert!(planned.starts_with("base"));
+        assert!(planned.ends_with(PLAN_MODE_NOTICE));
+    }
+
+    #[test]
+    fn estimate_request_tokens_counts_system_and_messages() {
+        let request = ProviderRequest {
+            model_id: "m".to_string(),
+            effort_level: "low".to_string(),
+            system: Some("你好".to_string()),
+            messages: vec![ChatMsg::text("user", "hello world")],
+            api_key: None,
+            base_url: None,
+            tools: Vec::new(),
+        };
+        // 2 CJK characters + ceil(11 / 4) for the ASCII message.
+        assert_eq!(estimate_request_tokens(&request), 2 + 3);
+    }
+
     fn valid_idea_assessment() -> Value {
         json!({
             "schemaVersion": 1,

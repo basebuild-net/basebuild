@@ -13,6 +13,8 @@ pub struct NativeChatSession {
     pub effort_level: String,
     pub status: String,
     pub run_state: String,
+    /// Plan mode gates the session to read-only tools until the plan is approved.
+    pub plan_mode: bool,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -294,6 +296,32 @@ pub struct NativeChatSendResult {
     /// True when the turn was handled by the offline local coordinator rather
     /// than an external provider.
     pub offline: bool,
+    /// Prompt-side occupancy after the turn: the last provider request's input
+    /// tokens plus its output. Unlike `metrics`, this is not summed across loop
+    /// iterations, so the context circle reflects the window actually used.
+    pub context_tokens: Option<i64>,
+}
+
+/// One item of the per-session checklist written by `todo_write`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeTodoItem {
+    pub content: String,
+    /// `pending`, `in_progress`, or `completed`.
+    pub status: String,
+}
+
+/// Result of `/compact`: a provider summary now stands in for older messages.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeCompactionResult {
+    pub session_id: String,
+    pub summary: String,
+    pub compacted_messages: usize,
+    pub kept_messages: usize,
+    pub tokens_before: i64,
+    pub tokens_after: i64,
+    pub created_at: i64,
 }
 
 /// Outcome of injecting a message into an in-flight agent loop. When the run

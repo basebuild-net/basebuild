@@ -2835,11 +2835,15 @@ mod tests {
             "and it must not satisfy the refresh fast path either"
         );
 
-        // Seven models today. The bundled catalog is refreshed from
-        // basebuild.net, so the pin is "every one of them resolves", not a
-        // literal count; the bug was a set of one.
+        // The bundled catalog is refreshed from basebuild.net daily, so the
+        // pin is "every bundled model plus the remote row resolves", not a
+        // literal count; the bug was a set of one. The remote id may or may
+        // not still be bundled, so count the union.
         let expected = bundled_models("openai-codex");
         assert!(expected.len() > 1);
+        let mut expected_ids: std::collections::BTreeSet<&str> =
+            expected.iter().map(|m| m.id.as_str()).collect();
+        expected_ids.insert("gpt-5.4");
 
         let catalog = ProviderModelCatalogService::catalog();
         let codex: Vec<&NativeModel> = catalog
@@ -2847,7 +2851,7 @@ mod tests {
             .iter()
             .filter(|m| m.provider_id == "openai-codex")
             .collect();
-        assert_eq!(codex.len(), expected.len());
+        assert_eq!(codex.len(), expected_ids.len());
         for want in &expected {
             assert!(
                 codex.iter().any(|got| got.id == want.id),
@@ -2863,7 +2867,7 @@ mod tests {
             .iter()
             .find(|p| p.id == "openai-codex")
             .expect("codex is in the provider list");
-        assert_eq!(provider.model_count as usize, expected.len());
+        assert_eq!(provider.model_count as usize, expected_ids.len());
 
         // Healed once: the rows now carry the stamp.
         assert!(ProviderModelCatalogService::provider_cache_merged("openai-codex").unwrap());

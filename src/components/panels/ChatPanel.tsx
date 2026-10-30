@@ -59,6 +59,8 @@ import {
   Rocket,
   Search,
   Send,
+  FileText,
+  ListChecks,
   Sparkles,
   Square,
   LogOut,
@@ -114,6 +116,8 @@ import {
   type NativeModel,
   type NativeProviderCatalog,
   type NativeProvider,
+  nativeChatCompact,
+  nativeChatSetPlanMode,
   type NativeSetupRequired,
   type NativeProviderLoginState,
   type NativeToolEvent,
@@ -132,6 +136,7 @@ import type { AgentMode } from "../../lib/sessions";
 import { readModelRecency, readProviderRecency, recordModelUse, recordProviderUse } from "../../lib/modelRecency";
 import { compareProviders } from "../../lib/providerRanking";
 import { useLogs } from "../../state/log";
+import { useContextFiles, useSessionTodos } from "../../state/chatSessionState";
 
 import {
   SEND_TIMEOUT_MS,
@@ -158,6 +163,7 @@ import {
 import { ThinkingBlock, UserMessageContent } from "./chat/ChatMessageParts";
 import { ToolEventCard } from "./chat/ToolEventCard";
 import { ChatTranscript } from "./chat/ChatTranscript";
+import { ChatTodoChecklist } from "./chat/ChatTodoChecklist";
 import { ProviderManageModal } from "./chat/ProviderManageModal";
 import { ProviderCatalogModal } from "./chat/ProviderCatalogModal";
 import { t } from "../../i18n";
@@ -300,7 +306,13 @@ export function ChatPanel({
   const [debugEvents, setDebugEvents] = useState<Array<{ ts: number; channel: string; data: unknown }>>([]);
   const [debugExpanded, setDebugExpanded] = useState(false);
   const [setupRequired, setSetupRequired] = useState<NativeSetupRequired | null>(null);
-  const [approvalMode, setApprovalMode] = useState<ApprovalMode>("auto");
+  const [approvalMode, setApprovalMode] = useState<ApprovalMode>("balanced");
+  // Plan mode gates the agent to read-only tools until the user approves the plan.
+  const [planMode, setPlanMode] = useState(false);
+  // Set when a turn stopped at the agent's iteration cap; the composer offers Continue.
+  const [iterationCapped, setIterationCapped] = useState(false);
+  const sessionTodos = useSessionTodos(nativeSessionId);
+  const contextFiles = useContextFiles(projectPath, nativeMessages.length);
   const [streaming, setStreaming] = useState(false);
   const [streamText, setStreamText] = useState("");
   const [reasoningText, setReasoningText] = useState("");
@@ -630,6 +642,8 @@ export function ChatPanel({
   // Sync chatSessionId prop
   useEffect(() => {
     setNativeSessionId(chatSessionId ?? null);
+    setPlanMode(false);
+    setIterationCapped(false);
     setFocusedIdeaBatchId(null);
     setIdeaReviewIndexes({});
     minimizedIdeaBatchIdsRef.current.clear();
@@ -682,6 +696,7 @@ export function ChatPanel({
           ]);
           if (cancelled) return;
           setNativeMessages(msgs);
+          setPlanMode(sessionInfo?.planMode ?? false);
           setToolEvents(events);
           setInteractions(intrs);
           setLiveSegments([]);
@@ -1110,6 +1125,19 @@ export function ChatPanel({
     return () => { if (unlisten) unlisten(); };
   }, [nativeSessionId, projectPath]);
 
+  // The backend reports a turn that hit its iteration cap as a live system row
+  // (not a persisted message), so the composer keeps a Continue offer for it.
+  useEffect(() => {
+    if (!nativeSessionId) return;
+    const unlisten = listen<{ sessionId: string; kind: string }>("native-chat://system-row", (event) => {
+      if (event.payload.sessionId !== nativeSessionId) return;
+      if (event.payload.kind === "iteration-cap") setIterationCapped(true);
+    });
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
+  }, [nativeSessionId]);
+
   // Handle approval mode changes from the UI (Allow All button, settings toggle).
   const handleSetApprovalMode = useCallback(async (mode: ApprovalMode) => {
     addLog("debug", "Permission mode selected", `projectPath=${projectPath}; mode=${mode}`);
@@ -1142,6 +1170,56 @@ export function ChatPanel({
       onShowToast?.("Failed to resolve approval", msg, "error");
     }
   }, [addLog, onShowToast]);
+
+  // Plan mode: the agent reads and plans, and cannot change files until the plan is approved.
+  const handleSetPlanMode = useCallback(async (enabled: boolean): Promise<boolean> => {
+    if (!nativeSessionId) {
+      onShowToast?.("Plan mode", "Start a chat before turning on plan mode.", "warning");
+      return false;
+    }
+    addLog("debug", "Plan mode changed", `session=${nativeSessionId}; enabled=${enabled}`);
+    try {
+      await nativeChatSetPlanMode({ sessionId: nativeSessionId, enabled });
+      setPlanMode(enabled);
+      onShowToast?.(
+        enabled ? "Plan mode on" : "Plan mode off",
+        enabled ? "The agent reads and plans without changing files." : "The agent can change files again.",
+        "info",
+      );
+      return true;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog("error", "Failed to change plan mode", msg);
+      onShowToast?.("Failed to change plan mode", msg, "error");
+      return false;
+    }
+  }, [nativeSessionId, addLog, onShowToast]);
+
+  // /compact folds older turns into a checkpoint that later requests use in
+  // place of the full history. Every message stays visible in the transcript.
+  const handleCompact = useCallback(async () => {
+    if (!nativeSessionId) return;
+    addLog("debug", "Chat compact requested", `session=${nativeSessionId}`);
+    if (loading || streaming) {
+      setCommandNotice("Wait for the running turn to finish, then compact.");
+      return;
+    }
+    try {
+      const result = await nativeChatCompact(nativeSessionId);
+      const [msgs, events] = await Promise.all([
+        nativeChatMessages(nativeSessionId),
+        nativeChatToolEvents(nativeSessionId),
+      ]);
+      setNativeMessages(msgs);
+      setToolEvents(events);
+      setContextUsedTokens(result.tokensAfter);
+      setCommandNotice(`Compacted ${result.compactedMessages} earlier messages: about ${result.tokensBefore} tokens down to ${result.tokensAfter}.`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog("error", "Failed to compact chat", msg);
+      setCommandNotice(`Compaction failed: ${msg}`);
+    }
+  }, [nativeSessionId, loading, streaming, addLog]);
 
   useEffect(() => {
     if (nativeMode) return;
@@ -1221,6 +1299,7 @@ export function ChatPanel({
         setError(null);
         setSetupRequired(null);
         setInterruptedRun(false);
+        setIterationCapped(false);
         setLoading(true);
         setStuck(false);
         streamBufRef.current = "";
@@ -1376,6 +1455,13 @@ export function ChatPanel({
     },
     [nativeMode, nativeSessionId, selectedProvider, loading, providerId, modelId, effortLevel, agentId, addLog, setModelRecency, onUserMessageSent],
   );
+
+  // Approving a plan leaves plan mode and asks the agent to carry it out.
+  const handleApprovePlan = useCallback(async () => {
+    addLog("debug", "Plan approved", `session=${nativeSessionId ?? "none"}`);
+    if (!(await handleSetPlanMode(false))) return;
+    await sendMessage("The plan is approved. Carry it out now.");
+  }, [nativeSessionId, addLog, handleSetPlanMode, sendMessage]);
 
   // Prompt delivery consumption — replaces the old draft-prompt props.
   // The shell queues a delivery via `deliverPrompt({ chatSessionId, text,
@@ -1755,7 +1841,15 @@ export function ChatPanel({
           setCommandNotice("MCP servers are managed in Settings.");
         },
         plan: () => {
-          setCommandNotice(rest ? `Plan: ${rest}` : "Plan commands: list, run <ref>, status");
+          const arg = rest.toLowerCase();
+          if (arg && arg !== "on" && arg !== "off") {
+            setCommandNotice("Usage: /plan [on|off]. Plan mode reads and plans without changing files.");
+            return;
+          }
+          void handleSetPlanMode(arg ? arg === "on" : !planMode);
+        },
+        compact: () => {
+          void handleCompact();
         },
         idea: () => {
           if (rest === "generate") {
@@ -1880,7 +1974,7 @@ export function ChatPanel({
       return;
     }
     await sendMessage(text);
-  }, [input, nativeMode, nativeSessionId, steerRunning, sendMessage, catalog, addLog, nativeMessages, toolEvents, loading, streaming, onNewChat, effortLevel, modelId, onOpenSchematic, projectPath, selectedModel]);
+  }, [input, nativeMode, nativeSessionId, steerRunning, sendMessage, catalog, addLog, nativeMessages, toolEvents, loading, streaming, onNewChat, effortLevel, modelId, onOpenSchematic, projectPath, selectedModel, planMode, handleSetPlanMode, handleCompact]);
 
   // Voice call. The provider/model used for voice is a preference of its own:
   // the point is to dictate to a fast conversational model while typed work
@@ -3576,6 +3670,33 @@ export function ChatPanel({
               </span>
             </button>
           ) : null}
+          {sessionTodos.length > 0 ? <ChatTodoChecklist todos={sessionTodos} /> : null}
+          {planMode && !loading && !streaming && nativeMessages.some((message) => message.role === "assistant") ? (
+            <div className="chat-notice-bar is-plan" role="status">
+              <span>Plan mode is on: the agent reads and plans without changing files. Approve the plan to let it make changes.</span>
+              <button
+                className="btn btn-primary"
+                type="button"
+                title="Approve the plan: turns plan mode off and asks the agent to carry it out"
+                onClick={() => void handleApprovePlan()}
+              >
+                Approve plan
+              </button>
+            </div>
+          ) : null}
+          {iterationCapped && !loading ? (
+            <div className="chat-notice-bar" role="status">
+              <span>The agent paused after reaching its step limit.</span>
+              <button
+                className="btn"
+                type="button"
+                title="Ask the agent to keep going from where it stopped"
+                onClick={() => void sendMessage("Continue")}
+              >
+                Continue
+              </button>
+            </div>
+          ) : null}
           <div className="chat-composer-textarea-wrap">
             <textarea
               ref={chatInputRef}
@@ -3753,6 +3874,24 @@ export function ChatPanel({
                   permissionMode={approvalMode}
                   onChangePermission={(mode) => void handleSetApprovalMode(mode)}
                 />
+                <button
+                  className={`btn chat-plan-toggle${planMode ? " is-active" : ""}`}
+                  type="button"
+                  aria-pressed={planMode}
+                  title={planMode ? "Plan mode is on: the agent reads and plans without changing files. Click to turn it off." : "Plan mode: the agent reads and plans without changing files until you approve the plan"}
+                  disabled={!nativeSessionId || loading}
+                  onClick={() => void handleSetPlanMode(!planMode)}
+                >
+                  <ListChecks size={13} /> Plan
+                </button>
+                {contextFiles.length > 0 ? (
+                  <span
+                    className="chat-context-chip"
+                    title={`Context files sent with every request:\n${contextFiles.map((file) => file.label).join("\n")}`}
+                  >
+                    <FileText size={12} /> {contextFiles.length} {contextFiles.length === 1 ? "context file" : "context files"}
+                  </span>
+                ) : null}
                 {routeVia ? (
                   <span
                     className={`chat-route-badge is-${routeVia}`}

@@ -35,13 +35,9 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
         const [p, d, c, s] = await Promise.all([listRuntimeProfiles(), getRuntimeDefaults(), getAnalyticsConsent(), startupGetStatus().catch(() => null)]);
         setProfiles(p);
         setDefaults(d);
-        // A fresh install presents aggregate usage sharing preselected, but
-        // this is only local checkbox state. No permission is persisted and
-        // no upload gate opens until the user presses Finish. A prior explicit
-        // choice (including off) is preserved when setup is re-entered.
-        setConsent(c.consentedAt === null
-          ? { ...c, uploadEnabled: true }
-          : c);
+        // Usage sharing is opt-in: the checkbox starts from the stored choice,
+        // which is off on a fresh install. Nothing is persisted until Finish.
+        setConsent(c);
         setStartupStatus(s);
       } catch {
         // ignore

@@ -64,6 +64,9 @@ fn is_pruned_dir(name: &str) -> bool {
 pub enum ToolKind {
     ReadOnly,
     Mutating,
+    /// Reads outside the workspace (web_fetch). Never writes local state, so it
+    /// is allowed in plan mode.
+    Network,
 }
 
 /// A tool the agent can call.
@@ -550,6 +553,53 @@ pub fn registry() -> Vec<ToolDef> {
             // never be called directly.
             kind: ToolKind::ReadOnly,
             execute: ask_user_fallback,
+        },
+        ToolDef {
+            schema: ToolSchema {
+                name: "todo_write".to_string(),
+                description: "Maintain a visible checklist for multi-step work. Send the complete list every time; it replaces the previous list. Keep at most one item in_progress and mark items completed as soon as they are done.".to_string(),
+                parameters: json!({
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "todos": {
+                            "type": "array",
+                            "maxItems": 50,
+                            "description": "The complete checklist, in order.",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "properties": {
+                                    "content": { "type": "string", "minLength": 1, "maxLength": 300, "description": "Short imperative description of the step." },
+                                    "status": { "type": "string", "enum": ["pending", "in_progress", "completed"] }
+                                },
+                                "required": ["content", "status"]
+                            }
+                        }
+                    },
+                    "required": ["todos"]
+                }),
+            },
+            // Intercepted by the agent loop, which persists the checklist and
+            // emits it to the UI. This fallback is never called directly.
+            kind: ToolKind::ReadOnly,
+            execute: todo_write_fallback,
+        },
+        ToolDef {
+            schema: ToolSchema {
+                name: "web_fetch".to_string(),
+                description: "Fetch a public web page and return its readable text. Only http and https URLs to public hosts are allowed; localhost and private network addresses are refused. HTML is converted to plain text and the response is size-capped.".to_string(),
+                parameters: json!({
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "url": { "type": "string", "minLength": 1, "maxLength": 2048, "description": "Absolute http or https URL to fetch." }
+                    },
+                    "required": ["url"]
+                }),
+            },
+            kind: ToolKind::Network,
+            execute: web_fetch_tool,
         },
     ]
 }
@@ -1684,6 +1734,41 @@ fn ask_user_fallback(_workspace_root: &Path, _args: &Value) -> ToolResult {
         "ask_user must be intercepted by the agent loop. This fallback should never be called."
             .to_string(),
     )
+}
+
+/// `todo_write` is intercepted by the agent loop; this fallback never runs.
+fn todo_write_fallback(_workspace_root: &Path, _args: &Value) -> ToolResult {
+    ToolResult::failure(
+        "todo_write must be intercepted by the agent loop. This fallback should never be called."
+            .to_string(),
+    )
+}
+
+/// Fetch a public URL and return readable text. Validation, SSRF guards, and
+/// HTML conversion live in `web_fetch_service`.
+fn web_fetch_tool(_workspace_root: &Path, args: &Value) -> ToolResult {
+    let url = match args.get("url").and_then(Value::as_str) {
+        Some(url) => url,
+        None => return ToolResult::failure("Missing required parameter: url".to_string()),
+    };
+    match crate::services::web_fetch_service::fetch_text(url) {
+        Ok(text) => ToolResult::success(text),
+        Err(error) => ToolResult::failure(error),
+    }
+}
+
+/// Kind of a registered tool, or `None` for names the registry does not know.
+pub fn tool_kind(name: &str) -> Option<ToolKind> {
+    registry()
+        .into_iter()
+        .find(|tool| tool.schema.name == name)
+        .map(|tool| tool.kind)
+}
+
+/// Plan mode allows only tools that cannot change local state. Unknown names
+/// are refused, so a hallucinated tool cannot slip past the gate.
+pub fn allowed_in_plan_mode(name: &str) -> bool {
+    matches!(tool_kind(name), Some(ToolKind::ReadOnly | ToolKind::Network))
 }
 
 /// List all available Basebuild skills (bundled + user-installed).

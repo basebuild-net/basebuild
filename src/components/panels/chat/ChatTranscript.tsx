@@ -203,6 +203,22 @@ export function ChatTranscript({
                   );
                   continue;
                 }
+                if (ev.kind === "compaction") {
+                  rendered.push(
+                    <div
+                      key={`compaction-${ev.id}`}
+                      className="chat-compaction-row"
+                      role="separator"
+                      title="Older messages are summarized for later requests. They stay visible in the transcript."
+                    >
+                      <span>
+                        Conversation compacted{ev.compactedMessages != null ? `: ${ev.compactedMessages} earlier messages` : ""}
+                        {ev.tokensBefore != null && ev.tokensAfter != null ? ` (about ${ev.tokensBefore} tokens down to ${ev.tokensAfter})` : ""}
+                      </span>
+                    </div>,
+                  );
+                  continue;
+                }
                 // Render reasoning as a separate thinking block row before
                 // the message content, so thinking splits around tool calls.
                 const isOfflineTurn = ev.kind === "assistant" && ev.providerId === LOCAL_PROVIDER_ID;
