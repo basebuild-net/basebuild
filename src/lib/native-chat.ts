@@ -47,7 +47,84 @@ export type NativeToolEvent = {
   ruleSource: string | null;
   sequence: number;
   createdAt: number;
+  /** Live subagent runs for a `task` tool event; absent for other kinds. */
+  subagents?: SubagentRun[];
 };
+
+/** Live state of one `task` subagent, folded into its parent tool event. */
+export type SubagentRun = {
+  index: number;
+  name: string;
+  childSessionId: string;
+  status: string;
+  /** Final report, set once the child finishes. */
+  result: string | null;
+  /** Latest one-line activity from the child loop. Live only, cleared on finish. */
+  activity?: string | null;
+  /** Approval the child is blocked on; the task card answers it. Live only. */
+  pendingApproval?: SubagentPendingApproval | null;
+};
+
+export type SubagentPendingApproval = {
+  /** Approval key; `resolveToolApproval` accepts it unchanged. */
+  toolCallId: string;
+  toolName: string;
+  command: string | null;
+  arguments: string;
+};
+
+/** Payload of `native-chat://subagent-event`. Only present fields change a run. */
+export type SubagentEventPayload = {
+  sessionId: string;
+  toolCallId: string;
+  index: number;
+  name: string;
+  childSessionId: string;
+  status: string;
+  result?: string | null;
+  activity?: string | null;
+  pendingApproval?: SubagentPendingApproval | null;
+};
+
+const SUBAGENT_TERMINAL_STATUSES: Record<string, true> = {
+  completed: true,
+  failed: true,
+  cancelled: true,
+};
+
+/** Fold one live subagent event into a task card's run list, ordered by index. */
+export function mergeSubagentEvent(
+  runs: readonly SubagentRun[] | undefined,
+  event: SubagentEventPayload,
+): SubagentRun[] {
+  const current = runs ?? [];
+  const base: SubagentRun = current.find((run) => run.index === event.index) ?? {
+    index: event.index,
+    name: event.name,
+    childSessionId: event.childSessionId,
+    status: event.status,
+    result: null,
+    activity: null,
+    pendingApproval: null,
+  };
+  const terminal = SUBAGENT_TERMINAL_STATUSES[event.status] === true;
+  const next: SubagentRun = {
+    ...base,
+    name: event.name,
+    childSessionId: event.childSessionId,
+    status: event.status,
+    result: event.result !== undefined ? event.result : base.result,
+    activity: terminal ? null : event.activity !== undefined ? event.activity : base.activity,
+    pendingApproval: terminal
+      ? null
+      : event.pendingApproval !== undefined
+        ? event.pendingApproval
+        : base.pendingApproval,
+  };
+  return [...current.filter((run) => run.index !== event.index), next].sort(
+    (a, b) => a.index - b.index,
+  );
+}
 
 export type NativeProvider = {
   id: string;

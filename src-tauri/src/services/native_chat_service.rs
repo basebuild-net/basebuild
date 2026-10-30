@@ -1237,7 +1237,7 @@ impl NativeChatService {
         let mut stmt = conn
             .prepare(
                 "SELECT id, project_path, title, profile_id, provider_id, model_id, effort_level, status, run_state, created_at, updated_at, plan_mode
-                 FROM native_chat_sessions WHERE project_path = ?1 ORDER BY updated_at DESC",
+                 FROM native_chat_sessions WHERE project_path = ?1 AND parent_session_id IS NULL ORDER BY updated_at DESC",
             )
             .map_err(|e| e.to_string())?;
         let rows = stmt
@@ -1252,6 +1252,7 @@ impl NativeChatService {
         let base_sql = "SELECT s.id, s.project_path, s.title, s.profile_id, s.provider_id, s.model_id, s.effort_level, s.status, s.run_state, s.created_at, s.updated_at, COUNT(m.id) as message_count
                         FROM native_chat_sessions s
                         LEFT JOIN native_chat_messages m ON m.session_id = s.id
+                        WHERE s.parent_session_id IS NULL
                         GROUP BY s.id
                         ORDER BY s.updated_at DESC";
         if let Some(l) = limit {
@@ -1534,7 +1535,7 @@ impl NativeChatService {
                     system.clone(),
                     messages.clone(),
                     app.clone(),
-                    true,
+                    crate::services::agent_loop_service::ToolScope::Chat,
                     None,
                 );
                 let account_id = account.map(|c| c.id.clone());
@@ -2225,7 +2226,7 @@ impl NativeChatService {
             system,
             messages,
             app.clone(),
-            true,
+            crate::services::agent_loop_service::ToolScope::Chat,
             Some(&request.planning_session_id),
         );
         let (assistant_message, _) = Self::persist_turn_segments(
@@ -2843,6 +2844,7 @@ impl NativeChatService {
                     rule_source: row.get(9)?,
                     sequence: row.get(10)?,
                     created_at: row.get(11)?,
+                    subagents: Vec::new(),
                 })
             },
         )
@@ -2872,12 +2874,167 @@ impl NativeChatService {
                     rule_source: row.get(9)?,
                     sequence: row.get(10)?,
                     created_at: row.get(11)?,
+                    subagents: Vec::new(),
                 })
             })
             .map_err(|e| format!("Failed to query tool events: {e}"))?;
-        rows.collect::<Result<Vec<_>, _>>()
-            .map_err(|e| format!("Failed to collect tool events: {e}"))
+        let mut events = rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("Failed to collect tool events: {e}"))?;
+        // A `task` card carries its child runs so the UI can rebuild after a reload.
+        let prefix = format!("{session_id}:");
+        for event in events.iter_mut().filter(|event| event.kind == "task") {
+            if let Some(call_id) = event.id.strip_prefix(&prefix) {
+                event.subagents = Self::list_subagent_runs(session_id, call_id)?;
+            }
+        }
+        Ok(events)
     }
+
+    /// Create the child session for one `task` entry. The child inherits the
+    /// parent's model and plan mode and starts with the assignment as its only
+    /// user message. Child sessions are hidden from chat lists.
+    pub(crate) fn create_subagent_session(
+        parent: &NativeChatSession,
+        tool_call_id: &str,
+        index: i64,
+        name: &str,
+        assignment: &str,
+    ) -> DbResult<NativeChatSession> {
+        let now = now_seconds();
+        let session = NativeChatSession {
+            id: gen_id("nchat"),
+            project_path: parent.project_path.clone(),
+            title: format!("Subagent: {name}"),
+            profile_id: NATIVE_PROFILE_ID.to_string(),
+            provider_id: parent.provider_id.clone(),
+            model_id: parent.model_id.clone(),
+            effort_level: parent.effort_level.clone(),
+            status: "ready".to_string(),
+            run_state: "idle".to_string(),
+            plan_mode: parent.plan_mode,
+            created_at: now,
+            updated_at: now,
+        };
+        let conn = StorageService::connect()?;
+        conn.execute(
+            "INSERT INTO native_chat_sessions (id, project_path, title, profile_id, provider_id, model_id, effort_level, status, plan_mode, created_at, updated_at, parent_session_id, parent_tool_call_id, subagent_name, subagent_status, subagent_index)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, 'queued', ?15)",
+            params![
+                session.id,
+                session.project_path,
+                session.title,
+                session.profile_id,
+                session.provider_id,
+                session.model_id,
+                session.effort_level,
+                session.status,
+                session.plan_mode,
+                session.created_at,
+                session.updated_at,
+                parent.id,
+                tool_call_id,
+                name,
+                index,
+            ],
+        )
+        .map_err(|e| format!("Failed to create subagent session: {e}"))?;
+        Self::insert_message(&session.id, "user", assignment, None, None, None, None)?;
+        Ok(session)
+    }
+
+    pub(crate) fn set_subagent_status(session_id: &str, status: &str) -> DbResult<()> {
+        let conn = StorageService::connect()?;
+        conn.execute(
+            "UPDATE native_chat_sessions SET subagent_status = ?2 WHERE id = ?1",
+            params![session_id, status],
+        )
+        .map_err(|e| format!("Failed to update subagent status: {e}"))?;
+        Ok(())
+    }
+
+    /// Child runs of one `task` call, in entry order. A child's result is its
+    /// last assistant message, written when the child finishes.
+    pub(crate) fn list_subagent_runs(
+        parent_session_id: &str,
+        tool_call_id: &str,
+    ) -> DbResult<Vec<crate::models::native_chat::SubagentRun>> {
+        let conn = StorageService::connect()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT s.id, s.subagent_index, s.subagent_name, s.subagent_status,
+                        (SELECT m.content FROM native_chat_messages m
+                         WHERE m.session_id = s.id AND m.role = 'assistant'
+                         ORDER BY m.sort_order DESC LIMIT 1)
+                 FROM native_chat_sessions s
+                 WHERE s.parent_session_id = ?1 AND s.parent_tool_call_id = ?2
+                 ORDER BY s.subagent_index ASC",
+            )
+            .map_err(|e| format!("Failed to prepare subagent query: {e}"))?;
+        let rows = stmt
+            .query_map(params![parent_session_id, tool_call_id], |row| {
+                let status: String = row.get(3)?;
+                let terminal = matches!(status.as_str(), "completed" | "failed" | "cancelled");
+                let content: Option<String> = row.get(4)?;
+                Ok(crate::models::native_chat::SubagentRun {
+                    index: row.get(1)?,
+                    name: row.get(2)?,
+                    child_session_id: row.get(0)?,
+                    status,
+                    result: if terminal { content } else { None },
+                })
+            })
+            .map_err(|e| format!("Failed to query subagent runs: {e}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("Failed to collect subagent runs: {e}"))
+    }
+
+    /// Record one child run's usage in the same row shape as a chat turn, so
+    /// usage and cost views count subagent work.
+    pub(crate) fn record_child_metric(
+        child: &NativeChatSession,
+        started_at: i64,
+        duration_ms: i64,
+        usage: &crate::services::agent_loop_service::RunUsage,
+        outcome: &str,
+    ) -> DbResult<()> {
+        let subscription = Self::resolve_subscription(&child.provider_id);
+        let metric = NativeRequestMetric {
+            id: gen_id("nreq"),
+            session_id: child.id.clone(),
+            provider_id: child.provider_id.clone(),
+            model_id: child.model_id.clone(),
+            effort_level: child.effort_level.clone(),
+            started_at,
+            completed_at: Some(started_at + duration_ms),
+            duration_ms: Some(duration_ms),
+            ttft_ms: None,
+            ttlt_ms: Some(duration_ms),
+            input_tokens: usage.input_tokens,
+            output_tokens: usage.output_tokens,
+            cache_read_tokens: usage.cache_read_tokens,
+            cache_write_tokens: usage.cache_write_tokens,
+            tokens_per_second: None,
+            cost_total: crate::models::model_catalog::cost_for(
+                &child.provider_id,
+                &child.model_id,
+                usage.input_tokens,
+                usage.output_tokens,
+                usage.cache_read_tokens,
+                usage.cache_write_tokens,
+            ),
+            outcome: outcome.to_string(),
+            error_class: None,
+            subscription_tier: subscription.0,
+            subscription_source: subscription.1,
+            plan_name: subscription.2,
+            created_at: now_seconds(),
+            account_id: None,
+            provider_request_id: None,
+        };
+        Self::insert_metric(&metric)
+    }
+
     /// Resolve the provider's subscription/tier for per-message usage sync.
     /// Reads the declared per-provider plan map from settings
     /// (`usage.provider_plans` in app_defaults): a JSON object keyed by

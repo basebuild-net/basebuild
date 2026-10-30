@@ -625,6 +625,31 @@ approve bar turns plan mode off and sends an implementation prompt.
 `in_progress`, `completed`) and emits `native-chat://todos`. The composer shows
 it above the input. It is optional chrome: a failed load renders nothing.
 
+### Subagents (`task` tool)
+
+`task` fans up to 8 independent assignments out to child chats and returns
+their final reports in one tool result. Parent chats get the tool only when
+the chat's provider has subagents enabled in Settings → Concurrency
+(`subagents_enabled` with `subagent_max_count` above zero). Otherwise the tool
+is not offered.
+
+- Children are ordinary `native_chat_sessions` rows linked by
+  `parent_session_id`. Chat lists and transcripts hide them. They run the same
+  loop with `ToolScope::Subagent`, which removes `task`, `ask_user`, and
+  `propose_ideas`.
+- Each child takes a permit from the parent turn's gate, sized to
+  `subagent_max_count`, then from the provider's `PROVIDER_SEMAPHORES` entry.
+  Subagents therefore count against the same `max_concurrency` as plan runs.
+  A child waiting for a permit is `queued`.
+- Child approvals appear on the parent's task card, keyed as
+  `{child_session_id}#{call_id}`, not in the chat.
+- Progress streams on `native-chat://subagent-event` (`sessionId`,
+  `toolCallId`, `index`, `name`, `childSessionId`, `status`, and optional
+  `activity`, `pendingApproval`, `result`). Statuses: `queued`, `running`,
+  `awaiting_approval`, `completed`, `failed`, `cancelled`.
+- Cancelling the parent cancels its children and drops their approvals. An
+  interrupted child is marked `failed` by `sweep_interrupted_runs` on restart.
+
 ### Context files
 
 `context_service.rs::load_context_files` reads `AGENTS.md` and `CLAUDE.md` from the

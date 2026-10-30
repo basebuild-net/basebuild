@@ -3,6 +3,7 @@ import type { NativeToolEvent } from "../../../lib/native-chat";
 import type { Idea } from "../../../lib/ideas";
 import { IdeaBatchPreview, parseIdeaBatch } from "../IdeaReviewWorkbench";
 import { formatElapsed } from "./chatFormat";
+import { SubagentTaskCard } from "./SubagentTaskCard";
 
 // Module-level expansion state for tool cards. Keyed by tool event id,
 // survives re-renders during streaming so a card the user expanded stays
@@ -76,6 +77,10 @@ export function ToolEventCard({
         onOpen={() => onOpenIdeaBatch?.(event.id)}
       />
     );
+  }
+
+  if (event.kind === "task") {
+    return <SubagentTaskCard event={event} />;
   }
 
   // Extract key fields from parsed args depending on tool kind.

@@ -1014,7 +1014,7 @@ impl PlanRunnerService {
                 let fallback = Arc::new(tokio::sync::Semaphore::new(1));
                 runtime.block_on(async { fallback.acquire_owned().await })
             } else {
-                let sem = Self::provider_semaphore(&project_path, &provider_id, &runtime);
+                let sem = Self::provider_semaphore(&project_path, &provider_id);
                 runtime.block_on(async { sem.acquire_owned().await })
             };
             let permit = match permit {
@@ -1035,10 +1035,9 @@ impl PlanRunnerService {
     /// Get or create the semaphore for a provider in a project, sized to the
     /// effective concurrency limit (project override → global → conservative `1`).
     /// If the limit changed since the semaphore was created, it is rebuilt.
-    fn provider_semaphore(
+    pub(crate) fn provider_semaphore(
         project_path: &str,
         provider_id: &str,
-        _runtime: &tokio::runtime::Runtime,
     ) -> Arc<tokio::sync::Semaphore> {
         let entry = crate::services::settings_service::SettingsService::effective_run_concurrency(
             project_path,
@@ -1655,7 +1654,6 @@ mod tests {
         let first = PlanRunnerService::provider_semaphore(
             "/semaphore-regression",
             "semaphore-regression-provider",
-            &runtime,
         );
         let permit = runtime
             .block_on(first.clone().acquire_owned())
@@ -1665,7 +1663,6 @@ mod tests {
         let second = PlanRunnerService::provider_semaphore(
             "/semaphore-regression",
             "semaphore-regression-provider",
-            &runtime,
         );
         assert!(Arc::ptr_eq(&first, &second));
         drop(permit);
