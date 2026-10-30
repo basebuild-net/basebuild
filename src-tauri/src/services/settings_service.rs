@@ -531,15 +531,30 @@ impl SettingsService {
     }
 
     /// Resolve a tool call through the approval gateway.
-    /// Checks: session rules → persistent rules → default by mode. Rules win in
-    /// every mode, so an explicit deny still blocks a tool in Auto.
+    /// Checks: plan mode → session rules → persistent rules → default by mode.
+    /// Rules win over the mode default in every mode, so an explicit deny still
+    /// blocks a tool in Auto; plan mode wins over everything.
     /// Returns `ask` when a UI prompt is needed.
     pub fn resolve_tool_call(
         project_path: &str,
         tool_name: &str,
         command: Option<&str>,
         session_rules: &[SessionRule],
+        plan_mode: bool,
     ) -> GatewayDecision {
+        // Plan mode is a hard gate: it sits ahead of Auto, session rules, and
+        // persistent rules, so a remembered "always allow" cannot bypass it.
+        if plan_mode && !crate::services::tool_runtime_service::allowed_in_plan_mode(tool_name) {
+            return GatewayDecision {
+                decision: PermissionDecision::Deny,
+                requires_prompt: false,
+                reason: format!(
+                    "Plan mode is on: {tool_name} is blocked until the plan is approved. Read-only tools still run."
+                ),
+                rule_source: Some("plan-mode".to_string()),
+            };
+        }
+
         let mode = Self::get_approval_mode(project_path).unwrap_or_default();
 
         // Check session rules first (highest priority).
@@ -581,7 +596,10 @@ impl SettingsService {
         }
 
         // Default by mode.
-        let is_read_only = matches!(tool_name, "read_file" | "list_files" | "search_files");
+        let is_read_only = matches!(
+            tool_name,
+            "read_file" | "list_files" | "search_files" | "todo_write"
+        );
         match mode {
             ApprovalMode::Safe => GatewayDecision {
                 decision: PermissionDecision::Ask,

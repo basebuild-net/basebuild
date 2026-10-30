@@ -34,7 +34,7 @@ fn gateway_auto_mode_allows_all() {
     let _guard = lock_db();
     let project = "/test/auto";
     SettingsService::set_approval_mode(project, ApprovalMode::Auto).unwrap();
-    let decision = SettingsService::resolve_tool_call(project, "write_file", None, &[]);
+    let decision = SettingsService::resolve_tool_call(project, "write_file", None, &[], false);
     assert_eq!(decision.decision, PermissionDecision::Allow);
     assert!(!decision.requires_prompt);
 }
@@ -44,7 +44,7 @@ fn gateway_safe_mode_prompts_all() {
     let _guard = lock_db();
     let project = "/test/safe";
     SettingsService::set_approval_mode(project, ApprovalMode::Safe).unwrap();
-    let decision = SettingsService::resolve_tool_call(project, "read_file", None, &[]);
+    let decision = SettingsService::resolve_tool_call(project, "read_file", None, &[], false);
     assert_eq!(decision.decision, PermissionDecision::Ask);
     assert!(decision.requires_prompt);
 }
@@ -54,15 +54,25 @@ fn gateway_balanced_allows_reads_prompts_writes() {
     let _guard = lock_db();
     let project = "/test/balanced";
     SettingsService::set_approval_mode(project, ApprovalMode::Balanced).unwrap();
-    let read_decision = SettingsService::resolve_tool_call(project, "read_file", None, &[]);
+    let read_decision = SettingsService::resolve_tool_call(project, "read_file", None, &[], false);
     assert_eq!(read_decision.decision, PermissionDecision::Allow);
     assert!(!read_decision.requires_prompt);
-    let write_decision = SettingsService::resolve_tool_call(project, "write_file", None, &[]);
+    let write_decision = SettingsService::resolve_tool_call(project, "write_file", None, &[], false);
     assert_eq!(write_decision.decision, PermissionDecision::Ask);
     assert!(write_decision.requires_prompt);
-    let cmd_decision = SettingsService::resolve_tool_call(project, "run_command", None, &[]);
+    let cmd_decision = SettingsService::resolve_tool_call(project, "run_command", None, &[], false);
     assert_eq!(cmd_decision.decision, PermissionDecision::Ask);
     assert!(cmd_decision.requires_prompt);
+}
+
+#[test]
+fn gateway_balanced_auto_allows_todo_write() {
+    let _guard = lock_db();
+    let project = "/test/balanced-todo";
+    SettingsService::set_approval_mode(project, ApprovalMode::Balanced).unwrap();
+    let decision = SettingsService::resolve_tool_call(project, "todo_write", None, &[], false);
+    assert_eq!(decision.decision, PermissionDecision::Allow);
+    assert!(!decision.requires_prompt);
 }
 
 #[test]
@@ -80,6 +90,7 @@ fn gateway_session_rule_matches() {
         "run_command",
         Some("npm run build"),
         &session_rules,
+        false,
     );
     assert_eq!(decision.decision, PermissionDecision::Allow);
     assert!(!decision.requires_prompt);
@@ -89,6 +100,7 @@ fn gateway_session_rule_matches() {
         "run_command",
         Some("cargo build"),
         &session_rules,
+        false,
     );
     assert_eq!(decision2.decision, PermissionDecision::Ask);
     assert!(decision2.requires_prompt);
@@ -109,7 +121,7 @@ fn gateway_persistent_rule_overrides_mode() {
         created_at: 0,
     };
     SettingsService::add_approval_rule(&rule).unwrap();
-    let decision = SettingsService::resolve_tool_call(project, "write_file", None, &[]);
+    let decision = SettingsService::resolve_tool_call(project, "write_file", None, &[], false);
     assert_eq!(decision.decision, PermissionDecision::Allow);
     assert!(!decision.requires_prompt);
     SettingsService::remove_approval_rule("test-rule-1").unwrap();
@@ -130,9 +142,88 @@ fn gateway_deny_feeds_back() {
         "run_command",
         Some("rm -rf /"),
         &session_rules,
+        false,
     );
     assert_eq!(decision.decision, PermissionDecision::Deny);
     assert!(!decision.requires_prompt);
+}
+
+#[test]
+fn plan_mode_denies_mutating_tools_even_in_auto_mode() {
+    let _guard = lock_db();
+    let project = "/test/plan-auto";
+    SettingsService::set_approval_mode(project, ApprovalMode::Auto).unwrap();
+    for tool in ["write_file", "edit_file", "run_command"] {
+        let decision = SettingsService::resolve_tool_call(project, tool, None, &[], true);
+        assert_eq!(decision.decision, PermissionDecision::Deny, "{tool}");
+        assert!(!decision.requires_prompt);
+        assert_eq!(decision.rule_source.as_deref(), Some("plan-mode"));
+    }
+}
+
+#[test]
+fn plan_mode_deny_is_not_overridden_by_session_or_persistent_allow() {
+    use basebuild_app_lib::models::permission::ApprovalRule;
+    let _guard = lock_db();
+    let project = "/test/plan-rules";
+    SettingsService::set_approval_mode(project, ApprovalMode::Balanced).unwrap();
+    let rule = ApprovalRule {
+        id: "test-plan-rule".to_string(),
+        project_path: project.to_string(),
+        tool_name: "write_file".to_string(),
+        command_prefix: None,
+        decision: PermissionDecision::Allow,
+        created_at: 0,
+    };
+    SettingsService::add_approval_rule(&rule).unwrap();
+    let session_rules = vec![SessionRule {
+        tool_name: "run_command".to_string(),
+        command_prefix: None,
+        decision: PermissionDecision::Allow,
+    }];
+    let write = SettingsService::resolve_tool_call(project, "write_file", None, &[], true);
+    assert_eq!(write.decision, PermissionDecision::Deny);
+    let command =
+        SettingsService::resolve_tool_call(project, "run_command", None, &session_rules, true);
+    assert_eq!(command.decision, PermissionDecision::Deny);
+    SettingsService::remove_approval_rule("test-plan-rule").unwrap();
+}
+
+#[test]
+fn plan_mode_keeps_read_and_network_tools_available() {
+    let _guard = lock_db();
+    let project = "/test/plan-reads";
+    SettingsService::set_approval_mode(project, ApprovalMode::Auto).unwrap();
+    for tool in [
+        "read_file",
+        "list_files",
+        "search_files",
+        "web_fetch",
+        "todo_write",
+    ] {
+        let decision = SettingsService::resolve_tool_call(project, tool, None, &[], true);
+        assert_eq!(decision.decision, PermissionDecision::Allow, "{tool}");
+    }
+}
+
+#[test]
+fn plan_mode_refuses_unknown_tool_names() {
+    let _guard = lock_db();
+    let project = "/test/plan-unknown";
+    SettingsService::set_approval_mode(project, ApprovalMode::Auto).unwrap();
+    let decision = SettingsService::resolve_tool_call(project, "mystery_tool", None, &[], true);
+    assert_eq!(decision.decision, PermissionDecision::Deny);
+    assert_eq!(decision.rule_source.as_deref(), Some("plan-mode"));
+}
+
+#[test]
+fn plan_mode_off_restores_normal_gating() {
+    let _guard = lock_db();
+    let project = "/test/plan-off";
+    SettingsService::set_approval_mode(project, ApprovalMode::Balanced).unwrap();
+    let decision = SettingsService::resolve_tool_call(project, "write_file", None, &[], false);
+    assert_eq!(decision.decision, PermissionDecision::Ask);
+    assert!(decision.requires_prompt);
 }
 
 #[test]
@@ -150,12 +241,17 @@ fn gateway_auto_mode_honors_persistent_deny() {
         created_at: 0,
     };
     SettingsService::add_approval_rule(&rule).unwrap();
-    let denied =
-        SettingsService::resolve_tool_call(project, "run_command", Some("git push origin"), &[]);
+    let denied = SettingsService::resolve_tool_call(
+        project,
+        "run_command",
+        Some("git push origin"),
+        &[],
+        false,
+    );
     assert_eq!(denied.decision, PermissionDecision::Deny);
     assert!(!denied.requires_prompt);
     // Commands outside the rule's prefix still follow the Auto default.
-    let allowed = SettingsService::resolve_tool_call(project, "run_command", Some("ls"), &[]);
+    let allowed = SettingsService::resolve_tool_call(project, "run_command", Some("ls"), &[], false);
     assert_eq!(allowed.decision, PermissionDecision::Allow);
     SettingsService::remove_approval_rule("test-auto-deny").unwrap();
 }
@@ -164,9 +260,9 @@ fn gateway_auto_mode_honors_persistent_deny() {
 fn gateway_unset_mode_prompts_before_mutating_tools() {
     let _guard = lock_db();
     let project = "/test/never-configured";
-    let read = SettingsService::resolve_tool_call(project, "read_file", None, &[]);
+    let read = SettingsService::resolve_tool_call(project, "read_file", None, &[], false);
     assert_eq!(read.decision, PermissionDecision::Allow);
-    let write = SettingsService::resolve_tool_call(project, "write_file", None, &[]);
+    let write = SettingsService::resolve_tool_call(project, "write_file", None, &[], false);
     assert_eq!(write.decision, PermissionDecision::Ask);
     assert!(write.requires_prompt);
 }

@@ -236,7 +236,8 @@ the composer, Enter submits, Escape closes. Recent commands rank first.
   descriptions, usage, source labels, and a keyboard guide.
 - `/stop` cancels the current running chat request, or reports idle if nothing
   is running.
-- `/plan`, `/idea`, `/openspec` execute planning pipeline UI actions.
+- `/plan [on|off]` turns plan mode on or off for the current chat; with no argument it toggles. `/idea` and `/openspec` execute planning pipeline UI actions.
+- `/compact` summarizes earlier turns of the current chat (see Compaction below).
 - `/mcp` shows a notice pointing to Settings for MCP server management.
 - `/skill:<name> [args]` injects a skill's content into the conversation.
 
@@ -569,7 +570,7 @@ provider call.
    read-only calls run in parallel, mutating calls run sequentially.
 4. **Append + repeat**: Tool results are appended as `role: "tool"` messages,
    and the loop re-requests the provider. This continues until the model returns
-   no tool calls or the iteration cap (25) is reached.
+  no tool calls or the iteration cap (`MAX_ITERATIONS`, 100) is reached.
 
 ### Cancellation
 
@@ -607,6 +608,57 @@ Before each provider request, the loop estimates tokens (4 chars ≈ 1 token) an
 truncates oldest turns first if the conversation exceeds the model's context
 window minus an output margin. The system prompt and latest user turn are always
 preserved. Oversized tool results are head+tail capped (full output stored locally).
+
+### Plan mode
+
+`native_chat_set_plan_mode(session_id, enabled)` persists `plan_mode` on the
+session. While it is on, each turn offers only the tools `allowed_in_plan_mode`
+admits (read-only tools, `web_fetch`, `todo_write`), appends `PLAN_MODE_NOTICE`
+to the system prompt, and the approval gateway denies mutating tools ahead of
+Auto mode and any remembered rule. The loop reads the flag before every provider
+request and fails closed to plan mode if the read errors. The composer's
+approve bar turns plan mode off and sends an implementation prompt.
+
+### Todo checklist
+
+`todo_write` stores the session checklist (`native_chat_todos`, items `pending`,
+`in_progress`, `completed`) and emits `native-chat://todos`. The composer shows
+it above the input. It is optional chrome: a failed load renders nothing.
+
+### Context files
+
+`context_service.rs::load_context_files` reads `AGENTS.md` and `CLAUDE.md` from the
+project and its home-level scope, then injects them into the system prompt, capped
+at 32 KiB per file and 96 KiB in total. `native_chat_context_files` reports label,
+scope, size, and truncation for the composer chip.
+
+### Compaction
+
+`/compact` calls `native_chat_compact`, which summarizes every turn before the most
+recent user turns in one provider request (`COMPACTION_SYSTEM_PROMPT`). The summary
+is stored in `native_chat_compactions` and appended to the system prompt of later
+requests (`with_compaction_summary`). Transcript rows are kept; a compaction row bound
+to the boundary message shows the message counts and token estimates. The local
+coordinator is refused because it cannot summarize.
+
+Compaction also runs automatically before each send and before the Idea Studio
+planning request (`auto_compact_if_needed`). It estimates the prompt as the system
+prompt, the stored summary, and the active messages (`estimate_tokens`). When the
+estimate exceeds 80% of the model's context budget and a boundary exists
+(`should_auto_compact`, `AUTO_COMPACT_THRESHOLD`), it runs the same compaction as
+`/compact` on the route of that request. The local coordinator is skipped. The
+estimate does not count tool schemas, so the 80% threshold leaves room for them.
+A failed summary is logged with a `[native-chat]` prefix and the request continues
+with the uncompacted history. In a tool-enabled turn the agent loop's trim guard
+then drops older messages and emits a `truncated` row. The plain request path has
+no trim guard, so it sends the full history. The compaction row appears when the
+send finishes and the transcript reloads.
+
+### Iteration cap notice
+
+When the loop stops at its iteration cap it emits `native-chat://system-row` with kind
+`iteration-cap`. The composer shows a notice with a Continue action. The notice is
+live-only and is not persisted, so it does not survive a history reload.
 
 ## Agent Activity Timeline
 

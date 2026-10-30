@@ -4,14 +4,19 @@ use crate::{
     models::native_chat::{
         ChatModelDefault, NativeChatBootstrap, NativeChatHistoryEntry, NativeChatMessage,
         NativeChatSendRequest, NativeChatSendResult, NativeChatSession, NativeChatStartRequest,
-        NativeChatSteerResult, NativeGenerateIdeasRequest, NativeGenerateIdeasResult,
+        NativeChatSteerResult, NativeCompactionResult, NativeGenerateIdeasRequest,
+        NativeGenerateIdeasResult,
         NativeProviderCatalog, NativeProviderCatalogRefreshRequest, NativeProviderCredentialInput,
         NativeProviderLoginState, NativeRequestMetric, NativeRequestMetricsSummary,
-        NativeToolApprovalRequest, NativeToolApprovalResult, NativeToolEvent, ProviderAccount,
+        NativeTodoItem, NativeToolApprovalRequest, NativeToolApprovalResult, NativeToolEvent,
+        ProviderAccount,
         ProviderAccountUsage, ResolvedChatModelDefault,
     },
     models::permission::{PermissionDecision, SessionRule},
-    services::native_chat_service::NativeChatService,
+    services::{
+        context_service::ContextFile, native_chat_service::NativeChatService,
+        todo_service::TodoService,
+    },
 };
 
 #[tauri::command]
@@ -258,6 +263,34 @@ pub async fn native_chat_steer(
         .await
         .map_err(|e| format!("Chat steer task panicked: {e}"))?
 }
+
+#[tauri::command]
+pub fn native_chat_set_plan_mode(
+    session_id: String,
+    enabled: bool,
+) -> Result<NativeChatSession, String> {
+    NativeChatService::set_plan_mode(&session_id, enabled)
+}
+
+/// Summarize earlier turns of a chat so later requests stay inside the context
+/// budget. The provider call blocks, so it runs off the command thread.
+#[tauri::command]
+pub async fn native_chat_compact(session_id: String) -> Result<NativeCompactionResult, String> {
+    tauri::async_runtime::spawn_blocking(move || NativeChatService::compact_session(&session_id))
+        .await
+        .map_err(|error| format!("Compaction task panicked: {error}"))?
+}
+
+#[tauri::command]
+pub fn native_chat_todos(session_id: String) -> Result<Vec<NativeTodoItem>, String> {
+    TodoService::list(&session_id)
+}
+
+#[tauri::command]
+pub fn native_chat_context_files(project_path: String) -> Vec<ContextFile> {
+    NativeChatService::context_files(&project_path)
+}
+
 #[tauri::command]
 pub async fn native_generate_ideas(
     app: AppHandle,

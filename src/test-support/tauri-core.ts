@@ -39,9 +39,13 @@ type NativeChatSession = {
   effortLevel: string;
   status: string;
   runState: string;
+  planMode: boolean;
   createdAt: number;
   updatedAt: number;
 };
+
+type MockTodo = { content: string; status: "pending" | "in_progress" | "completed" };
+type MockContextFile = { label: string; scope: string; bytes: number; truncated: boolean };
 
 type NativeChatMessage = {
   id: string;
@@ -231,6 +235,10 @@ type E2eState = {
   finishPolicyError?: string;
   /** e2e knob: idea ids that fail during batch_promote_ideas (per-idea isolation). */
   promoteFailIds?: Set<string>;
+  /** Agent checklist per native chat session; set by a send whose content includes "todo-checklist-test". */
+  nativeTodos: Record<string, MockTodo[]>;
+  /** Context files reported for the project; seeded by __e2e_seed_context_files. */
+  contextFiles: MockContextFile[];
   workspaceRestoreByProject: Map<string, unknown>;
   recentProjects: { path: string; name: string; lastOpenedAt: number; lastActiveSessionId: string | null }[];
   pickProjectCalls: number;
@@ -292,6 +300,7 @@ function applyMvpFixture(s: E2eState): void {
       effortLevel: "high",
       status: "ready",
       runState: "idle",
+      planMode: false,
       createdAt: 1_800_000_000 - 300,
       updatedAt: 1_800_000_000 - 280,
     },
@@ -305,6 +314,7 @@ function applyMvpFixture(s: E2eState): void {
       effortLevel: "high",
       status: "ready",
       runState: "idle",
+      planMode: false,
       createdAt: 1_800_000_000 - 200,
       updatedAt: 1_800_000_000 - 180,
     },
@@ -318,6 +328,7 @@ function applyMvpFixture(s: E2eState): void {
       effortLevel: "high",
       status: "ready",
       runState: "idle",
+      planMode: false,
       createdAt: 1_800_000_000,
       updatedAt: 1_800_000_000,
     },
@@ -415,6 +426,8 @@ function state(): E2eState {
       nativeChatSessions: [],
       nativeChatMessages: [],
       nativeChatRunning: [],
+      nativeTodos: {},
+      contextFiles: [],
       voiceProfile: {
         enabled: false,
         providerId: "",
@@ -1179,6 +1192,9 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     case "__e2e_fail_promote_ideas":
       s.promoteFailIds = new Set(args.ideaIds as string[]);
       return undefined as T;
+    case "__e2e_seed_context_files":
+      s.contextFiles = args.files as MockContextFile[];
+      return undefined as T;
     case "__e2e_seed_merge_queue": {
       const entries = args.entries as MergeReviewEntry[];
       s.mergeQueue = entries;
@@ -1465,12 +1481,51 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         effortLevel: req.effortLevel ?? "medium",
         status: "ready",
         runState: "idle",
+        planMode: false,
         createdAt: ts,
         updatedAt: ts,
       };
       s.nativeChatSessions.push(session);
       return session as T;
     }
+    case "native_chat_set_plan_mode": {
+      const sessionId = args.sessionId as string;
+      const session = s.nativeChatSessions.find((item) => item.id === sessionId);
+      if (!session) throw new Error("Chat session not found.");
+      session.planMode = Boolean(args.enabled);
+      return undefined as T;
+    }
+    case "native_chat_compact": {
+      const sessionId = args.sessionId as string;
+      const messages = s.nativeChatMessages.filter((m) => m.sessionId === sessionId);
+      const keptMessages = Math.min(2, messages.length);
+      const compactedMessages = messages.length - keptMessages;
+      if (compactedMessages <= 0) throw new Error("Nothing to compact yet.");
+      const tokensBefore = messages.reduce((sum, m) => sum + Math.ceil(m.content.length / 4), 0);
+      const summaryTokens = 64;
+      const tokensAfter = messages.slice(compactedMessages).reduce((sum, m) => sum + Math.ceil(m.content.length / 4), 0) + summaryTokens;
+      const ts = Math.floor(Date.now() / 1000);
+      const counts = { compactedMessages, keptMessages, tokensBefore, tokensAfter };
+      s.nativeToolEvents.push({
+        id: `ntool-compact-${ts}-${s.nativeToolEvents.length}`,
+        sessionId,
+        messageId: messages[compactedMessages - 1].id,
+        kind: "compaction",
+        status: "compacted",
+        summary: `Compacted ${compactedMessages} earlier messages`,
+        arguments: JSON.stringify(counts),
+        diff: null,
+        decision: null,
+        ruleSource: null,
+        sequence: s.nativeToolEvents.length + 1,
+        createdAt: ts,
+      });
+      return { summary: "Mock compaction summary.", ...counts } as T;
+    }
+    case "native_chat_todos":
+      return (s.nativeTodos[args.sessionId as string] ?? []) as T;
+    case "native_chat_context_files":
+      return s.contextFiles as T;
     case "native_chat_get":
       return (s.nativeChatSessions.find((session) => session.id === args.sessionId) ?? null) as T;
     case "native_chat_list":
@@ -1560,6 +1615,18 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       // Persist the user turn up front, matching the backend, so a steer that
       // arrives mid-stream lands after it instead of ahead of it.
       s.nativeChatMessages.push(userMessage);
+      if (req.content.includes("todo-checklist-test")) {
+        const todos: MockTodo[] = [
+          { content: "Read the parser module", status: "completed" },
+          { content: "Fix the off-by-one in the tokenizer", status: "in_progress" },
+          { content: "Run the parser tests", status: "pending" },
+        ];
+        s.nativeTodos[req.sessionId] = todos;
+        __emit("native-chat://todos", { sessionId: req.sessionId, todos });
+      }
+      if (req.content.includes("iteration-cap-test")) {
+        __emit("native-chat://system-row", { sessionId: req.sessionId, kind: "iteration-cap", value: 25 });
+      }
       // Streaming trigger: emit phase + delta chunk events with real delays
       // before resolving, so e2e can assert the thinking indicator and
       // incremental markdown rendering (contract: native-chat://chunk with

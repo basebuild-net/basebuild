@@ -17,7 +17,9 @@ pub struct StorageService;
 // old parser could not read. Existing installs sit at the current version and
 // skip the initializer entirely, so a data repair only reaches them behind a
 // bump.
-const CURRENT_SCHEMA_VERSION: i64 = 15;
+// 15 -> 16: plan_mode column on native_chat_sessions, plus the
+// native_chat_todos and native_chat_compactions tables.
+const CURRENT_SCHEMA_VERSION: i64 = 16;
 
 impl StorageService {
     pub fn state_db_path() -> Result<PathBuf, String> {
@@ -1421,6 +1423,35 @@ impl StorageService {
         let _ = connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_approval_project ON approval_rules(project_path)",
             [],
+        );
+
+        // Migration (omp-parity-core): per-session plan mode flag, todo
+        // checklist, and compaction summaries. Additive only.
+        let has_plan_mode = connection
+            .prepare("SELECT plan_mode FROM native_chat_sessions LIMIT 0")
+            .is_ok();
+        if !has_plan_mode {
+            let _ = connection.execute(
+                "ALTER TABLE native_chat_sessions ADD COLUMN plan_mode INTEGER NOT NULL DEFAULT 0",
+                [],
+            );
+        }
+        let _ = connection.execute_batch(
+            "CREATE TABLE IF NOT EXISTS native_chat_todos (
+                session_id TEXT PRIMARY KEY NOT NULL,
+                items_json TEXT NOT NULL,
+                updated_at INTEGER NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES native_chat_sessions(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS native_chat_compactions (
+                id TEXT PRIMARY KEY NOT NULL,
+                session_id TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                through_message_id TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES native_chat_sessions(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_native_chat_compactions_session ON native_chat_compactions(session_id, created_at);",
         );
 
         // Migration (planning-system-qol): add reasoning column to

@@ -11,7 +11,8 @@ use crate::{
         native_chat::{
             ChatModelDefault, NativeChatBootstrap, NativeChatHistoryEntry, NativeChatMessage,
             NativeChatSendRequest, NativeChatSendResult, NativeChatSession, NativeChatStartRequest,
-            NativeChatSteerResult, NativeGenerateIdeasRequest, NativeGenerateIdeasResult,
+            NativeChatSteerResult, NativeCompactionResult, NativeGenerateIdeasRequest,
+            NativeGenerateIdeasResult,
             NativeGeneratedIdea, NativeProviderCatalog, NativeProviderCredential,
             NativeProviderCredentialInput, NativeRequestMetric, NativeRequestMetricsSummary,
             NativeSetupRequired, NativeToolApprovalRequest, NativeToolApprovalResult,
@@ -22,6 +23,7 @@ use crate::{
     },
     services::{
         agent_loop_service::{ToolEventRecord, TurnSegment},
+        context_service::estimate_tokens,
         provider_client::{resolve_client_for_model, ChatMsg, ProviderRequest},
         session_service::SessionService,
         settings_service::SettingsService,
@@ -33,6 +35,7 @@ type DbResult<T> = Result<T, String>;
 
 const NATIVE_PROFILE_ID: &str = "basebuild-native";
 const LOCAL_PROVIDER_ID: &str = "basebuild-local";
+const COMPACTION_KEEP_USER_TURNS: usize = 2;
 
 #[derive(Debug, Default)]
 pub struct NativeChatService;
@@ -648,6 +651,7 @@ impl NativeChatService {
             effort_level,
             status: "ready".to_string(),
             run_state: "idle".to_string(),
+            plan_mode: false,
             created_at: now,
             updated_at: now,
         };
@@ -721,6 +725,7 @@ impl NativeChatService {
             effort_level,
             status: "ready".to_string(),
             run_state: "idle".to_string(),
+            plan_mode: false,
             created_at: now,
             updated_at: now,
         };
@@ -820,6 +825,7 @@ impl NativeChatService {
             effort_level: resolved.effort_level,
             status: "ready".to_string(),
             run_state: "running".to_string(),
+            plan_mode: false,
             created_at: now,
             updated_at: now,
         };
@@ -881,10 +887,305 @@ impl NativeChatService {
         .map_err(|e| e.to_string())?;
         Ok(())
     }
+
+    /// Whether the session is in plan mode. The agent loop reads this on every
+    /// iteration; callers treat a read error as plan mode on (fail closed).
+    pub fn is_plan_mode(session_id: &str) -> DbResult<bool> {
+        let conn = StorageService::connect()?;
+        let value: i64 = conn
+            .query_row(
+                "SELECT plan_mode FROM native_chat_sessions WHERE id = ?1",
+                params![session_id],
+                |row| row.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(value != 0)
+    }
+
+    /// Turn plan mode on or off. The flag only changes which tools the loop
+    /// may call; it does not touch the transcript.
+    pub fn set_plan_mode(session_id: &str, enabled: bool) -> DbResult<NativeChatSession> {
+        let conn = StorageService::connect()?;
+        conn.execute(
+            "UPDATE native_chat_sessions SET plan_mode = ?2 WHERE id = ?1",
+            params![session_id, enabled as i64],
+        )
+        .map_err(|e| e.to_string())?;
+        if conn.changes() == 0 {
+            return Err("Session not found.".to_string());
+        }
+        Self::get_session(session_id)?.ok_or_else(|| "Session not found after update.".to_string())
+    }
+
+    /// Context files (AGENTS.md / CLAUDE.md chain) that apply to a project,
+    /// as shown by the composer indicator.
+    pub fn context_files(
+        project_path: &str,
+    ) -> Vec<crate::services::context_service::ContextFile> {
+        crate::services::context_service::load_context_files(project_path)
+    }
+
+    /// The latest compaction for a session: its summary and the id of the last
+    /// message the summary covers.
+    fn latest_compaction(session_id: &str) -> DbResult<Option<(String, String)>> {
+        let conn = StorageService::connect()?;
+        conn.query_row(
+            "SELECT summary, through_message_id FROM native_chat_compactions
+             WHERE session_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1",
+            params![session_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()
+        .map_err(|e| e.to_string())
+    }
+
+    /// Messages the provider should see: everything after the last compaction
+    /// boundary. Without a compaction this is the full transcript.
+    fn active_history(session_id: &str) -> DbResult<Vec<NativeChatMessage>> {
+        let history = Self::list_messages(session_id)?;
+        let Some((_, through)) = Self::latest_compaction(session_id)? else {
+            return Ok(history);
+        };
+        match history.iter().position(|message| message.id == through) {
+            Some(index) => Ok(history.into_iter().skip(index + 1).collect()),
+            None => Ok(history),
+        }
+    }
+
+    /// Append the latest compaction summary, when there is one, so the model
+    /// keeps the state of the turns that are no longer sent verbatim.
+    fn with_compaction_summary(system: String, session_id: &str) -> DbResult<String> {
+        match Self::latest_compaction(session_id)? {
+            Some((summary, _)) => Ok(format!(
+                "{system}\n\n## Earlier conversation (compacted)\n\n{summary}"
+            )),
+            None => Ok(system),
+        }
+    }
+
+    /// Manually compact a session. Earlier turns, up to the last
+    /// `COMPACTION_KEEP_USER_TURNS` user turns, are summarized by the connected
+    /// provider. The summary becomes the new boundary: later requests carry it
+    /// in the system prompt and send only the kept tail as history. The local
+    /// provider cannot summarize, so it is refused.
+    pub fn compact_session(session_id: &str) -> DbResult<NativeCompactionResult> {
+        let session =
+            Self::get_session(session_id)?.ok_or_else(|| "Session not found.".to_string())?;
+        if session.provider_id == LOCAL_PROVIDER_ID {
+            return Err(
+                "Compaction needs a connected provider. The local provider cannot summarize the conversation."
+                    .to_string(),
+            );
+        }
+        Self::run_compaction(
+            session_id,
+            &session.provider_id,
+            &session.model_id,
+            &session.effort_level,
+        )
+    }
+
+    /// Summarize the session's earlier turns with the given route and record
+    /// the compaction. Callers decide when to compact; the local-provider
+    /// refusal lives in `compact_session`.
+    fn run_compaction(
+        session_id: &str,
+        provider_id: &str,
+        model_id: &str,
+        effort_level: &str,
+    ) -> DbResult<NativeCompactionResult> {
+        let history = Self::active_history(session_id)?;
+        let previous = Self::latest_compaction(session_id)?;
+        let roles: Vec<&str> = history.iter().map(|m| m.role.as_str()).collect();
+        let boundary =
+            crate::services::context_service::compaction_boundary(&roles, COMPACTION_KEEP_USER_TURNS)
+                .ok_or_else(|| "Not enough conversation to compact yet.".to_string())?;
+
+        let mut rows: Vec<(&str, &str)> = Vec::new();
+        if let Some((summary, _)) = previous.as_ref() {
+            rows.push(("summary", summary.as_str()));
+        }
+        rows.extend(
+            history[..boundary]
+                .iter()
+                .map(|m| (m.role.as_str(), m.content.as_str())),
+        );
+        let transcript = crate::services::context_service::render_compaction_transcript(&rows);
+        let tokens_before = previous
+            .as_ref()
+            .map(|(summary, _)| estimate_tokens(summary))
+            .unwrap_or(0)
+            + history
+                .iter()
+                .map(|m| estimate_tokens(&m.content))
+                .sum::<i64>();
+
+        let mut accounts =
+            crate::services::provider_account_service::ProviderAccountService::candidates(
+                provider_id,
+                Some(session_id),
+            )?;
+        for account in accounts.iter_mut() {
+            let _ = crate::services::provider_login_service::ProviderLoginService::refresh_account_token(account);
+        }
+        let credential = accounts.into_iter().next().ok_or_else(|| {
+            format!(
+                "Provider '{provider_id}' is not configured. Connect it in Settings first."
+            )
+        })?;
+
+        let resolved_model_id = Self::resolve_model_api_id(provider_id, model_id)
+            .unwrap_or_else(|| model_id.to_string());
+        let (api_kind, model_base_url) = Self::resolve_model_routing(provider_id, model_id);
+        let req = ProviderRequest {
+            model_id: resolved_model_id,
+            effort_level: effort_level.to_string(),
+            system: Some(crate::services::context_service::COMPACTION_SYSTEM_PROMPT.to_string()),
+            messages: vec![ChatMsg {
+                role: "user".to_string(),
+                content: transcript,
+                tool_calls: Vec::new(),
+                tool_call_id: None,
+                name: None,
+            }],
+            api_key: Some(credential.api_key.clone()),
+            base_url: credential.base_url.clone(),
+            tools: Vec::new(),
+        };
+        let client = resolve_client_for_model(
+            provider_id,
+            &api_kind,
+            req.base_url.as_deref(),
+            &model_base_url,
+        );
+        let response = client.generate(&req, &|_: &str, _: &str| {})?;
+        let summary = response.content.trim().to_string();
+        if summary.is_empty() {
+            return Err(
+                "The provider returned an empty summary, so the conversation was not compacted."
+                    .to_string(),
+            );
+        }
+
+        let through = history[boundary - 1].id.clone();
+        let kept = history.len() - boundary;
+        let tokens_after = estimate_tokens(&summary)
+            + history[boundary..]
+                .iter()
+                .map(|m| estimate_tokens(&m.content))
+                .sum::<i64>();
+        let created_at = now_seconds();
+        let conn = StorageService::connect()?;
+        conn.execute(
+            "INSERT INTO native_chat_compactions (id, session_id, summary, through_message_id, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![gen_id("ncmp"), session_id, summary, through, created_at],
+        )
+        .map_err(|e| format!("Failed to save compaction: {e}"))?;
+        conn.execute(
+            "INSERT INTO native_tool_events (
+                id, session_id, message_id, kind, status, summary, arguments,
+                diff, decision, rule_source, sequence, created_at
+             ) VALUES (
+                ?1, ?2, ?3, 'compaction', 'compacted', ?4, ?5, NULL, NULL, NULL,
+                (SELECT COALESCE(MAX(sequence), 0) + 1 FROM native_tool_events WHERE session_id = ?2),
+                ?6
+             )",
+            params![
+                gen_id("nevt"),
+                session_id,
+                through,
+                format!("Compacted {boundary} earlier messages; kept {kept}."),
+                serde_json::json!({
+                    "compactedMessages": boundary,
+                    "keptMessages": kept,
+                    "tokensBefore": tokens_before,
+                    "tokensAfter": tokens_after,
+                })
+                .to_string(),
+                created_at
+            ],
+        )
+        .map_err(|e| format!("Failed to record compaction: {e}"))?;
+        Self::touch_session(session_id)?;
+
+        Ok(NativeCompactionResult {
+            session_id: session_id.to_string(),
+            summary,
+            compacted_messages: boundary,
+            kept_messages: kept,
+            tokens_before,
+            tokens_after,
+            created_at,
+        })
+    }
+
+    /// Compact before a request when the active history nears the context
+    /// budget. `system_text` is the system prompt the request will send, minus
+    /// the compaction summary (counted here). Local providers are skipped. A
+    /// failed summary is logged and the history is left as it was, so the
+    /// agent loop's in-turn trim guard still applies.
+    fn auto_compact_if_needed(
+        session_id: &str,
+        provider_id: &str,
+        model_id: &str,
+        effort_level: &str,
+        system_text: &str,
+    ) {
+        if provider_id == LOCAL_PROVIDER_ID {
+            return;
+        }
+        match Self::compaction_due(session_id, provider_id, model_id, system_text) {
+            Ok(false) => {}
+            Ok(true) => match Self::run_compaction(session_id, provider_id, model_id, effort_level) {
+                Ok(result) => eprintln!(
+                    "[native-chat] auto-compacted session={session_id} messages={} tokensBefore={} tokensAfter={}",
+                    result.compacted_messages, result.tokens_before, result.tokens_after
+                ),
+                Err(error) => eprintln!(
+                    "[native-chat] auto-compaction failed, relying on in-turn trim session={session_id}: {error}"
+                ),
+            },
+            Err(error) => eprintln!(
+                "[native-chat] auto-compaction check failed session={session_id}: {error}"
+            ),
+        }
+    }
+
+    /// Estimate the next request's prompt and decide whether it crosses the
+    /// auto-compaction threshold. Reads the database only; no provider call.
+    fn compaction_due(
+        session_id: &str,
+        provider_id: &str,
+        model_id: &str,
+        system_text: &str,
+    ) -> DbResult<bool> {
+        let history = Self::active_history(session_id)?;
+        let summary_tokens = Self::latest_compaction(session_id)?
+            .map(|(summary, _)| estimate_tokens(&summary))
+            .unwrap_or(0);
+        let estimate = estimate_tokens(system_text)
+            + summary_tokens
+            + history
+                .iter()
+                .map(|m| estimate_tokens(&m.content))
+                .sum::<i64>();
+        let roles: Vec<&str> = history.iter().map(|m| m.role.as_str()).collect();
+        let has_boundary =
+            crate::services::context_service::compaction_boundary(&roles, COMPACTION_KEEP_USER_TURNS)
+                .is_some();
+        let budget = crate::services::agent_loop_service::context_budget(provider_id, model_id);
+        Ok(crate::services::context_service::should_auto_compact(
+            estimate,
+            budget,
+            has_boundary,
+        ))
+    }
+
     pub fn get_session(session_id: &str) -> DbResult<Option<NativeChatSession>> {
         let conn = StorageService::connect()?;
         conn.query_row(
-            "SELECT id, project_path, title, profile_id, provider_id, model_id, effort_level, status, run_state, created_at, updated_at
+            "SELECT id, project_path, title, profile_id, provider_id, model_id, effort_level, status, run_state, created_at, updated_at, plan_mode
              FROM native_chat_sessions WHERE id = ?1",
             params![session_id],
             map_session,
@@ -935,7 +1236,7 @@ impl NativeChatService {
         let conn = StorageService::connect()?;
         let mut stmt = conn
             .prepare(
-                "SELECT id, project_path, title, profile_id, provider_id, model_id, effort_level, status, run_state, created_at, updated_at
+                "SELECT id, project_path, title, profile_id, provider_id, model_id, effort_level, status, run_state, created_at, updated_at, plan_mode
                  FROM native_chat_sessions WHERE project_path = ?1 ORDER BY updated_at DESC",
             )
             .map_err(|e| e.to_string())?;
@@ -1003,6 +1304,16 @@ impl NativeChatService {
             params![session_id],
         )
         .map_err(|e| format!("Failed to clear tool events: {e}"))?;
+        conn.execute(
+            "DELETE FROM native_chat_compactions WHERE session_id = ?1",
+            params![session_id],
+        )
+        .map_err(|e| format!("Failed to clear compactions: {e}"))?;
+        conn.execute(
+            "DELETE FROM native_chat_todos WHERE session_id = ?1",
+            params![session_id],
+        )
+        .map_err(|e| format!("Failed to clear todos: {e}"))?;
         Ok(deleted)
     }
 
@@ -1134,6 +1445,7 @@ impl NativeChatService {
                     message,
                 }),
                 offline: false,
+                context_tokens: None,
             });
         }
         let credential = candidates.first().cloned();
@@ -1143,9 +1455,19 @@ impl NativeChatService {
         // Assistant rows are persisted one per loop iteration, so merge
         // consecutive assistant rows into a single message — providers must
         // never see back-to-back assistant messages.
-        let history = Self::list_messages(&request.session_id)?;
+        // Summarize older turns first when the prompt nears the context budget,
+        // so the history built below is the compacted one.
+        let base_system = Self::system_prompt(&session.project_path, None);
+        Self::auto_compact_if_needed(
+            &request.session_id,
+            &provider_id,
+            &model_id,
+            &effort_level,
+            &base_system,
+        );
+        let history = Self::active_history(&request.session_id)?;
         let messages = Self::history_to_provider_messages(&history);
-        let system = Self::system_prompt(&session.project_path, None);
+        let system = Self::with_compaction_summary(base_system, &request.session_id)?;
 
         // Resolve the provider-specific model API id (e.g. "umans-glm-5.2")
         // from the cache; fall back to the canonical model_id when null.
@@ -1302,18 +1624,18 @@ impl NativeChatService {
                 duration_ms: Some(duration_ms),
                 ttft_ms: None,
                 ttlt_ms: Some(duration_ms),
-                input_tokens: 0,
-                output_tokens: estimate_tokens(&run_result.content),
-                cache_read_tokens: 0,
-                cache_write_tokens: 0,
+                input_tokens: run_result.usage.input_tokens,
+                output_tokens: run_result.usage.output_tokens,
+                cache_read_tokens: run_result.usage.cache_read_tokens,
+                cache_write_tokens: run_result.usage.cache_write_tokens,
                 tokens_per_second: None,
                 cost_total: crate::models::model_catalog::cost_for(
                     &provider_id,
                     &model_id,
-                    0,
-                    estimate_tokens(&run_result.content),
-                    0,
-                    0,
+                run_result.usage.input_tokens,
+                run_result.usage.output_tokens,
+                run_result.usage.cache_read_tokens,
+                run_result.usage.cache_write_tokens,
                 ),
                 outcome: if run_result.cancelled {
                     "cancelled"
@@ -1341,6 +1663,7 @@ impl NativeChatService {
                 tool_events,
                 setup_required: None,
                 offline: false,
+                context_tokens: Some(run_result.usage.last_context_tokens),
             });
         }
 
@@ -1582,6 +1905,7 @@ impl NativeChatService {
             crate::services::plan_lifecycle_service::ChatTerminalState::Idle,
         );
 
+        let context_tokens = Some(metric.input_tokens + metric.output_tokens);
         Ok(NativeChatSendResult {
             user_message,
             assistant_message: Some(assistant_message),
@@ -1589,6 +1913,7 @@ impl NativeChatService {
             tool_events: vec![event],
             setup_required: None,
             offline: is_local,
+            context_tokens,
         })
     }
 
@@ -1854,16 +2179,25 @@ impl NativeChatService {
              - After capture, reply with one short completion sentence.",
             request.planning_session_id
         );
+        let base_system =
+            Self::system_prompt(&chat_session.project_path, request.schematic.as_deref());
+        Self::auto_compact_if_needed(
+            &request.session_id,
+            &provider_id,
+            &model_id,
+            &effort_level,
+            &format!("{base_system}\n{skill}\n{invocation}"),
+        );
         let system = format!(
             "{}\n\n<skill name=\"basebuild-planning\" runtime=\"native\">\n{}\n</skill>\n\n{}",
-            Self::system_prompt(&chat_session.project_path, request.schematic.as_deref()),
+            Self::with_compaction_summary(base_system, &request.session_id)?,
             skill,
             invocation
         );
 
         // Keep normal conversational context, but remove legacy turns that
         // exposed the entire planning skill as a user message.
-        let history = Self::list_messages(&request.session_id)?;
+        let history = Self::active_history(&request.session_id)?;
         let visible_history = history
             .into_iter()
             .filter(|message| {
@@ -2723,9 +3057,17 @@ impl NativeChatService {
                 }
             })
             .unwrap_or_default();
-        template
+        let rendered = template
             .replace("{project_path}", project_path)
-            .replace("{schematic}", &schematic_text)
+            .replace("{schematic}", &schematic_text);
+        let context = crate::services::context_service::render_context_block(
+            &Self::context_files(project_path),
+        );
+        if context.is_empty() {
+            rendered
+        } else {
+            format!("{rendered}\n\n{context}")
+        }
     }
 
     /// Parse a provider response into structured ideas. Extracts the first JSON
@@ -2805,6 +3147,7 @@ fn map_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<NativeChatSession> {
             .unwrap_or_else(|| "idle".to_string()),
         created_at: row.get(9)?,
         updated_at: row.get(10)?,
+        plan_mode: row.get::<_, i64>(11)? != 0,
     })
 }
 
@@ -2996,15 +3339,6 @@ pub(crate) fn omp_agent_dir() -> std::path::PathBuf {
     let path = resolve_omp_agent_dir();
     *OMP_AGENT_DIR.write() = Some(path.clone());
     path
-}
-
-fn estimate_tokens(text: &str) -> i64 {
-    let trimmed = text.trim();
-    if trimmed.is_empty() {
-        0
-    } else {
-        trimmed.split_whitespace().count().max(1) as i64
-    }
 }
 
 fn existing_planning_work_context(
