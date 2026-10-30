@@ -19,7 +19,7 @@ type TerminalPanelProps = {
 };
 
 const defaultShell =
-  typeof window !== "undefined" && window.navigator.platform.startsWith("Win") ? "powershell.exe" : "bash";
+  typeof window !== "undefined" && window.navigator.platform.startsWith("Win" /* i18n-exempt: platform detection id */) ? "powershell.exe" : "bash";
 
 export function TerminalPanel({ terminalId, cwd, onOutput, onReconnect }: TerminalPanelProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -158,7 +158,7 @@ export function TerminalPanel({ terminalId, cwd, onOutput, onReconnect }: Termin
       terminal.onData((data) => {
         void writeTerminal(id, data).catch(() => {
           setConnected(false);
-          terminal.writeln("\r\n\x1b[31m[terminal closed — click Reconnect]\x1b[0m");
+          terminal.writeln("\r\n\x1b[31m[terminal closed: click Reconnect]\x1b[0m" /* i18n-exempt: terminal output escape sequence */);
         });
       });
 

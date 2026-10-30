@@ -23,13 +23,16 @@ import {
 } from "../../../lib/planDependencies";
 import type { PlanningTab } from "../PlanningInspector";
 import { t } from "../../../i18n";
+import { formatDateTime } from "../../../i18n/format";
 
-const FINISH_POLICY_LABELS: Record<FinishPolicy, string> = {
-  hold: "Hold for review",
-  auto_commit: "Auto-commit",
-  auto_commit_pr: "Auto-commit + PR",
-  queue_merge_review: "Queue merge review",
-};
+function finishPolicyLabels(): Record<FinishPolicy, string> {
+  return {
+    hold: t("flowTab.holdForReview"),
+    auto_commit: t("flowTab.autoCommit"),
+    auto_commit_pr: t("flowTab.autoCommitPr"),
+    queue_merge_review: t("flowTab.queueMergeReview"),
+  };
+}
 const ENGINE_OPTION_ITEMS = (): OptionListOption<EngineKind>[] => [
   { id: "openspec", label: t("flowTab.openspec"), title: t("flowTab.useTheOpenspecPlanningEngine") },
   { id: "native", label: t("flowTab.native"), title: t("flowTab.useTheNativePlanningEngine") },
@@ -165,22 +168,22 @@ export function FlowTab({
     const worktree = run?.workspacePath ?? "—";
     const branch = run?.workspacePath ? run.workspacePath.split(/[\\/]/).pop() ?? run.workspacePath : "—";
     const tooltip = [
-      `Plan: ${node.title} (#${node.referenceId})`,
-      `Status: ${node.status}`,
-      `Priority: ${node.priority}`,
-      `Readiness: ${node.readiness}`,
-      `Prerequisites: ${node.prerequisites.join(", ") || "none"}`,
-      `Affected paths: ${node.affectedPaths.join(", ") || "none"}`,
-      `Collisions: ${node.collisions.join(", ") || "none"}`,
-      `Owner chat: ${ownerChat}`,
-      `Engine: ${engine}`,
-      `Provider: ${provider}`,
-      `Model: ${model}`,
-      `Branch: ${branch}`,
-      `Worktree: ${worktree}`,
-      node.blockReason ? `Blocked: ${node.blockReason}` : null,
-      `Dispatchable: ${node.dispatchable ? "yes" : "no"}`,
-      `YOLO confirmed: ${node.yoloConfirmed ? "yes" : "no"}`,
+      t("flowTab.plan2", { title: node.title, referenceId: node.referenceId }),
+      t("flowTab.status", { status: node.status }),
+      t("flowTab.priority", { priority: node.priority }),
+      t("flowTab.readiness2", { readiness: node.readiness }),
+      t("flowTab.tooltipPrerequisites", { value: node.prerequisites.join(", ") || t("flowTab.none") }),
+      t("flowTab.tooltipAffectedPaths", { value: node.affectedPaths.join(", ") || t("flowTab.none") }),
+      t("flowTab.tooltipCollisions", { value: node.collisions.join(", ") || t("flowTab.none") }),
+      t("flowTab.ownerChat", { ownerChat }),
+      t("flowTab.engine2", { engine }),
+      t("flowTab.provider", { provider }),
+      t("flowTab.model", { model }),
+      t("flowTab.branch2", { branch }),
+      t("flowTab.worktree", { worktree }),
+      node.blockReason ? t("flowTab.blocked2", { blockReason: node.blockReason }) : null,
+      t("flowTab.tooltipDispatchable", { value: node.dispatchable ? t("flowTab.yes") : t("flowTab.no") }),
+      t("flowTab.tooltipYoloConfirmed", { value: node.yoloConfirmed ? t("flowTab.yes") : t("flowTab.no") }),
     ]
       .filter((line): line is string => Boolean(line))
       .join("\n");
@@ -193,7 +196,7 @@ export function FlowTab({
     const archiveBlockedReason = !plan
       ? t("flowTab.cannotArchiveLinkedPlanIsUnavailable")
       : plan.status !== "finished"
-        ? `Cannot archive: linked plan is ${plan.status}; finish it first.`
+        ? t("flowTab.cannotArchiveLinkedPlanIsFinish", { status: plan.status })
         : !plan.changeName
           ? t("flowTab.cannotArchivePlanHasNoLinked")
           : null;
@@ -478,18 +481,18 @@ export function FlowTab({
         ) : null}
         {[...ordered, ...reviewedEntries].map((entry) => {
           const plan = plans.find((p) => p.id === entry.planId);
-          const title = plan?.title ?? `Plan ${entry.planId.slice(0, 8)}`;
+          const title = plan?.title ?? t("flowTab.plan22", { v1: entry.planId.slice(0, 8) });
           const isSelected = mergeSelected.has(entry.id);
           const isCurrent = mergeSession.currentEntryId === entry.id;
           const sessionResult = mergeSession.results.find((r) => r.entryId === entry.id);
           const tooltip = [
-            `Plan: ${title}`,
-            `Status: ${entry.status}`,
-            `Collision review required: ${entry.collisionReviewRequired ? "yes" : "no"}`,
-            `Overlapping plans: ${entry.overlappingPlans.join(", ") || "none"}`,
-            `Created: ${new Date(entry.createdAt).toLocaleString()}`,
-            entry.reviewedAt ? `Reviewed: ${new Date(entry.reviewedAt).toLocaleString()}` : null,
-            sessionResult ? `Session: ${sessionResult.action}` : null,
+            t("flowTab.plan3", { title }),
+            t("flowTab.status2", { status: entry.status }),
+            t("flowTab.tooltipCollisionReview", { value: entry.collisionReviewRequired ? t("flowTab.yes") : t("flowTab.no") }),
+            t("flowTab.tooltipOverlappingPlans", { value: entry.overlappingPlans.join(", ") || t("flowTab.none") }),
+            t("flowTab.created", { v1: formatDateTime(new Date(entry.createdAt)) }),
+            entry.reviewedAt ? t("flowTab.reviewed", { v1: formatDateTime(new Date(entry.reviewedAt)) }) : null,
+            sessionResult ? t("flowTab.session", { action: sessionResult.action }) : null,
           ]
             .filter((line): line is string => Boolean(line))
             .join("\n");
@@ -557,7 +560,7 @@ export function FlowTab({
       <div className="launch-profile-form" title={t("flowTab.configureHowReadyPlansAre")}>
         <Disclosure
           label={t("flowTab.launchProfile")}
-          summary={`${launchForm.workerCount} worker${launchForm.workerCount === 1 ? "" : "s"} · ${launchForm.workspacePolicy.replace(/_/g, " ")} · ${launchForm.schedulingMode} · ${FINISH_POLICY_LABELS[launchForm.finishPolicy]}`}
+          summary={t("flowTab.launchSummaryLine", { workers: launchForm.workerCount === 1 ? t("flowTab.workerCountOne") : t("flowTab.workerCountOther", { count: launchForm.workerCount }), workspace: launchForm.workspacePolicy.replace(/_/g, " "), scheduling: launchForm.schedulingMode, finish: finishPolicyLabels()[launchForm.finishPolicy] })}
           title={t("flowTab.workersWorkspaceSchedulingEngineAnd")}
         >
         <div className="launch-profile-row">
@@ -676,7 +679,7 @@ export function FlowTab({
                 <li><span className="label">{t("flowTab.collisions")}</span><span className="value">{launchSummary.collisions}</span></li>
                 <li><span className="label">{t("flowTab.policy")}</span><span className="value">{launchSummary.policy}</span></li>
                 <li><span className="label">{t("flowTab.scheduling")}</span><span className="value">{launchSummary.schedulingMode}</span></li>
-                <li><span className="label">{t("flowTab.onFinish")}</span><span className="value">{FINISH_POLICY_LABELS[launchSummary.finishPolicy]}</span></li>
+                <li><span className="label">{t("flowTab.onFinish")}</span><span className="value">{finishPolicyLabels()[launchSummary.finishPolicy]}</span></li>
               </ul>
               <div className="launch-profile-confirm-actions">
                 <button

@@ -15,28 +15,31 @@ import {
 import type { ToastKind } from "./AppShell";
 import { SkeletonRows } from "./Loading";
 import { t } from "../../i18n";
+import { formatDateTime } from "../../i18n/format";
 
 const BAR_DISMISS_MS = 5000;
 const BAR_MAX_VISIBLE = 3;
 
-const KIND_LABELS: Partial<Record<NotificationKind, string>> = {
-  plan_created: t("taskbarNotifications.planCreated"),
-  plan_status_changed: t("taskbarNotifications.planStatus"),
-  idea_captured: t("taskbarNotifications.ideaCaptured"),
-  idea_status_changed: t("taskbarNotifications.ideaStatus"),
-  category_created: t("taskbarNotifications.category"),
-  schematic_updated: "Schematic",
-  stage_started: t("taskbarNotifications.stageStarted"),
-  stage_succeeded: t("taskbarNotifications.stageSucceeded"),
-  stage_failed: t("taskbarNotifications.stageFailed"),
-  stage_cancelled: t("taskbarNotifications.stageCancelled"),
-  run_started: t("taskbarNotifications.runStarted"),
-  run_finished: t("taskbarNotifications.runFinished"),
-  run_failed: t("taskbarNotifications.runFailed"),
-  integration_action: t("taskbarNotifications.integration"),
-  pending_question: t("taskbarNotifications.question"),
-  schematic_drift_suspected: t("taskbarNotifications.drift"),
-};
+function KIND_LABELS(): Partial<Record<NotificationKind, string>> {
+  return {
+    plan_created: t("taskbarNotifications.planCreated"),
+    plan_status_changed: t("taskbarNotifications.planStatus"),
+    idea_captured: t("taskbarNotifications.ideaCaptured"),
+    idea_status_changed: t("taskbarNotifications.ideaStatus"),
+    category_created: t("taskbarNotifications.category"),
+    schematic_updated: t("taskbarNotifications.kindLabelsSchematicUpdated"),
+    stage_started: t("taskbarNotifications.stageStarted"),
+    stage_succeeded: t("taskbarNotifications.stageSucceeded"),
+    stage_failed: t("taskbarNotifications.stageFailed"),
+    stage_cancelled: t("taskbarNotifications.stageCancelled"),
+    run_started: t("taskbarNotifications.runStarted"),
+    run_finished: t("taskbarNotifications.runFinished"),
+    run_failed: t("taskbarNotifications.runFailed"),
+    integration_action: t("taskbarNotifications.integration"),
+    pending_question: t("taskbarNotifications.question"),
+    schematic_drift_suspected: t("taskbarNotifications.drift"),
+  };
+}
 
 type IconEntry = { icon: typeof CheckCircle; className: string };
 const APP_ICONS: Record<ToastKind, IconEntry> = {
@@ -461,12 +464,12 @@ export function TaskbarNotifications({ onNavigate, appToasts, onDismissAppToast 
                 <button
                   key={kind}
                   className={`chip ${filter === kind ? "chip-active" : ""}`}
-                  title={t("taskbarNotifications.showNotifications", { value: KIND_LABELS[kind] ?? kind })}
+                  title={t("taskbarNotifications.showNotifications", { value: KIND_LABELS()[kind] ?? kind })}
                   type="button"
                   aria-pressed={filter === kind}
                   onClick={() => setFilter(kind)}
                 >
-                  {KIND_LABELS[kind] ?? kind}
+                  {KIND_LABELS()[kind] ?? kind}
                 </button>
               ))}
             </div>
@@ -493,13 +496,10 @@ export function TaskbarNotifications({ onNavigate, appToasts, onDismissAppToast 
                         aria-hidden="true"
                       />
                       <span className="taskbar-notif-dropdown-item-kind">
-                        {KIND_LABELS[notification.kind] ?? notification.kind}
+                        {KIND_LABELS()[notification.kind] ?? notification.kind}
                       </span>
                       <time className="taskbar-notif-dropdown-item-time" dateTime={new Date(notification.createdAt).toISOString()}>
-                        {new Date(notification.createdAt).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
+                        {formatDateTime(new Date(notification.createdAt), { hour: "2-digit", minute: "2-digit" })}
                       </time>
                     </span>
                     <span className="taskbar-notif-dropdown-item-title">{notification.title}</span>

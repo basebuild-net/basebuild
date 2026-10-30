@@ -164,7 +164,7 @@ export function ChangesPanel({ projectPath, onFocusPlan, linkablePlans }: Change
       if (!projectPath) return;
       setConfirm({
         title: t("changesPanel.archiveChange"),
-        message: `Archive change "${changeName}"? This moves it to openspec/changes/archive/.`,
+        message: t("changesPanel.archiveChangeThisMovesItTo", { changeName }),
         confirmLabel: t("changesPanel.archive2"),
         destructive: true,
         onConfirm: async () => {
@@ -199,7 +199,7 @@ export function ChangesPanel({ projectPath, onFocusPlan, linkablePlans }: Change
     (planId: string, changeName: string) => {
       setConfirm({
         title: t("changesPanel.unlinkPlan2"),
-        message: `Unlink plan from change "${changeName}"?`,
+        message: t("changesPanel.unlinkPlanFromChange", { changeName }),
         confirmLabel: t("changesPanel.unlink"),
         destructive: true,
         onConfirm: async () => {
@@ -242,14 +242,14 @@ export function ChangesPanel({ projectPath, onFocusPlan, linkablePlans }: Change
       return {
         blocked: true,
         primary: false,
-        title: `Cannot archive: linked plan is ${linkedPlan.status}; finish or cancel it first.`,
+        title: t("changesPanel.cannotArchiveLinkedPlanIsFinish", { status: linkedPlan.status }),
       };
     }
     if (entry.total === 0 || entry.completed !== entry.total) {
       return {
         blocked: true,
         primary: false,
-        title: `Cannot archive: ${entry.completed}/${entry.total} required tasks are complete.`,
+        title: t("changesPanel.cannotArchiveRequiredTasksAreComplete", { completed: entry.completed, total: entry.total }),
       };
     }
     return { blocked: false, primary: true, title: t("changesPanel.archiveFinishedChange") };
@@ -273,9 +273,9 @@ export function ChangesPanel({ projectPath, onFocusPlan, linkablePlans }: Change
           {(["active", "archived", "all"] as ArchivedFilter[]).map((filter) => {
             const label =
               filter === "active"
-                ? `Active (${changes.length - archivedCount})`
+                ? t("changesPanel.active3", { v1: changes.length - archivedCount })
                 : filter === "archived"
-                  ? `Archived (${archivedCount})`
+                  ? t("changesPanel.archived2", { archivedCount })
                   : t("changesPanel.all");
             return (
               <button

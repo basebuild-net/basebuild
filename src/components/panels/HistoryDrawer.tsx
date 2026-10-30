@@ -5,10 +5,10 @@ import type { Panel, PanelType } from "../../lib/panelGrid";
 import { ConfirmDialog } from "../layout/ConfirmDialog";
 import { ModalPortal } from "../ModalPortal";
 import { nativeChatHistory, type NativeChatHistoryEntry } from "../../lib/native-chat";
-import { formatRelativeTime } from "../../lib/timing";
 import { basebuildDataDir, revealInExplorer } from "../../lib/projects";
 import { SkeletonRows } from "../layout/Loading";
 import { t } from "../../i18n";
+import { formatDateTime, formatRelativeTime } from "../../i18n/format";
 
 const typeIcons: Record<PanelType, LucideIcon> = {
   chat: MessageSquare,
@@ -152,8 +152,8 @@ export function HistoryDrawer({ activeProjectPath, closedPanels, onReopen, onDel
                 {chatsLoading ? <SkeletonRows rows={2} label={t("historyDrawer.loadingChatHistory")} /> : null}
                 {/* All chat sessions — merged into the same list */}
                 {allChats.map((entry) => {
-                  const fullTs = new Date(entry.updatedAt * 1000).toLocaleString();
-                  const messageLabel = entry.messageCount === 1 ? "1 message" : `${entry.messageCount} messages`;
+                  const fullTs = formatDateTime(new Date(entry.updatedAt * 1000));
+                  const messageLabel = entry.messageCount === 1 ? t("historyDrawer.oneMessage") : t("historyDrawer.manyMessages", { count: entry.messageCount });
                   const isClosed = closedPanels.some((p) => p.chatSessionId === entry.id && entry.projectPath === activeProjectPath);
                   return (
                     <div
@@ -186,7 +186,7 @@ export function HistoryDrawer({ activeProjectPath, closedPanels, onReopen, onDel
         title={t("historyDrawer.deletePanelPermanently")}
         message={
           pendingDelete
-            ? `Permanently delete "${pendingDelete.title}"? This removes the local ${pendingDelete.type} data and cannot be undone.`
+            ? t("historyDrawer.permanentlyDeleteThisRemovesTheLocal", { title: pendingDelete.title, type: pendingDelete.type })
             : ""
         }
         confirmLabel={t("historyDrawer.deletePermanently2")}

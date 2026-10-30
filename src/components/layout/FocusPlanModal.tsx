@@ -118,7 +118,7 @@ export function FocusPlanModal({
         <div className="modal-body stack focus-plan-body">
           <div className="card stack-sm focus-plan-status-card">
             <span className="text-sm text-muted">{t("focusPlanModal.status")}</span>
-            <span className="pill">{PLAN_STATUS_LABEL[plan.status]}</span>
+            <span className="pill">{PLAN_STATUS_LABEL()[plan.status]}</span>
             {isRunning && onOpenRunChat ? (
               <button
                 className="btn btn-sm"

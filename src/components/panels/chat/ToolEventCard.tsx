@@ -4,6 +4,7 @@ import type { Idea } from "../../../lib/ideas";
 import { IdeaBatchPreview, parseIdeaBatch } from "../IdeaReviewWorkbench";
 import { formatElapsed } from "./chatFormat";
 import { t } from "../../../i18n";
+import { formatDateTime } from "../../../i18n/format";
 
 // Module-level expansion state for tool cards. Keyed by tool event id,
 // survives re-renders during streaming so a card the user expanded stays
@@ -51,7 +52,7 @@ export function ToolEventCard({
   const diffLines = diffText.split("\n").filter((l) => l.length > 0);
 
   const timeStr = event.createdAt
-    ? new Date(event.createdAt * 1000).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+    ? formatDateTime(new Date(event.createdAt * 1000), { hour: "2-digit", minute: "2-digit", second: "2-digit" })
     : null;
   const activeDuration = isRunning && event.createdAt
     ? formatElapsed(Math.max(0, Math.floor(Date.now() / 1000) - event.createdAt))
@@ -110,10 +111,10 @@ export function ToolEventCard({
     if (!event.decision) return null;
     const dec = event.decision;
     if (dec === "approved") {
-      return event.ruleSource ? `Allowed by rule: ${event.ruleSource}` : t("toolEventCard.allowedByUser");
+      return event.ruleSource ? t("toolEventCard.allowedByRule", { ruleSource: event.ruleSource }) : t("toolEventCard.allowedByUser");
     }
     if (dec === "denied") {
-      return event.ruleSource ? `Denied by rule: ${event.ruleSource}` : t("toolEventCard.deniedByUser");
+      return event.ruleSource ? t("toolEventCard.deniedByRule", { ruleSource: event.ruleSource }) : t("toolEventCard.deniedByUser");
     }
     if (dec === "auto") return t("toolEventCard.autoApprovedSessionMode");
     if (dec === "pending") return t("toolEventCard.approvalPending");

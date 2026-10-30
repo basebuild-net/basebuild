@@ -4,6 +4,7 @@ import { TerminalPanel } from "./TerminalPanel";
 import { useOmpTelemetry } from "../../state/ompTelemetry";
 import type { OmpUsageWindow } from "../../lib/ompTelemetry";
 import { t } from "../../i18n";
+import { formatAgo } from "../../i18n/format";
 
 type OmpTerminalTabProps = {
   terminalId: number | null;
@@ -26,11 +27,11 @@ function severityClass(severity: string): string {
 
 function formatAge(minutes?: number): string {
   if (minutes == null) return "?";
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${Math.round(minutes)}m ago`;
+  if (minutes < 1) return t("time.justNow");
+  if (minutes < 60) return formatAgo(Math.round(minutes), "minute");
   const hours = minutes / 60;
-  if (hours < 24) return `${Math.round(hours)}h ago`;
-  return `${Math.round(hours / 24)}d ago`;
+  if (hours < 24) return formatAgo(Math.round(hours), "hour");
+  return formatAgo(Math.round(hours / 24), "day");
 }
 
 function WindowBar({ window: w }: { window: OmpUsageWindow }) {
@@ -38,7 +39,7 @@ function WindowBar({ window: w }: { window: OmpUsageWindow }) {
   return (
     <div
       className={`omp-window-row ${w.isStale ? "is-stale" : ""} ${severityClass(w.severity)}`}
-      title={t((w.isStale ? "ompTerminalTab.used.stale" : "ompTerminalTab.used.none"), { window: w.window, pct: pct, value: w.resetsAt ? ` · resets ${w.resetsAt}` : "" })}
+      title={t((w.isStale ? "ompTerminalTab.used.stale" : "ompTerminalTab.used.none"), { window: w.window, pct: pct, value: w.resetsAt ? t("ompTerminalTab.resets", { resetsAt: w.resetsAt }) : "" })}
     >
       <span className="omp-window-label">{w.window}</span>
       <div className="omp-window-bar">

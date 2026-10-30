@@ -76,6 +76,6 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
 /** Current preference and resolved locale. Call from the root to subscribe. */
 export function useLocale(): LocaleContextValue {
   const value = useContext(LocaleContext);
-  if (!value) throw new Error("useLocale must be used inside LocaleProvider");
+  if (!value) throw new Error("useLocale must be used inside LocaleProvider" /* i18n-exempt: developer error */);
   return value;
 }

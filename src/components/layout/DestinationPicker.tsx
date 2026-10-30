@@ -137,9 +137,9 @@ export function DestinationPicker({
   // model, else the resolved project default.
   const autoModel = selected !== "new" && sessionModel ? sessionModel : resolvedDefault;
   const autoLabel = selected !== "new" && sessionModel
-    ? `Chat's current model (${sessionModel.modelId})`
+    ? t("destinationPicker.chatSCurrentModel", { modelId: sessionModel.modelId })
     : resolvedDefault
-      ? `Project default (${resolvedDefault.modelId})`
+      ? t("destinationPicker.projectDefault2", { modelId: resolvedDefault.modelId })
       : t("destinationPicker.projectDefault");
   // Deliver-mode new chats go through the transactional panel-create path,
   // which always starts on the project default — no override there.
@@ -208,7 +208,7 @@ export function DestinationPicker({
                 <button
                   className={`destination-picker-item ${selected === panel.panelId ? "selected" : ""}`}
                   type="button"
-                  title={t("destinationPicker.sendTo", { title: panel.title, value: panel.chatSessionId ? ` (session ${panel.chatSessionId.slice(-6)})` : " (no session yet)" })}
+                  title={t("destinationPicker.sendTo", { title: panel.title, value: panel.chatSessionId ? t("destinationPicker.session", { v1: panel.chatSessionId.slice(-6) }) : t("destinationPicker.noSessionYet") })}
                   onClick={() => setSelected(panel.panelId)}
                   disabled={!panel.chatSessionId}
                 >

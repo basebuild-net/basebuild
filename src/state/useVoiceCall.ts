@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { voiceResetMicPermission, voiceTranscribe, type VoiceProfile } from "../lib/voice";
+import { t } from "../i18n";
 
 /**
  * Voice call runtime for the chat composer.
@@ -124,9 +125,9 @@ export function useVoiceCall({ profile, onTranscript, addLog }: UseVoiceCallOpti
     const mic = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== "undefined";
     const tts = typeof window !== "undefined" && "speechSynthesis" in window;
     let reason: string | null = null;
-    if (!mic && !tts) reason = "This build has no microphone or speech synthesis access.";
-    else if (!mic) reason = "No microphone access in this webview, so dictation is unavailable.";
-    else if (!tts) reason = "No speech synthesis voices installed, so replies will not be read aloud.";
+    if (!mic && !tts) reason = t("useVoiceCall.thisBuildHasNoMicrophoneOr");
+    else if (!mic) reason = t("useVoiceCall.noMicrophoneAccessInThisWebview");
+    else if (!tts) reason = t("useVoiceCall.noSpeechSynthesisVoicesInstalledSo");
     setSupport({ mic, tts, reason });
   }, []);
 
@@ -335,12 +336,12 @@ export function useVoiceCall({ profile, onTranscript, addLog }: UseVoiceCallOpti
       const name = err instanceof DOMException ? err.name : "";
       if (name === "NotAllowedError" || name === "SecurityError") {
         setPermissionDenied(true);
-        setError("Microphone access was blocked. Click the button to open settings and re-enable it.");
+        setError(t("useVoiceCall.microphoneAccessWasBlockedClickThe"));
         addLog("warn", "Microphone permission denied", name);
       } else {
         setPermissionDenied(false);
         const message = err instanceof Error ? err.message : String(err);
-        setError(`Microphone unavailable: ${message}`);
+        setError(t("useVoiceCall.microphoneUnavailable", { message }));
         addLog("error", "Microphone access denied", message);
       }
       return false;
@@ -434,7 +435,7 @@ export function useVoiceCall({ profile, onTranscript, addLog }: UseVoiceCallOpti
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       addLog("error", "Mic permission reset failed", message);
-      setError(`Could not reset mic permission: ${message}`);
+      setError(t("useVoiceCall.couldNotResetMicPermission", { message }));
       return false;
     }
   }, [addLog, openMic]);

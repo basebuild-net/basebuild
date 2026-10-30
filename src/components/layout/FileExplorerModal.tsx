@@ -35,15 +35,17 @@ const GIT_COLORS: Record<FileChangeType, string> = {
   other: "var(--bb-muted)",
 };
 
-const GIT_LABELS: Record<FileChangeType, string> = {
-  added: t("fileExplorerModal.added2"),
-  modified: t("fileExplorerModal.modified2"),
-  deleted: t("fileExplorerModal.deleted2"),
-  untracked: t("fileExplorerModal.untracked2"),
-  renamed: t("fileExplorerModal.renamed2"),
-  unmerged: t("fileExplorerModal.unmerged"),
-  other: t("fileExplorerModal.other"),
-};
+function gitLabels(): Record<FileChangeType, string> {
+  return {
+    added: t("fileExplorerModal.added2"),
+    modified: t("fileExplorerModal.modified2"),
+    deleted: t("fileExplorerModal.deleted2"),
+    untracked: t("fileExplorerModal.untracked2"),
+    renamed: t("fileExplorerModal.renamed2"),
+    unmerged: t("fileExplorerModal.unmerged"),
+    other: t("fileExplorerModal.other"),
+  };
+}
 
 // Priority order for rolling a folder's status up from its descendants.
 const FOLDER_PRIORITY: FileChangeType[] = [
@@ -249,7 +251,7 @@ export function FileExplorerModal({ projectPath, open, onClose, onOpenFile }: Fi
     return (
       <span
         className={`files-item-git-dot files-item-git-${type}`}
-        title={GIT_LABELS[type]}
+        title={gitLabels()[type]}
       />
     );
   };
@@ -421,9 +423,9 @@ export function FileExplorerModal({ projectPath, open, onClose, onOpenFile }: Fi
                   <p className="text-sm files-detail-git">
                     <span
                       className={`files-item-git-dot files-item-git-${selectedGit}`}
-                      title={GIT_LABELS[selectedGit]}
+                      title={gitLabels()[selectedGit]}
                     />
-                    <span>{t("fileExplorerModal.git", { value: GIT_LABELS[selectedGit] })}</span>
+                    <span>{t("fileExplorerModal.git", { value: gitLabels()[selectedGit] })}</span>
                   </p>
                 ) : (
                   <p className="text-muted text-sm">{t("fileExplorerModal.gitNoChanges")}</p>

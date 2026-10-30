@@ -89,7 +89,7 @@ export function formatInteractionAnswer(question: Question, source: unknown): st
   if (answer.selected?.length) parts.push(answer.selected.join(", "));
   if (answer.text?.trim()) parts.push(answer.text.trim());
   if (typeof answer.value === "number") parts.push(String(answer.value));
-  return parts.length ? parts.join(" — ") : "—";
+  return parts.length ? parts.join(" · ") : "—";
 }
 
 export function QuestionControls({
@@ -287,7 +287,7 @@ export function InteractionWorkbench({
   const validate = (questions: Question[]) => {
     const missing = questions.find((question) => question.required && !hasAnswer(question, answers[question.id]));
     if (missing) {
-      setError(`Answer required: ${missing.prompt}`);
+      setError(t("interactionWorkbench.answerRequired", { prompt: missing.prompt }));
       onAction?.(t("interactionWorkbench.questionnaireNavigationBlocked"), `interaction=${interaction.id}; missing=${missing.id}`);
       return false;
     }
@@ -385,7 +385,7 @@ export function InteractionWorkbench({
       title={interaction.title ?? t("interactionWorkbench.agentQuestion")}
       description={interaction.description}
       headerActions={headerActions}
-      progressLabel={`Page ${pageIndex + 1} of ${pages.length}`}
+      progressLabel={t("interactionWorkbench.pageOf", { v1: pageIndex + 1, length: pages.length })}
       progressTitle={page?.title}
       footer={footer}
       readOnly={readOnly}

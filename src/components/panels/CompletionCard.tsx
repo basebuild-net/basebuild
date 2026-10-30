@@ -73,7 +73,7 @@ export function CompletionCard({
           : taskProgress.total === 0
             ? t("completionCard.cannotMarkCompleteTheLinkedOpenspec")
             : taskProgress.completed < taskProgress.total
-              ? `Cannot mark complete: ${taskProgress.completed}/${taskProgress.total} required OpenSpec tasks are complete.`
+              ? t("completionCard.cannotMarkCompleteRequiredOpenspecTasks", { completed: taskProgress.completed, total: taskProgress.total })
               : null;
 
   const handleMarkComplete = async () => {

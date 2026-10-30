@@ -3,6 +3,7 @@ import { useEscapeKey } from "../../lib/useEscapeKey";
 import { Check, ChevronRight, Moon, Sun, TerminalSquare, X } from "lucide-react";
 import { listRuntimeProfiles, getRuntimeDefaults, setRuntimeDefaults, type RuntimeProfile, type RuntimeDefaults } from "../../lib/settings";
 import { RuntimeDefaultsFields } from "./RuntimeDefaultsFields";
+import { LanguagePicker } from "./LanguagePicker";
 import { getAnalyticsConsent, setAnalyticsConsent, type AnalyticsConsent } from "../../lib/analytics";
 import { startupEnable, startupDisable, startupGetStatus, type StartupRegistrationStatus } from "../../lib/startup";
 import { ModalPortal } from "../ModalPortal";
@@ -104,6 +105,9 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
         <div className="modal-body stack modal-first-run-body">
           {step === "theme" ? (
             <>
+              <h3>{t("firstRunModal.chooseYourLanguage")}</h3>
+              <p className="text-muted text-sm">{t("firstRunModal.languageHint")}</p>
+              <LanguagePicker />
               <h3>{t("firstRunModal.chooseYourTheme")}</h3>
               <p className="text-muted text-sm">
                 {t("firstRunModal.startWithDarkOrLight")}

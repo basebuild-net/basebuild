@@ -10,13 +10,15 @@ type WorkspaceSplashProps = {
   onDismissed?: () => void;
 };
 
-const PHASE_LABELS: Record<RestorePhase, string> = {
-  starting: t("workspaceSplash.startingUp"),
-  detecting: t("workspaceSplash.detectingProjects"),
-  restoring: t("workspaceSplash.restoringWorkspace"),
-  resolving: t("workspaceSplash.resolvingProviders"),
-  ready: t("workspaceSplash.ready"),
-};
+function PHASE_LABELS(): Record<RestorePhase, string> {
+  return {
+    starting: t("workspaceSplash.startingUp"),
+    detecting: t("workspaceSplash.detectingProjects"),
+    restoring: t("workspaceSplash.restoringWorkspace"),
+    resolving: t("workspaceSplash.resolvingProviders"),
+    ready: t("workspaceSplash.ready"),
+  };
+}
 
 export function WorkspaceSplash({ phase, onDismissed }: WorkspaceSplashProps) {
   const [version, setVersion] = useState("");
@@ -45,7 +47,7 @@ export function WorkspaceSplash({ phase, onDismissed }: WorkspaceSplashProps) {
         <div className="splash-brand">{t("workspaceSplash.bASEBUILD")}</div>
         <div className="splash-version mono">{t("workspaceSplash.v", { version: version || "0.0.0" })}</div>
         <LogoPulse size={28} className="splash-spinner" />
-        <div className="splash-status">{PHASE_LABELS[phase]}</div>
+        <div className="splash-status">{PHASE_LABELS()[phase]}</div>
       </div>
     </div>
   );

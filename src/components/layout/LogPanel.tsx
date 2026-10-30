@@ -4,6 +4,7 @@ import { Copy, Trash2, X } from "lucide-react";
 import { useLogs, type LogEntry, type LogLevel } from "../../state/log";
 import { ModalPortal } from "../ModalPortal";
 import { t } from "../../i18n";
+import { formatDateTime } from "../../i18n/format";
 
 const levelBadge: Record<LogLevel, string> = {
   debug: "badge badge-debug",
@@ -103,7 +104,7 @@ async function copyAll(logs: LogEntry[], onDone: () => void): Promise<void> {
 
 function LogRow({ entry }: { entry: LogEntry }) {
   const [expanded, setExpanded] = useState(false);
-  const time = new Date(entry.timestamp).toLocaleTimeString();
+  const time = formatDateTime(new Date(entry.timestamp), { timeStyle: "medium" });
   return (
     <div
       className={`log-row ${entry.level}`}

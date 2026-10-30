@@ -51,10 +51,10 @@ export function ChatComposerControls(props: Props) {
 
   const effortLabel = props.effortOptions.find((o) => o.id === props.effortChip)?.label ?? props.effortChip;
   const permissionLabel = props.permissionMode === "safe"
-    ? "Always Ask"
+    ? t("chatComposerControls.alwaysAsk")
     : props.permissionMode === "auto"
-      ? "Run Everything"
-      : "Balanced";
+      ? t("chatComposerControls.runEverything")
+      : t("chatComposerControls.balanced");
   const busy = props.modelCatalogStatus === "loading" || props.modelCatalogStatus === "refreshing";
   const hasEffort = props.effortOptions.length > 1;
 
@@ -77,13 +77,13 @@ export function ChatComposerControls(props: Props) {
 
       {!collapsed && hasEffort ? (
         <ActionMenu
-          triggerTitle={`Effort level: ${effortLabel}`}
+          triggerTitle={t("chatComposerControls.effortLevel", { effortLabel })}
           triggerClassName="chat-header-menu-trigger"
           icon={<><span>{effortLabel}</span><ChevronDown size={9} /></>}
           items={props.effortOptions.map((option) => ({
             key: option.id,
             label: option.label,
-            title: `Use ${option.label} effort`,
+            title: t("chatComposerControls.useEffort", { label: option.label }),
             onSelect: () => props.onChangeEffort(option.id),
           }))}
         />
@@ -91,7 +91,7 @@ export function ChatComposerControls(props: Props) {
 
       {!collapsed ? (
         <ActionMenu
-          triggerTitle={`Permission mode: ${permissionLabel}`}
+          triggerTitle={t("chatComposerControls.permissionMode", { permissionLabel })}
           triggerClassName="chat-header-menu-trigger chat-header-permission-trigger"
           icon={<><ShieldCheck size={10} /><span>{permissionLabel}</span><ChevronDown size={9} /></>}
           items={[

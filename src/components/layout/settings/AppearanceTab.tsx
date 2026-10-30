@@ -10,6 +10,7 @@ import {
   type UiScale,
 } from "../../../lib/uiScale";
 import { t } from "../../../i18n";
+import { LanguagePicker } from "../LanguagePicker";
 
 export function AppearanceTab() {
   const { theme, setTheme } = useTheme();
@@ -24,6 +25,9 @@ export function AppearanceTab() {
   const maxScale = UI_SCALE_STEPS[UI_SCALE_STEPS.length - 1];
   return (
     <div className="stack">
+      <h3>{t("localePicker.label")}</h3>
+      <p className="text-muted text-sm">{t("localePicker.hint")}</p>
+      <LanguagePicker />
       <h3>{t("appearanceTab.theme")}</h3>
       <p className="text-muted text-sm">{t("appearanceTab.chooseTheColorSchemeFor")}</p>
       <div className="theme-picker">

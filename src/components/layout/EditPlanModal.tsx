@@ -8,12 +8,12 @@ import { ModalPortal } from "../ModalPortal";
 import { Disclosure } from "../Disclosure";
 import { t } from "../../i18n";
 const STATUS_OPTION_ITEMS = (): OptionListOption<PlanStatus>[] => [
-  { id: "draft", label: PLAN_STATUS_LABEL.draft, title: t("editPlanModal.planIsStillBeingDrafted") },
-  { id: "openspec", label: PLAN_STATUS_LABEL.openspec, title: t("editPlanModal.planIsBeingRefinedInOpenspec") },
-  { id: "ready", label: PLAN_STATUS_LABEL.ready, title: t("editPlanModal.planIsReadyToRun") },
-  { id: "running", label: PLAN_STATUS_LABEL.running, title: t("editPlanModal.planIsCurrentlyRunning") },
-  { id: "finished", label: PLAN_STATUS_LABEL.finished, title: t("editPlanModal.planHasFinishedSuccessfully") },
-  { id: "cancelled", label: PLAN_STATUS_LABEL.cancelled, title: t("editPlanModal.planWasCancelled") },
+  { id: "draft", label: PLAN_STATUS_LABEL().draft, title: t("editPlanModal.planIsStillBeingDrafted") },
+  { id: "openspec", label: PLAN_STATUS_LABEL().openspec, title: t("editPlanModal.planIsBeingRefinedInOpenspec") },
+  { id: "ready", label: PLAN_STATUS_LABEL().ready, title: t("editPlanModal.planIsReadyToRun") },
+  { id: "running", label: PLAN_STATUS_LABEL().running, title: t("editPlanModal.planIsCurrentlyRunning") },
+  { id: "finished", label: PLAN_STATUS_LABEL().finished, title: t("editPlanModal.planHasFinishedSuccessfully") },
+  { id: "cancelled", label: PLAN_STATUS_LABEL().cancelled, title: t("editPlanModal.planWasCancelled") },
 ];
 
 type EditPlanModalProps = {
@@ -102,7 +102,7 @@ export function EditPlanModal({ plan, open, onClose, onSave }: EditPlanModalProp
           </label>
           <Disclosure
             label={t("editPlanModal.details")}
-            summary={`${PLAN_STATUS_LABEL[status]} · priority ${priority}${tags.trim() ? ` · ${tags}` : ""}`}
+            summary={t("editPlanModal.summary", { status: PLAN_STATUS_LABEL()[status], priority, tags: tags.trim() ? ` · ${tags}` : "" })}
             title={t("editPlanModal.goalStatusPriorityAndTags")}
           >
             <label className="stack-sm">

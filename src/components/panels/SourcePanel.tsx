@@ -192,7 +192,7 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
       const raw = await gitDiff(projectPath, file.path, file.staged);
       setDiffLines(parseDiff(raw));
     } catch (e) {
-      setDiffLines([{ type: "meta", content: `Error: ${e}` }]);
+      setDiffLines([{ type: "meta", content: t("sourcePanel.error", { e: String(e) }) }]);
     }
   }
 
@@ -210,7 +210,7 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
 
   async function discard(file: FileEntry) {
     if (!projectPath) return;
-    if (!confirm(`Discard changes to ${file.path}? This cannot be undone.`)) return;
+    if (!confirm(t("sourcePanel.discardChangesToThisCannotBe", { path: file.path }))) return;
     await gitDiscard(projectPath, file.path);
     if (selectedFile?.path === file.path) {
       setSelectedFile(null);
@@ -271,7 +271,7 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
       const effortLevel = modelDefault.effortLevel;
       const diffParts = await Promise.all(diffFiles.map(async (file) => {
         const diff = await gitDiff(projectPath, file.path, stagedFiles.length > 0);
-        return `### ${file.path}\n${diff || `${file.changeType} (no textual diff)`}`;
+        return `### ${file.path}\n${diff || `${file.changeType} (no textual diff)`}`; // i18n-exempt: diff text is sent to the commit model
       }));
 
       const fullDiff = diffParts.join("\n\n");
@@ -279,10 +279,10 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
         ? `${fullDiff.slice(0, COMMIT_DIFF_LIMIT)}\n\n[diff truncated]`
         : fullDiff;
       const prompt = [
-        "Write one concise git commit message for these changes.",
+        "Write one concise git commit message for these changes." /* i18n-exempt: model prompt */,
         t("sourcePanel.returnOnlyTheCommitMessageText"),
-        `Files:\n${diffFiles.map((file) => `- ${file.path} (${file.changeType})`).join("\n")}`,
-        `Diff:\n${visibleDiff}`,
+        `Files:\n${diffFiles.map((file) => `- ${file.path} (${file.changeType})`).join("\n")}` /* i18n-exempt: model prompt */,
+        `Diff:\n${visibleDiff}` /* i18n-exempt: model prompt */,
       ].filter(Boolean).join("\n\n");
       const sessionId = commitChatSessionId ?? (await nativeChatStart({
         projectPath,
@@ -308,7 +308,7 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
 
       const message = cleanGeneratedCommitMessage(result.assistantMessage?.content ?? "");
       if (!message) {
-        setError("AI did not return a commit message.");
+        setError(t("sourcePanel.aiDidNotReturnACommit"));
         return;
       }
 

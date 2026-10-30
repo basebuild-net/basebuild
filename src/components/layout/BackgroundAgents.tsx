@@ -24,18 +24,20 @@ import { nativeChatList, type NativeChatSession } from "../../lib/native-chat";
 import { SkeletonRows, SkeletonText } from "./Loading";
 import { t } from "../../i18n";
 
-const KIND_LABELS: Record<string, string> = {
-  generate_categories: t("backgroundAgents.generatingCategories"),
-  generate_ideas: t("backgroundAgents.generatingIdeas"),
-  enhance_idea: t("backgroundAgents.enhancingIdea"),
-  generate_openspec: t("backgroundAgents.turningPlanIntoOpenspec"),
-};
+function KIND_LABELS(): Record<string, string> {
+  return {
+    generate_categories: t("backgroundAgents.generatingCategories"),
+    generate_ideas: t("backgroundAgents.generatingIdeas"),
+    enhance_idea: t("backgroundAgents.enhancingIdea"),
+    generate_openspec: t("backgroundAgents.turningPlanIntoOpenspec"),
+  };
+}
 
 /** How many finished runs to keep visible under the active list. */
 const RECENT_LIMIT = 6;
 
 function kindLabel(kind: string): string {
-  return KIND_LABELS[kind] ?? kind.replace(/_/g, " ");
+  return KIND_LABELS()[kind] ?? kind.replace(/_/g, " ");
 }
 
 /** Format a duration between two unix-second timestamps as "3s" / "1m 12s". */
@@ -193,7 +195,7 @@ export function BackgroundAgents({
       handleOpenChat(run.chatSessionId, run.id);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      setActionError(`Could not resume: ${message}`);
+      setActionError(t("backgroundAgents.couldNotResume", { message }));
       addLog("error", "Background plan resume failed", message);
     }
   }, [addLog, handleOpenChat, onOpenPlanning, refresh]);
@@ -205,7 +207,7 @@ export function BackgroundAgents({
       await refresh();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      setActionError(`Could not complete review: ${message}`);
+      setActionError(t("backgroundAgents.couldNotCompleteReview", { message }));
       addLog("error", "Background plan review failed", message);
     }
   }, [addLog, refresh]);
@@ -251,7 +253,7 @@ export function BackgroundAgents({
             : t("backgroundAgents.backgroundAgents")
         }
         onClick={() => {
-          addLog("debug", open ? "Background agents closed" : "Background agents opened", `active=${activeCount}`);
+          addLog("debug", open ? t("backgroundAgents.backgroundAgentsClosed") : t("backgroundAgents.backgroundAgentsOpened"), `active=${activeCount}`);
           setOpen((v) => !v);
           if (!open) void refresh();
         }}
@@ -446,7 +448,7 @@ export function BackgroundAgents({
                 const archiveReason = !plan
                   ? t("backgroundAgents.cannotArchiveLinkedPlanIsUnavailable")
                   : plan.status !== "finished"
-                    ? `Cannot archive: linked plan is ${plan.status}; finish it first.`
+                    ? t("backgroundAgents.cannotArchiveLinkedPlanIsFinish", { status: plan.status })
                     : !plan.changeName
                       ? t("backgroundAgents.cannotArchivePlanHasNoLinked")
                       : null;

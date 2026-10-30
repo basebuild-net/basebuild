@@ -31,6 +31,7 @@ import { listSessions, type Session } from "../../lib/sessions";
 import { useLogs } from "../../state/log";
 import { SkeletonRows } from "./Loading";
 import { t } from "../../i18n";
+import { formatRelativeTime, formatDateTime } from "../../i18n/format";
 
 function ProjectMonogram({ name, active, color }: { name: string; active: boolean; color?: ProjectColor }) {
   const letter = name.charAt(0).toUpperCase() || "?";
@@ -131,13 +132,8 @@ function writeProjectColors(colors: Map<string, ProjectColor>) {
 }
 
 function formatTime(ts: number): string {
-  const date = new Date(ts * 1000);
-  const now = Date.now();
-  const diff = now - ts * 1000;
-  if (diff < 60000) return "just now";
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-  return date.toLocaleDateString();
+  if (Date.now() - ts * 1000 < 86400000) return formatRelativeTime(ts);
+  return formatDateTime(new Date(ts * 1000), { dateStyle: "medium" });
 }
 
 export function ProjectSidebar({
@@ -203,7 +199,7 @@ export function ProjectSidebar({
     if (!onClearChats) return;
     const sessions = sessionsByProject.get(path) ?? [];
     const titles = sessions.map((s) => s.title).join(", ");
-    if (!confirm(`Clear ${sessions.length} chat${sessions.length === 1 ? "" : "s"} for this project? This cannot be undone.`)) {
+    if (!confirm(sessions.length === 1 ? t("projectSidebar.clearChatsConfirmOne", { count: sessions.length }) : t("projectSidebar.clearChatsConfirmOther", { count: sessions.length }))) {
       addLog("debug", "Clear chats cancelled", path);
       return;
     }
@@ -279,7 +275,7 @@ export function ProjectSidebar({
           title={collapsed ? t("projectSidebar.expandSidebar") : t("projectSidebar.collapseSidebar")}
           aria-label={collapsed ? t("projectSidebar.expandSidebar") : t("projectSidebar.collapseSidebar")}
           type="button"
-          onClick={() => { addLog("debug", collapsed ? "Expand sidebar" : "Collapse sidebar"); onToggleCollapse(); }}
+          onClick={() => { addLog("debug", collapsed ? t("projectSidebar.expandSidebar2") : t("projectSidebar.collapseSidebar2")); onToggleCollapse(); }}
         >
           {collapsed ? <ChevronRight size={15} /> : <ChevronLeft size={15} />}
         </button>
@@ -317,7 +313,7 @@ export function ProjectSidebar({
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      addLog("debug", isCollapsed ? "Expand project" : "Collapse project", project.path);
+                      addLog("debug", isCollapsed ? t("projectSidebar.expandProject") : t("projectSidebar.collapseProject"), project.path);
                       setCollapsedProjects((prev) => {
                         const next = new Set(prev);
                         if (next.has(project.path)) next.delete(project.path);
@@ -478,7 +474,7 @@ export function ProjectSidebar({
                             </button>
                             {onDeleteSession ? (
                               <button className="menu-item menu-item-danger" type="button" title={t("projectSidebar.deleteSession")} onClick={() => {
-                                if (confirm(`Delete session "${s.title}"? This cannot be undone.`)) {
+                                if (confirm(t("projectSidebar.deleteSessionThisCannotBeUndone", { title: s.title }))) {
                                   onDeleteSession(s.id);
                                 }
                                 setSessionMenu(null);

@@ -3,7 +3,6 @@ import { AlertCircle, AlertTriangle, Check, Link, Loader2, Plug, RefreshCw, Sear
 import { ModalPortal } from "../../ModalPortal";
 import { OptionList, type OptionListOption } from "../../layout/OptionList";
 import { SkeletonRows } from "../../layout/Loading";
-import { formatRelativeTime } from "../../../lib/timing";
 import { recordModelUse, recordProviderUse } from "../../../lib/modelRecency";
 import { nativeLocalLlmScan, nativeProviderCatalogRefresh } from "../../../lib/native-chat";
 import type {
@@ -26,6 +25,7 @@ import {
   VOICE_LEVEL_TITLES,
 } from "./chatFormat";
 import { t } from "../../../i18n";
+import { formatRelativeTime } from "../../../i18n/format";
 
 type CatalogStatus = "loading" | "refreshing" | "ready" | "stale" | "error";
 
@@ -246,7 +246,7 @@ export function ProviderCatalogModal({
                               <span className="provider-card-middle">
                                 {authBadge ? <span className="provider-card-auth" title={providerAuthOptionsLabel(provider) || authBadge}>{authBadge}</span> : null}
                                 <span className="provider-card-meta">
-                                  {t("providerCatalogModal.models", { modelCount: provider.modelCount, value: provider.connectedVia ? ` · ${CONNECTED_VIA_LABELS[provider.connectedVia]}` : "" })}</span>
+                                  {t("providerCatalogModal.models", { modelCount: provider.modelCount, value: provider.connectedVia ? ` · ${CONNECTED_VIA_LABELS()[provider.connectedVia]}` : "" })}</span>
                                 {needsBaseUrl ? (
                                   <span className="provider-card-flag is-warn" title={t("providerCatalogModal.thisProviderUsesABespoke")}>
                                     <AlertTriangle size={10} /> {t("providerCatalogModal.needsBaseUrl")}
@@ -403,17 +403,17 @@ export function ProviderCatalogModal({
                               {voiceLevel ? (
                                 <span
                                   className={`provider-capability is-voice${voiceLevel === "realtime" ? " is-voice-realtime" : ""}`}
-                                  title={VOICE_LEVEL_TITLES[voiceLevel]}
+                                  title={VOICE_LEVEL_TITLES()[voiceLevel]}
                                 >
-                                  {VOICE_LEVEL_LABELS[voiceLevel]}
+                                  {VOICE_LEVEL_LABELS()[voiceLevel]}
                                 </span>
                               ) : null}
                               {voiceLevel && billing ? (
                                 <span
                                   className={`provider-capability ${VOICE_BILLING_CLASS[billing]}`}
-                                  title={VOICE_BILLING_TITLES[billing]}
+                                  title={VOICE_BILLING_TITLES()[billing]}
                                 >
-                                  {VOICE_BILLING_LABELS[billing]}
+                                  {VOICE_BILLING_LABELS()[billing]}
                                 </span>
                               ) : null}
                               {model.supportsTools ? <span className="provider-capability is-positive">{t("providerCatalogModal.tools")}</span> : null}
@@ -422,7 +422,7 @@ export function ProviderCatalogModal({
                             </span>
                           </button>
                           {mismatch ? (
-                            <p className="provider-model-note" title={VOICE_BILLING_TITLES.api_key}>
+                            <p className="provider-model-note" title={VOICE_BILLING_TITLES().api_key}>
                               <AlertTriangle size={11} aria-hidden="true" />
                               {mismatch}
                             </p>

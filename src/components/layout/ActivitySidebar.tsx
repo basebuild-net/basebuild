@@ -42,11 +42,11 @@ import {
 import { parsePanelGrid } from "../../lib/panelGrid";
 import { panelGridToWorkspaceState } from "../../lib/workspaceBridge";
 import { buildSidebarUnits } from "../../lib/sidebarLayout";
-import { formatRelativeTime } from "../../lib/timing";
 import type { AccountState } from "../../state/account";
 import type { UpdaterState } from "../../state/updater";
 import type { RecentProject } from "../../lib/projects";
 import { t } from "../../i18n";
+import { formatRelativeTime } from "../../i18n/format";
 
 const PINNED_PROJECTS_KEY = "basebuild.pinned-projects.v1";
 
@@ -78,17 +78,19 @@ const surfaceKindIcon: Record<SurfaceKind, LucideIcon> = {
   terminal: TerminalSquare,
 };
 
-const surfaceKindLabel: Record<SurfaceKind, string> = {
-  chat: "Chat",
-  "omp-chat": "Oh My Pi Chat",
-  terminal: "Terminal",
-};
+function surfaceKindLabel(): Record<SurfaceKind, string> {
+  return {
+    chat: t("activitySidebar.kindChat"),
+    "omp-chat": t("activitySidebar.kindOmpChat"),
+    terminal: t("activitySidebar.kindTerminal"),
+  };
+}
 
 /** A neutral, non-decorative display title for a surface. Honors manual title
  *  lock by using `title` as-is; falls back to a kind-labeled placeholder. */
 function surfaceDisplayTitle(surface: SurfaceRecord): string {
   if (surface.title) return humanizeChatTitle(surface.title);
-  return `Untitled ${surfaceKindLabel[surface.kind]}`;
+  return t("activitySidebar.untitled", { v1: surfaceKindLabel()[surface.kind] });
 }
 
 /** Disambiguate identical display titles across a set of surfaces by
@@ -143,12 +145,12 @@ function surfaceStatusText(
   isGrouped: boolean,
   isFocused: boolean,
 ): string {
-  if (visibility === "stashed") return "stashed";
-  if (isFocused) return "active";
-  if (isGrouped) return "linked";
+  if (visibility === "stashed") return t("activitySidebar.statusStashed");
+  if (isFocused) return t("activitySidebar.statusActive");
+  if (isGrouped) return t("activitySidebar.statusLinked");
   const ageSec = Math.floor((Date.now() - surface.createdAt) / 1000);
-  if (ageSec < 30) return "new";
-  return "standby";
+  if (ageSec < 30) return t("activitySidebar.statusNew");
+  return t("activitySidebar.statusStandby");
 }
 
 
@@ -281,7 +283,7 @@ function ProjectMenuButton({
   if (onRemoveProject) items.push({
     key: "remove",
     label: t("activitySidebar.removeProject"),
-    title: `Remove ${projectName} from the sidebar (does not delete files)`,
+    title: t("activitySidebar.removeFromTheSidebarDoesNot", { projectName }),
     icon: <Trash2 size={11} />,
     danger: true,
     onSelect: () => onRemoveProject(projectPath),
@@ -292,7 +294,7 @@ function ProjectMenuButton({
     <span className="project-menu-wrap">
       <ActionMenu
         items={items}
-        triggerTitle={`Manage ${projectName}`}
+        triggerTitle={t("activitySidebar.manage", { projectName })}
         triggerClassName="project-menu-btn"
         icon={<MoreVertical size={12} />}
       />
@@ -632,7 +634,7 @@ export function ActivitySidebar({
   // ── Expanded sidebar ──────────────────────────────────────────────────────
 
   const activeIdentity = activeProjectPath ? repoIdentities.get(activeProjectPath) : undefined;
-  const activeName = activeIdentity?.name ?? projects.find((p) => p.path === activeProjectPath)?.name ?? activeProjectPath?.split(/[\\/]/).pop() ?? "Project";
+  const activeName = activeIdentity?.name ?? projects.find((p) => p.path === activeProjectPath)?.name ?? activeProjectPath?.split(/[\\/]/).pop() ?? t("activitySidebar.project");
   const activeBranch = activeIdentity?.branch ?? null;
   const activeHost = activeIdentity?.host ?? "folder";
 
@@ -867,7 +869,7 @@ export function ActivitySidebar({
         open={deleteConfirmId !== null}
         title={t("activitySidebar.deleteFromHistory")}
         message={deleteTarget
-          ? `Permanently delete "${surfaceDisplayTitle(deleteTarget)}" from history? The backing session or PTY is not deleted by this action.`
+          ? t("activitySidebar.permanentlyDeleteFromHistoryTheBacking", { v1: surfaceDisplayTitle(deleteTarget) })
           : t("activitySidebar.permanentlyDeleteThisSurfaceFromHistory")}
         confirmLabel={t("activitySidebar.delete")}
         cancelLabel={t("activitySidebar.cancel")}

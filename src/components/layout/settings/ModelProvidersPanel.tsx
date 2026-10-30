@@ -142,7 +142,7 @@ export function ModelProvidersPanel() {
         return;
       }
     }
-    setError("Provider sign-in timed out.");
+    setError(t("modelProvidersPanel.providerSignInTimedOut"));
     setBusyId(null);
   }
 
@@ -562,7 +562,7 @@ export function ModelProvidersPanel() {
       <ConfirmDialog
         open={logoutTarget !== null}
         title={t("modelProvidersPanel.logOutOf", { label: logoutTarget?.label ?? "provider" })}
-        message={`This removes the stored ${logoutTarget?.label ?? ""} credential from Basebuild's local credential store. Chats using this provider will stop working until you log in again.`}
+        message={t("modelProvidersPanel.thisRemovesTheStoredCredentialFrom", { value1: logoutTarget?.label ?? "" })}
         confirmLabel={t("modelProvidersPanel.logOut2")}
         destructive
         onConfirm={() => {

@@ -1,3 +1,8 @@
+import { layoutStringsEn } from "./layout-strings";
+import { panelsStringsEn } from "./panels-strings";
+import { chatStringsEn } from "./chat-strings";
+import { commandsStringsEn } from "./commands-strings";
+import { stateStringsEn } from "./state-strings";
 import { layoutEn } from "./layout";
 import { layoutInspectorEn } from "./layout-inspector";
 import { layoutSettingsEn } from "./layout-settings";
@@ -12,6 +17,11 @@ export const en = {
   ...panelsEn,
   ...panelsChatEn,
   ...planningEn,
+  ...layoutStringsEn,
+  ...panelsStringsEn,
+  ...chatStringsEn,
+  ...commandsStringsEn,
+  ...stateStringsEn,
 } as const;
 
 export type MessageKey = keyof typeof en;

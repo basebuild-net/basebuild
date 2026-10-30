@@ -142,7 +142,7 @@ export function PlanQueueSection({
     if (!sessionId) return;
     try {
       await startQueue({ sessionId, profile });
-      onShowToast?.(t("planQueueSection.queueStarted"), `${profile.concurrency} concurrent worker${profile.concurrency === 1 ? "" : "s"}`, "success");
+      onShowToast?.(t("planQueueSection.queueStarted"), profile.concurrency === 1 ? t("planQueueSection.concurrentWorkersOne", { count: profile.concurrency }) : t("planQueueSection.concurrentWorkersOther", { count: profile.concurrency }), "success");
     } catch (error) {
       onShowToast?.(t("planQueueSection.couldNotStartQueue"), error instanceof Error ? error.message : String(error), "error");
     }
@@ -184,7 +184,7 @@ export function PlanQueueSection({
       } else if (run.runnerKind === "omp") {
         await startOmpPlanRun(run.sessionId, run.planId);
       } else {
-        throw new Error("The retained execution chat is unavailable. Assign the ready plan to a new chat.");
+        throw new Error(t("planQueueSection.theRetainedExecutionChatIsUnavailable"));
       }
       if (sessionId) await refreshRuns(sessionId);
     } catch (error) {
@@ -240,14 +240,14 @@ export function PlanQueueSection({
           title={
             profileLoading
               ? t("planQueueSection.loadingTheCodingRouteFor")
-              : t((workspacePolicy === "isolated_worktrees" ? "planQueueSection.codingRoute.isolatedWorktrees" : "planQueueSection.codingRoute.primaryWorktree"), { providerId: profile.providerId || "project default", modelId: profile.modelId || "project default" })
+              : t((workspacePolicy === "isolated_worktrees" ? "planQueueSection.codingRoute.isolatedWorktrees" : "planQueueSection.codingRoute.primaryWorktree"), { providerId: profile.providerId || t("planQueueSection.projectDefault"), modelId: profile.modelId || t("planQueueSection.projectDefault2") })
           }
         >
           <span>
             {profileLoading ? (
               <SkeletonText width={22} />
             ) : (
-              t("planQueueSection.text", { providerId: profile.providerId || "project default", modelId: profile.modelId || "model default" })
+              t("planQueueSection.text", { providerId: profile.providerId || t("planQueueSection.projectDefault3"), modelId: profile.modelId || t("planQueueSection.modelDefault") })
             )}
           </span>
           <span>
@@ -265,7 +265,7 @@ export function PlanQueueSection({
           type="button"
           onClick={handleStartQueue}
           disabled={!hasQueue || activeRuns.length > 0}
-          title={t("planQueueSection.startQueuedPlansWith", { providerId: profile.providerId || "the project provider", modelId: profile.modelId || "the project model" })}
+          title={t("planQueueSection.startQueuedPlansWith", { providerId: profile.providerId || t("planQueueSection.theProjectProvider"), modelId: profile.modelId || t("planQueueSection.theProjectModel") })}
         >
           <Play size={12} /> {t("planQueueSection.start")}
         </button>

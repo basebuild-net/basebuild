@@ -19,6 +19,7 @@ import { OmpPanel } from "./OmpPanel";
 import { useOmpState } from "../../state/omp";
 import { LoadingBlock, SkeletonRows } from "../layout/Loading";
 import { t } from "../../i18n";
+import { formatDateTime, formatNumber } from "../../i18n/format";
 
 type DebugData = {
   appVersion: string;
@@ -31,7 +32,7 @@ type DebugData = {
 function formatTimestamp(ts: number): string {
   if (!ts) return "-";
   const date = new Date(ts * 1000);
-  return date.toLocaleTimeString();
+  return formatDateTime(date, { timeStyle: "medium" });
 }
 
 function formatDuration(ts: number): string {
@@ -226,7 +227,7 @@ export function DebugPanel() {
         <div className="debug-section">
           <h3>{t("debugPanel.oMPStats")}</h3>
           <div className="debug-stats-grid">
-            <div className="debug-stat-card"><Activity size={16} /><div><span>{t("debugPanel.requests")}</span><strong>{overall.totalRequests?.toLocaleString() ?? "-"}</strong></div></div>
+            <div className="debug-stat-card"><Activity size={16} /><div><span>{t("debugPanel.requests")}</span><strong>{formatNumber(overall.totalRequests) ?? "-"}</strong></div></div>
             <div className="debug-stat-card"><DollarSign size={16} /><div><span>{t("debugPanel.cost")}</span><strong>${overall.totalCost?.toFixed(2) ?? "-"}</strong></div></div>
             <div className="debug-stat-card"><Cpu size={16} /><div><span>{t("debugPanel.tokensS")}</span><strong>{overall.avgTokensPerSecond?.toFixed(1) ?? "-"}</strong></div></div>
             <div className="debug-stat-card"><Settings size={16} /><div><span>{t("debugPanel.avgTtft")}</span><strong>{overall.avgTtft ? t("debugPanel.s", { value: (overall.avgTtft / 1000).toFixed(1) }) : "-"}</strong></div></div>
@@ -266,7 +267,7 @@ export function DebugPanel() {
                   <span>
                     <span className={`badge badge-${rpt.kind === "panic" ? "error" : rpt.kind === "freeze" ? "warning" : "info"}`}>{rpt.kind}</span>
                     {" "}{rpt.summary.slice(0, 80)}{rpt.summary.length > 80 ? "…" : ""}
-                    {" "}<span className="text-muted text-xs">{new Date(rpt.timestamp * 1000).toLocaleString()}</span>
+                    {" "}<span className="text-muted text-xs">{formatDateTime(new Date(rpt.timestamp * 1000))}</span>
                   </span>
                   <div className="row gap-sm">
                     <button

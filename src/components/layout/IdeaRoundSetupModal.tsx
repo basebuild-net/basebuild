@@ -34,7 +34,7 @@ export function IdeaRoundSetupModal({ categories, onConfirm, onCancel }: IdeaRou
   const isAny = selectedPresets.size === 0 && selectedCategories.size === 0;
   const scopeLabel = useMemo(() => {
     const count = selectedPresets.size + selectedCategories.size;
-    return count === 0 ? t("ideaRoundSetupModal.anyUsefulIdeas") : `${count} focus area${count === 1 ? "" : "s"}`;
+    return count === 0 ? t("ideaRoundSetupModal.anyUsefulIdeas") : count === 1 ? t("ideaRoundSetupModal.focusAreasOne", { count }) : t("ideaRoundSetupModal.focusAreasOther", { count });
   }, [selectedPresets, selectedCategories]);
 
   function toggleSelection(setter: typeof setSelectedPresets, id: string) {
@@ -51,7 +51,7 @@ export function IdeaRoundSetupModal({ categories, onConfirm, onCancel }: IdeaRou
       .filter((preset) => selectedPresets.has(preset.id))
       .map((preset) => preset.label);
     const roundDirection = [
-      presetLabels.length > 0 ? `Focus on: ${presetLabels.join(", ")}.` : "",
+      presetLabels.length > 0 ? t("ideaRoundSetupModal.focusOn", { value1: presetLabels.join(", ") }) : "",
       direction.trim(),
     ].filter(Boolean).join(" ");
     onConfirm({

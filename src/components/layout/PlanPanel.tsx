@@ -20,7 +20,6 @@ import {
 import type { Plan, PlanStatus } from "../../lib/plans";
 import type { PlanRun } from "../../lib/planRuns";
 import { PLAN_STATUS_DISPLAY_ORDER, PLAN_STATUSES, PLAN_STATUS_LABEL, isTerminalStatus } from "../../lib/plans";
-import { formatRelativeTime } from "../../lib/timing";
 import type { Idea } from "../../lib/ideas";
 import { Disclosure } from "../Disclosure";
 import { ActionMenu } from "../ActionMenu";
@@ -53,6 +52,7 @@ import {
   type NativeProviderCatalog,
 } from "../../lib/native-chat";
 import { t } from "../../i18n";
+import { formatDateTime, formatRelativeTime } from "../../i18n/format";
 /** Epoch seconds (Rust) or milliseconds (JS) → milliseconds. */
 const toMs = (ts: number) => (ts < 1_000_000_000_000 ? ts * 1000 : ts);
 
@@ -277,7 +277,7 @@ export function PlanPanel({
             return (
               <div key={status} className="plan-lane" data-status={status}>
                 <div className="plan-lane-header">
-                  <span className="plan-lane-label">{PLAN_STATUS_LABEL[status]}</span>
+                  <span className="plan-lane-label">{PLAN_STATUS_LABEL()[status]}</span>
                   <span className="plan-lane-count">{list.length}</span>
                 </div>
                 <div className="plan-lane-cards">
@@ -399,7 +399,7 @@ function PlanCard({
         : taskProgress.total === 0
           ? t("planPanel.cannotArchiveNoRequiredTasksWere")
           : taskProgress.completed < taskProgress.total
-            ? `Cannot archive: ${taskProgress.completed}/${taskProgress.total} required tasks are complete.`
+            ? t("planPanel.cannotArchiveRequiredTasksAreComplete", { completed: taskProgress.completed, total: taskProgress.total })
             : null;
   const resumeBlockedReason = !run?.chatSessionId
     ? t("planPanel.cannotResumeThisRunHasNo")
@@ -434,11 +434,11 @@ function PlanCard({
         {plan.description ? <span className="plan-card-desc">{plan.description}</span> : null}
         <span className="plan-card-meta">
           <span className="plan-card-ref" title={t("planPanel.planReference", { referenceId: plan.referenceId })}>{plan.referenceId}</span>
-          <span className="plan-card-date" title={t("planPanel.planCreated", { toLocaleString: new Date(toMs(plan.createdAt)).toLocaleString() })}>
+          <span className="plan-card-date" title={t("planPanel.planCreated", { toLocaleString: formatDateTime(new Date(toMs(plan.createdAt))) })}>
             {formatRelativeTime(plan.createdAt)}
           </span>
           {ideaCreatedAt ? (
-            <span className="plan-card-date" title={t("planPanel.promotedFromAnIdeaCaptured", { toLocaleString: new Date(toMs(ideaCreatedAt)).toLocaleString() })}>
+            <span className="plan-card-date" title={t("planPanel.promotedFromAnIdeaCaptured", { toLocaleString: formatDateTime(new Date(toMs(ideaCreatedAt))) })}>
               {t("planPanel.idea", { ideaCreatedAt: formatRelativeTime(ideaCreatedAt) })}</span>
           ) : null}
         </span>
@@ -581,8 +581,8 @@ const EFFORT_OPTION_ITEMS = (): OptionListOption<EffortLevel>[] => [
   { id: "high", label: "high", title: t("planPanel.highEffortDeeperMoreThoroughRuns") },
 ];
 const WORKSPACE_OPTION_ITEMS = (): OptionListOption<WorkspacePolicy>[] => [
-  { id: "isolated_worktrees", label: "isolated worktrees", title: t("planPanel.eachRunUsesItsOwnIsolated") },
-  { id: "sequential_primary", label: "sequential primary", title: t("planPanel.runSequentiallyInThePrimaryWorktree") },
+  { id: "isolated_worktrees", label: t("planPanel.isolatedWorktrees4"), title: t("planPanel.eachRunUsesItsOwnIsolated") },
+  { id: "sequential_primary", label: t("planPanel.sequentialPrimary2"), title: t("planPanel.runSequentiallyInThePrimaryWorktree") },
 ];
 const SCHEDULING_OPTION_ITEMS = (): OptionListOption<SchedulingMode>[] => [
   { id: "safe", label: "safe", title: t("planPanel.safeSchedulingConservativeDependencyOrdering") },
@@ -803,7 +803,7 @@ function PlanPromotionForm({
       <Disclosure
         className="plan-promotion-disclosure"
         label={<><Rocket size={11} /> {t("planPanel.openSpecLaunchProfile")}</>}
-        summary={`${plannerModelId || "planner unset"} · ${form.modelId || "coder unset"} · ${form.workerCount} worker${form.workerCount === 1 ? "" : "s"}`}
+        summary={`${plannerModelId || t("planPanel.plannerUnset")} · ${form.modelId || t("planPanel.coderUnset")} · ${form.workerCount === 1 ? t("flowTab.workerCountOne") : t("flowTab.workerCountOther", { count: form.workerCount })}`}
         title={t("planPanel.plannerAndCodingModelsEffort")}
       >
         <div className="plan-promotion-fields">

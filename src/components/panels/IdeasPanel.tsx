@@ -7,12 +7,14 @@ import type { IdeaStatus } from "../../lib/ideas";
 import { OptionList, type OptionListOption } from "../layout/OptionList";
 import { SkeletonRows, SkeletonText } from "../layout/Loading";
 import { t } from "../../i18n";
-const STATUS_LABELS: Record<IdeaStatus, string> = {
-  concept: t("ideasPanel.concept"),
-  picked: t("ideasPanel.picked"),
-  rejected: t("ideasPanel.rejected"),
-  archived: t("ideasPanel.archived"),
-};
+function STATUS_LABELS(): Record<IdeaStatus, string> {
+  return {
+    concept: t("ideasPanel.concept"),
+    picked: t("ideasPanel.picked"),
+    rejected: t("ideasPanel.rejected"),
+    archived: t("ideasPanel.archived"),
+  };
+}
 
 const STATUS_CLASS: Record<IdeaStatus, string> = {
   concept: "is-concept",
@@ -22,10 +24,10 @@ const STATUS_CLASS: Record<IdeaStatus, string> = {
 };
 
 const STATUS_OPTION_ITEMS = (): OptionListOption<IdeaStatus>[] => [
-  { id: "concept", label: STATUS_LABELS.concept, title: t("ideasPanel.ideaIsStillAConcept") },
-  { id: "picked", label: STATUS_LABELS.picked, title: t("ideasPanel.ideaHasBeenPickedForPlanning") },
-  { id: "rejected", label: STATUS_LABELS.rejected, title: t("ideasPanel.ideaHasBeenRejected") },
-  { id: "archived", label: STATUS_LABELS.archived, title: t("ideasPanel.ideaHasBeenArchived") },
+  { id: "concept", label: STATUS_LABELS().concept, title: t("ideasPanel.ideaIsStillAConcept") },
+  { id: "picked", label: STATUS_LABELS().picked, title: t("ideasPanel.ideaHasBeenPickedForPlanning") },
+  { id: "rejected", label: STATUS_LABELS().rejected, title: t("ideasPanel.ideaHasBeenRejected") },
+  { id: "archived", label: STATUS_LABELS().archived, title: t("ideasPanel.ideaHasBeenArchived") },
 ];
 const STATUS_ORDER: IdeaStatus[] = ["concept", "picked", "rejected", "archived"];
 
@@ -176,7 +178,7 @@ export function IdeasPanel({ sessionId }: IdeasPanelProps) {
       {grouped.map((group) =>
         group.items.length === 0 ? null : (
           <div className="idea-section" key={group.status}>
-            <h3>{STATUS_LABELS[group.status]} ({group.items.length})</h3>
+            <h3>{STATUS_LABELS()[group.status]} ({group.items.length})</h3>
             {group.items.map((idea) => (
               <div className="idea-card" key={idea.id}>
                 <div className="idea-card-header">
@@ -196,7 +198,7 @@ export function IdeasPanel({ sessionId }: IdeasPanelProps) {
                     label={t("ideasPanel.ideaStatus")}
                     compact
                   />
-                  <span className={`idea-status ${STATUS_CLASS[idea.status]}`}>{STATUS_LABELS[idea.status]}</span>
+                  <span className={`idea-status ${STATUS_CLASS[idea.status]}`}>{STATUS_LABELS()[idea.status]}</span>
                   <button
                     className="btn-icon btn-icon-sm text-danger"
                     title={t("ideasPanel.deleteIdea")}

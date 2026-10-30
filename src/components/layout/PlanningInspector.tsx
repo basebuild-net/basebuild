@@ -267,7 +267,7 @@ export function PlanningInspector({
       if (createdPlans.length === 0) return;
       setTab("plans");
       onShowToast?.(
-        createdPlans.length === 1 ? t("planningInspector.gettingPlanReady") : `Getting ${createdPlans.length} plans ready`,
+        createdPlans.length === 1 ? t("planningInspector.gettingPlanReady") : t("planningInspector.gettingPlansReady", { length: createdPlans.length }),
         t("planningInspector.openspecIsGeneratingTheProposalSpecs"),
         "info",
       );
@@ -281,13 +281,13 @@ export function PlanningInspector({
           const first = failed[0] as PromiseRejectedResult;
           const message = first.reason instanceof Error ? first.reason.message : String(first.reason);
           onShowToast?.(
-            `${failed.length} plan${failed.length === 1 ? "" : "s"} could not be prepared`,
+            failed.length === 1 ? t("planningInspector.plansCouldNotBePreparedOne", { count: failed.length }) : t("planningInspector.plansCouldNotBePreparedOther", { count: failed.length }),
             message,
             "error",
           );
         } else {
           onShowToast?.(
-            createdPlans.length === 1 ? t("planningInspector.openspecPlanReady") : `${createdPlans.length} OpenSpec plans ready`,
+            createdPlans.length === 1 ? t("planningInspector.openspecPlanReady") : t("planningInspector.openspecPlansReady", { length: createdPlans.length }),
             t("planningInspector.reviewTheGeneratedArtifactsThenApprove"),
             "success",
           );
@@ -331,8 +331,8 @@ export function PlanningInspector({
       const errorCount = result.errors.length;
       setBatchResult(
         errorCount > 0
-          ? `${createdCount} plan${createdCount === 1 ? "" : "s"} preparing; ${errorCount} failed.`
-          : `Preparing ${createdCount} OpenSpec plan${createdCount === 1 ? "" : "s"}…`,
+          ? createdCount === 1 ? t("planningInspector.batchPreparingOne", { count: createdCount, errors: errorCount }) : t("planningInspector.batchPreparingOther", { count: createdCount, errors: errorCount })
+          : createdCount === 1 ? t("planningInspector.preparingOpenSpecPlansOne", { count: createdCount }) : t("planningInspector.preparingOpenSpecPlansOther", { count: createdCount }),
       );
       if (errorCount > 0) {
         addLog("warn", "Batch promote partial failure", `${createdCount} ok, ${errorCount} failed`);
@@ -344,7 +344,7 @@ export function PlanningInspector({
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       addLog("error", "Batch promote failed", message);
-      setBatchResult(`Error: ${message}`);
+      setBatchResult(t("planningInspector.error3", { message }));
     }
   }, [sessionId, selectedIdeaIds, ideaState, addLog, prepareOpenSpecPlans]);
 
@@ -455,8 +455,8 @@ export function PlanningInspector({
         const updated = await reviewMergeEntry(entryId, decision);
         setMergeQueue((prev) => prev.map((e) => (e.id === entryId ? updated : e)));
         onShowToast?.(
-          `Merge ${decision}`,
-          `Entry ${updated.planId.slice(0, 8)} reviewed as ${decision}`,
+          t("planningInspector.merge", { decision }),
+          t("planningInspector.entryReviewedAs", { v1: updated.planId.slice(0, 8), decision }),
           "success",
         );
       } catch (e) {
@@ -496,7 +496,7 @@ export function PlanningInspector({
   const ideaHistoryBatches = statusFilter === "all"
     ? Array.from(ideaState.ideas.reduce((groups, idea) => {
       if (idea.status === "concept") return groups;
-      const key = idea.batchId ?? `idea:${idea.id}`;
+      const key = idea.batchId ?? `idea-${idea.id}`;
       const existing = groups.get(key);
       if (existing) existing.push(idea);
       else groups.set(key, [idea]);

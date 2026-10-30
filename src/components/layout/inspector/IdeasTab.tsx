@@ -6,10 +6,10 @@ import type { ParsedIdeaBatch } from "../../panels/IdeaReviewWorkbench";
 import { IdeaBatchPreview, IdeaReviewWorkbench } from "../../panels/IdeaReviewWorkbench";
 import { IdeaAssessmentSummary } from "../../planning/IdeaAssessmentSummary";
 import { ActionMenu } from "../../ActionMenu";
-import { formatRelativeTime } from "../../../lib/timing";
 import type { IdeaStateValue } from "../../../state/ideas";
 import { SkeletonRows } from "../Loading";
 import { t } from "../../../i18n";
+import { formatDateTime, formatRelativeTime } from "../../../i18n/format";
 
 /** Epoch seconds (Rust) or milliseconds (JS) → milliseconds. */
 const toMs = (ts: number) => (ts < 1_000_000_000_000 ? ts * 1000 : ts);
@@ -167,7 +167,7 @@ export function IdeasTab({
         <IdeaReviewWorkbench
           {...openIdeaHistory.batch}
           toolId={openIdeaHistory.key}
-          status="success"
+          status={t("ideasTab.success")}
           ideas={openIdeaHistory.ideas}
           projectPath={projectPath ?? undefined}
           currentIndex={openIdeaHistoryIndex}
@@ -182,7 +182,7 @@ export function IdeasTab({
           <IdeaBatchPreview
             key={key}
             {...batch}
-            status="success"
+            status={t("ideasTab.success2")}
             ideas={ideas}
             onOpen={() => {
               setOpenIdeaHistoryIndex(0);
@@ -234,7 +234,7 @@ export function IdeasTab({
               >
                 {idea.title}
               </button>
-              <span className="chat-idea-date text-muted" title={t("ideasTab.captured", { toLocaleString: new Date(toMs(idea.createdAt)).toLocaleString() })}>
+              <span className="chat-idea-date text-muted" title={t("ideasTab.captured", { toLocaleString: formatDateTime(new Date(toMs(idea.createdAt))) })}>
                 {formatRelativeTime(idea.createdAt)}
               </span>
               {idea.status === "concept" ? (
@@ -262,7 +262,7 @@ export function IdeasTab({
                     {
                       key: "pass",
                       label: t("ideasTab.pass"),
-                      title: `Pass on ${idea.title}`,
+                      title: t("ideasTab.passOn", { title: idea.title }),
                       icon: <X size={12} />,
                       disabled: promotingIdeaId === idea.id,
                       onSelect: () => void ideaState.rejectIdea(idea.id),
@@ -270,7 +270,7 @@ export function IdeasTab({
                     {
                       key: "defer",
                       label: t("ideasTab.defer"),
-                      title: `Defer ${idea.title} for later`,
+                      title: t("ideasTab.deferForLater", { title: idea.title }),
                       icon: <Archive size={12} />,
                       disabled: promotingIdeaId === idea.id,
                       onSelect: () => void ideaState.updateIdeaStatus(idea.id, "archived"),

@@ -9,6 +9,7 @@ import { usePlanningEvents } from "../../state/planningEvents";
 import { usePanelStatus } from "../panels/PanelStatusContext";
 import { SkeletonRows } from "./Loading";
 import { t } from "../../i18n";
+import { formatDateTime } from "../../i18n/format";
 
 type MissionControlBoardProps = {
   sessionId: string | null;
@@ -32,13 +33,15 @@ type RunCard = {
   progress: TaskProgress | null;
 };
 
-const STATE_LABEL: Record<CardState, string> = {
-  queued: t("missionControlBoard.queued"),
-  running: t("missionControlBoard.running"),
-  blocked: t("missionControlBoard.blocked"),
-  attention: t("missionControlBoard.needsYou"),
-  finished: t("missionControlBoard.finished"),
-};
+function STATE_LABEL(): Record<CardState, string> {
+  return {
+    queued: t("missionControlBoard.queued"),
+    running: t("missionControlBoard.running"),
+    blocked: t("missionControlBoard.blocked"),
+    attention: t("missionControlBoard.needsYou"),
+    finished: t("missionControlBoard.finished"),
+  };
+}
 
 /**
  * Mission control: one live card per active/unintegrated plan run — owner
@@ -134,7 +137,7 @@ export function MissionControlBoard({ sessionId, projectPath, plans, chatPanels,
       const node = graph?.nodes.find((n) => n.planId === run.planId) ?? null;
       const blockers: string[] = [];
       if (node?.blockReason) blockers.push(node.blockReason);
-      if (node && node.collisions.length > 0) blockers.push(`collides: ${node.collisions.join(", ")}`);
+      if (node && node.collisions.length > 0) blockers.push(t("missionControlBoard.collides", { files: node.collisions.join(", ") }));
       // Attention: the run waits on the user. The owner chat's live panel
       // status comes from the panel grid mapping (statuses key by panel id).
       const ownerPanelId = run.chatSessionId
@@ -177,11 +180,11 @@ export function MissionControlBoard({ sessionId, projectPath, plans, chatPanels,
               : null;
             const pct = progress && progress.total > 0 ? Math.round((progress.completed / progress.total) * 100) : 0;
             return (
-              <div key={run.id} className={`mission-card mission-card-${state}`} title={t("missionControlBoard.text", { referenceId: plan?.referenceId ?? run.planId, value: STATE_LABEL[state] })}>
+              <div key={run.id} className={`mission-card mission-card-${state}`} title={t("missionControlBoard.text", { referenceId: plan?.referenceId ?? run.planId, value: STATE_LABEL()[state] })}>
                 <div className="mission-card-head">
                   <span className="mission-card-ref">{plan?.referenceId ?? run.planId.slice(0, 8)}</span>
-                  <span className={`mission-card-state mission-card-state-${state}`} title={state === "queued" ? t("missionControlBoard.waitingOnAConcurrencySlot") : STATE_LABEL[state]}>
-                    {STATE_LABEL[state]}
+                  <span className={`mission-card-state mission-card-state-${state}`} title={state === "queued" ? t("missionControlBoard.waitingOnAConcurrencySlot") : STATE_LABEL()[state]}>
+                    {STATE_LABEL()[state]}
                   </span>
                 </div>
                 <div className="mission-card-title" title={plan?.title ?? t("missionControlBoard.noLinkedPlan")}>{plan?.title ?? t("missionControlBoard.noLinkedPlan")}</div>
@@ -219,9 +222,9 @@ export function MissionControlBoard({ sessionId, projectPath, plans, chatPanels,
                   {run.startedAt ? (
                     <span
                       className="mission-card-started"
-                      title={t("missionControlBoard.startedAt", { time: new Date(run.startedAt * 1000).toLocaleString() })}
+                      title={t("missionControlBoard.startedAt", { time: formatDateTime(new Date(run.startedAt * 1000)) })}
                     >
-                      {t("missionControlBoard.startedAt", { time: new Date(run.startedAt * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) })}
+                      {t("missionControlBoard.startedAt", { time: formatDateTime(new Date(run.startedAt * 1000), { hour: "2-digit", minute: "2-digit" }) })}
                     </span>
                   ) : null}
                   {elapsedMs !== null ? (

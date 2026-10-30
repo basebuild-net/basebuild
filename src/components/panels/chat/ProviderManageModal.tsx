@@ -207,10 +207,10 @@ export function ProviderManageModal({
                           account.health === "healthy" ? "is-healthy"
                             : account.health === "rate_limited" ? "is-warn"
                             : "is-danger";
-                        const healthText = ACCOUNT_HEALTH_LABELS[account.health] ?? account.health;
+                        const healthText = ACCOUNT_HEALTH_LABELS()[account.health] ?? account.health;
                         const lastUsed = accountRelativeTime(account.lastUsedAt);
                         const connected = accountConnectedLabel(account.createdAt);
-                        const authLabel = ACCOUNT_AUTH_LABELS[account.authMethod] ?? account.authMethod;
+                        const authLabel = ACCOUNT_AUTH_LABELS()[account.authMethod] ?? account.authMethod;
                         const testing = testingAccountId === account.id;
                         return (
                           <div key={account.id} className="provider-account-row">
@@ -423,8 +423,8 @@ export function ProviderManageModal({
                         onChange={(next) => setAccountUsageWindow(Number(next))}
                         options={[
                           { id: "86400", label: t("providerManageModal.today"), title: t("providerManageModal.usageOverTheLast24Hours") },
-                          { id: "604800", label: "7 days", title: t("providerManageModal.usageOverTheLast7Days") },
-                          { id: "2592000", label: "30 days", title: t("providerManageModal.usageOverTheLast30Days") },
+                          { id: "604800", label: t("providerManageModal.sevenDays"), title: t("providerManageModal.usageOverTheLast7Days") },
+                          { id: "2592000", label: t("providerManageModal.thirtyDays"), title: t("providerManageModal.usageOverTheLast30Days") },
                         ]}
                       />
                     </div>

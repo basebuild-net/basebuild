@@ -28,7 +28,7 @@ export function CrashReportNotice({ onViewReports }: CrashReportNoticeProps) {
       <AlertTriangle size={16} />
       <span className="crash-notice-text">
         {unseenCount === 1
-          ? t("crashReportNotice.1CrashOrFreezeReport")
+          ? t("crashReportNotice.oneCrashOrFreezeReport")
           : t("crashReportNotice.crashOrFreezeReportsFoundFrom", { unseenCount: unseenCount })}
       </span>
       <button

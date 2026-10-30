@@ -8,7 +8,7 @@
  *     prose string branches inside JSX must go through t().
  *  2. Every t("key", { params }) call passes exactly the placeholders the
  *     English message declares.
- *  3. Every catalog key is referenced by at least one t() call (no dead keys).
+ *  3. Every catalog key is referenced by a t() call or appears as a string literal in source (no dead keys).
  *  4. zh-CN covers the same keys as en (also enforced by the type system).
  *
  * Exits 0 if clean, 1 if any violation is found.
@@ -21,6 +21,8 @@ const ROOT = join(import.meta.dirname, "..");
 const SRC = join(ROOT, "src");
 const COMPONENTS = join(SRC, "components");
 const APP_FILE = join(SRC, "App.tsx");
+const STATE = join(SRC, "state");
+const LIB_FILES = ["chatCommands.ts", "plans.ts"].map((f) => join(SRC, "lib", f));
 const EN_DIR = join(SRC, "i18n", "en");
 const ZH_DIR = join(SRC, "i18n", "zh-CN");
 
@@ -77,8 +79,71 @@ function literalText(node) {
   return null;
 }
 
+const EXEMPT_MARKER = "i18n-exempt";
+const BRAND_WORDS = new Set(["Basebuild", "OpenSpec", "Claude", "Codex", "Anthropic", "OpenAI", "GitHub", "Windows", "macOS", "Linux", "Markdown", "JSON", "OAuth", "MCP", "Tauri", "Ollama", "Gemini"]);
+const COMPARISON_OPS = new Set([ts.SyntaxKind.EqualsEqualsToken, ts.SyntaxKind.EqualsEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken]);
+
+/** Human-facing prose: two plain words, or one capitalized plain word that is not a brand. Identifiers, class lists, paths, and lowercase enum ids are not prose. */
+function isUserProse(text) {
+  const words = text
+    .replace(/\$\{[^}]*\}|\{[^}]*\}/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter((tok) => /^[A-Za-z][A-Za-z']*[.,:;!?\u2026]*$/.test(tok) && tok.replace(/[^A-Za-z]/g, "").length >= 3)
+    .map((tok) => tok.replace(/[^A-Za-z]/g, ""));
+  if (words.length >= 2) return true;
+  return words.length === 1 && /^[A-Z]/.test(words[0]) && !BRAND_WORDS.has(words[0]);
+}
+
+/** Literals that are never displayed: import paths, type literals, object keys, comparisons, case labels, element keys, and logs. */
+function isNonUserLiteral(node) {
+  const p = node.parent;
+  if (ts.isJsxAttribute(p) || ts.isLiteralTypeNode(p) || ts.isImportDeclaration(p) || ts.isExportDeclaration(p)) return true;
+  if (ts.isCaseClause(p) || ts.isElementAccessExpression(p)) return true;
+  if (ts.isPropertyAssignment(p) && p.name === node) return true;
+  if (ts.isBinaryExpression(p) && COMPARISON_OPS.has(p.operatorToken.kind)) return true;
+  if (ts.isCallExpression(p) && /^(addLog|log|console\.\w+)$/.test(p.expression.getText())) return true;
+  return false;
+}
+
 function isProse(text) {
   return text !== null && ENGLISH_WORD.test(text) && /[A-Za-z]{3,}/.test(text.replace(/\$\{[^}]*\}/g, ""));
+}
+
+/** Attributes whose template values are classes, styles, keys, or URLs, not prose. */
+const TEMPLATE_EXEMPT_ATTRS = /^(className|style|key|id|href|src|data-.*)$/;
+/** Calls that take machine text: logs, DOM APIs, storage. */
+const TEMPLATE_EXEMPT_CALLS = /^(addLog|log|console\.\w+|invoke|fetch|querySelectorAll?|classList\.\w+|setAttribute|getElementById|localStorage\.\w+|sessionStorage\.\w+)$/;
+/** Static text with these characters is a path, selector, query, or markup, not prose. */
+const TEMPLATE_CODE_CHARS = /[/=;&\\<>#]|:\/\//;
+/** English word in template static text: three or more letters, bounded by space or punctuation. */
+const TEMPLATE_ENGLISH_WORD = /(^|[\s,!?'"“”(])([A-Za-z]{3,})(?=$|[\s.,!?'"“”):;\u2026])/g;
+
+/** Static text of a template literal, placeholders removed. */
+function templateParts(node) {
+  return ts.isTemplateExpression(node) ? [node.head.text, ...node.templateSpans.map((s) => s.literal.text)] : [node.text];
+}
+
+/** First English word in a template's static text, or null. All-caps acronyms are allowed. */
+function englishTemplateWord(node) {
+  const parts = templateParts(node);
+  if (parts.some((p) => TEMPLATE_CODE_CHARS.test(p))) return null;
+  for (const part of parts) {
+    for (const m of part.matchAll(TEMPLATE_ENGLISH_WORD)) {
+      if (!/^[A-Z]+$/.test(m[2])) return m[2];
+    }
+  }
+  return null;
+}
+
+/** True when a template sits in a machine-facing position: class/style/key/URL attribute or a log, DOM, or storage call. */
+function isMachineTemplate(node) {
+  let cur = node.parent;
+  for (let depth = 0; cur && depth < 4; depth += 1, cur = cur.parent) {
+    if (ts.isJsxAttribute(cur) && TEMPLATE_EXEMPT_ATTRS.test(cur.name.getText())) return true;
+    if (ts.isCallExpression(cur) && TEMPLATE_EXEMPT_CALLS.test(cur.expression.getText())) return true;
+  }
+  return false;
 }
 
 /** Collects UI-facing literals inside a JSX expression container: direct strings and ternary/logical branches. */
@@ -99,6 +164,7 @@ function collectBranchLiterals(expr, out) {
 
 function checkFile(file) {
   const text = readFileSync(file, "utf8");
+  const lines = text.split("\n");
   const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 
   const visit = (node) => {
@@ -132,6 +198,26 @@ function checkFile(file) {
           report(file, lineOf(sf, branch), `JSX expression literal not localized: "${value.slice(0, 80)}"`);
         }
       }
+    }
+
+    // 1d. Prose literals outside t(): toasts, labels, descriptions, state strings.
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "t") return;
+    if ((ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) || ts.isTemplateExpression(node)) && !isNonUserLiteral(node)) {
+      const value = literalText(node);
+      const line = lineOf(sf, node);
+      const endLine = sf.getLineAndCharacterOfPosition(node.getEnd()).line + 1;
+      const exempt = [line - 2, line - 1, endLine - 1].some((i) => (lines[i] ?? "").includes(EXEMPT_MARKER));
+      if (isUserProse(value) && !exempt) report(file, line, `hard-coded prose: "${value.slice(0, 80)}"`);
+    }
+
+    // 1e. Template literals with English static text (e.g. `${n}m ago`) outside machine-facing positions.
+    if ((ts.isTemplateExpression(node) || ts.isNoSubstitutionTemplateLiteral(node)) && !isNonUserLiteral(node) && !isMachineTemplate(node)) {
+      const line = lineOf(sf, node);
+      const endLine = sf.getLineAndCharacterOfPosition(node.getEnd()).line + 1;
+      const exempt = [line - 2, line - 1, endLine - 1].some((i) => (lines[i] ?? "").includes(EXEMPT_MARKER));
+      const value = literalText(node);
+      const word = englishTemplateWord(node);
+      if (word && !exempt && !isUserProse(value)) report(file, line, `template literal with English text "${word}": "${value.slice(0, 80)}"`);
     }
 
     ts.forEachChild(node, visit);
@@ -175,7 +261,7 @@ for (const key of zh.keys()) {
 
 // 2 and 3: call sites.
 const usedKeys = new Set();
-const sourceFiles = [...walk(COMPONENTS), APP_FILE];
+const sourceFiles = [...walk(COMPONENTS), ...walk(STATE), ...LIB_FILES, APP_FILE];
 for (const file of sourceFiles) {
   checkFile(file);
   const text = readFileSync(file, "utf8");
@@ -205,6 +291,8 @@ for (const file of sourceFiles) {
         }
       }
     }
+    // Keys held in lookup maps (e.g. const KEYS = { idle: "x.idle" }) are referenced by string literal.
+    if (ts.isStringLiteral(node) && en.has(node.text)) usedKeys.add(node.text);
     ts.forEachChild(node, visit);
   };
   visit(sf);

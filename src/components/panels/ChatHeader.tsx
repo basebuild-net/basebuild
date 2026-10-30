@@ -19,6 +19,7 @@ import type { AgentMode } from "../../lib/sessions";
 import type { GitBranch as GitBranchInfo } from "../../lib/git";
 import { ActionMenu, type ActionMenuItem } from "../ActionMenu";
 import { t } from "../../i18n";
+import { formatNumber } from "../../i18n/format";
 /** Per-chat column header (`chat-header-context`).
  *
  * Renders above the conversation, never scrolls out of view. Every
@@ -30,6 +31,12 @@ type PlanBadge = {
   title: string;
   status: string;
 } | null;
+
+const RUN_STATE_KEYS = {
+  idle: "chatHeader.runStateIdle",
+  queued: "chatHeader.runStateQueued",
+  running: "chatHeader.runStateRunning",
+} as const;
 
 type ChatHeaderProps = {
   runState: "idle" | "queued" | "running";
@@ -226,7 +233,7 @@ export function ChatHeader(props: ChatHeaderProps) {
     ...(props.prRecommendation ? [{
       key: "pull-request",
       label: t("chatHeader.createPullRequest"),
-      title: `Open a PR for ${props.prRecommendation.branch}`,
+      title: t("chatHeader.openAPrFor", { branch: props.prRecommendation.branch }),
       icon: <GitPullRequest size={11} />,
       onSelect: props.onCreatePullRequest,
     }] : []),
@@ -243,8 +250,8 @@ export function ChatHeader(props: ChatHeaderProps) {
       onDrop={props.onDrop}
     >
       <div className="chat-column-header-left">
-        <span className={`chat-header-run-state is-${props.runState}`} title={t("chatHeader.agentState", { runState: props.runState })}>
-          {props.runState}
+        <span className={`chat-header-run-state is-${props.runState}`} title={t("chatHeader.agentState", { runState: t(RUN_STATE_KEYS[props.runState]) })}>
+          {t(RUN_STATE_KEYS[props.runState])}
         </span>
         <ContextIndicator used={props.contextUsed} limit={props.contextLimit} />
         <button
@@ -475,8 +482,8 @@ function ContextIndicator({ used, limit }: { used: number; limit: number | null 
   const circumference = 2 * Math.PI * r;
   const filled = circumference * percentage / 100;
   const ratio = limit && limit > 0
-    ? `${used.toLocaleString()} / ${limit.toLocaleString()} tokens (${percentage}%)`
-    : `${used.toLocaleString()} tokens; model context limit unavailable`;
+    ? t("chatHeader.tokensUsed", { used: formatNumber(used), limit: formatNumber(limit), percentage })
+    : t("chatHeader.tokensModelContextLimitUnavailable", { value1: formatNumber(used) });
   return (
     <span className={`chat-header-context is-${percentage >= 85 ? "critical" : percentage >= 60 ? "warning" : "healthy"}`} title={t("chatHeader.contextUsage", { ratio: ratio })}>
       <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">

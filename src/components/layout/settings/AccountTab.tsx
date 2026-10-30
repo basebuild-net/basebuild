@@ -19,6 +19,7 @@ import type {
   UsageSyncSource,
 } from "../../../lib/usageSync";
 import { t } from "../../../i18n";
+import { formatDateTime, formatRelativeTime } from "../../../i18n/format";
 
 export function AccountPanel({ account }: { account: AccountState }) {
   const [polling, setPolling] = useState(false);
@@ -46,11 +47,11 @@ export function AccountPanel({ account }: { account: AccountState }) {
             setPolling(false);
             setDeviceCode(null);
           } else if (pollResult.status === "denied") {
-            setError("Sign-in was denied.");
+            setError(t("accountTab.signInWasDenied"));
             setPolling(false);
             setDeviceCode(null);
           } else {
-            setError("The sign-in code expired. Please try again.");
+            setError(t("accountTab.theSignInCodeExpiredPlease"));
             setPolling(false);
             setDeviceCode(null);
           }
@@ -130,30 +131,36 @@ export function AccountPanel({ account }: { account: AccountState }) {
   );
 }
 
-const SOURCE_LABELS: Record<UsageSyncSource, string> = {
-  native: t("accountTab.basebuildChat"),
-  omp: t("accountTab.ohMyPi"),
-  "claude-code": t("accountTab.claudeCode"),
-  codex: t("accountTab.codexCli"),
-  opencode: t("accountTab.opencode"),
-};
+function SOURCE_LABELS(): Record<UsageSyncSource, string> {
+  return {
+    native: t("accountTab.basebuildChat"),
+    omp: t("accountTab.ohMyPi"),
+    "claude-code": t("accountTab.claudeCode"),
+    codex: t("accountTab.codexCli"),
+    opencode: t("accountTab.opencode"),
+  };
+}
 
 /// What each source contributes, shown as the row tooltip. "OMP" and
 /// "Basebuild" alone did not say which usage a row actually covers.
-const SOURCE_HINTS: Record<UsageSyncSource, string> = {
-  native: t("accountTab.chatsYouRunInsideBasebuild"),
-  omp: t("accountTab.usageReportedByTheOhMy"),
-  "claude-code": t("accountTab.usageRecordedByClaudeCodeSessions"),
-  codex: t("accountTab.usageRecordedByTheCodexCli"),
-  opencode: t("accountTab.usageRecordedByOpencodeSessions"),
-};
+function SOURCE_HINTS(): Record<UsageSyncSource, string> {
+  return {
+    native: t("accountTab.chatsYouRunInsideBasebuild"),
+    omp: t("accountTab.usageReportedByTheOhMy"),
+    "claude-code": t("accountTab.usageRecordedByClaudeCodeSessions"),
+    codex: t("accountTab.usageRecordedByTheCodexCli"),
+    opencode: t("accountTab.usageRecordedByOpencodeSessions"),
+  };
+}
 
-const OUTCOME_LABELS: Record<SyncOverallOutcome, string> = {
-  success: "Synced",
-  partial: t("accountTab.partial"),
-  failed: t("accountTab.failed2"),
-  nothing_to_sync: t("accountTab.upToDate"),
-};
+function OUTCOME_LABELS(): Record<SyncOverallOutcome, string> {
+  return {
+    success: t("accountTab.outcomeLabelsSuccess"),
+    partial: t("accountTab.partial"),
+    failed: t("accountTab.failed2"),
+    nothing_to_sync: t("accountTab.upToDate"),
+  };
+}
 
 export function usageSyncOffReasonText(status: AutoSyncStatus): string | null {
   // The backoff window is the one "off" reason that keeps the gates open:
@@ -161,7 +168,7 @@ export function usageSyncOffReasonText(status: AutoSyncStatus): string | null {
   if (status.offReason === "retry_backoff") {
     const at = status.retryAfter ? formatSyncTime(status.retryAfter) : null;
     return at
-      ? `A previous attempt failed. The next scheduled retry is at ${at} — or retry now.`
+      ? t("accountTab.aPreviousAttemptFailedTheNext", { at })
       : t("accountTab.aPreviousAttemptFailedARetry");
   }
   if (status.gatesPass) return null;
@@ -206,7 +213,7 @@ function sourceState(source: SourceSyncStatus): {
   // sent your last message yet" — reporting both as "no new usage" is what
   // made the panel look stuck right after sending a message.
   const queued = source.pendingRequests ?? 0;
-  const queuedText = `${queued} request${queued === 1 ? "" : "s"} waiting for the next sync`;
+  const queuedText = queued === 1 ? t("accountTab.requestsWaitingOne", { count: queued }) : t("accountTab.requestsWaitingOther", { count: queued });
   if (source.lastSuccessAt) {
     return {
       label: t("accountTab.synced"),
@@ -223,32 +230,14 @@ function sourceState(source: SourceSyncStatus): {
 }
 
 function formatSyncTime(timestamp?: number): string {
-  return timestamp ? new Date(timestamp * 1000).toLocaleString() : t("accountTab.never");
-}
-
-/// "2 minutes ago" reads faster than a locale timestamp in a status list.
-/// The absolute time stays available as the row's tooltip.
-function formatRelativeTime(timestamp: number): string {
-  const seconds = Math.max(0, Math.floor(Date.now() / 1000) - timestamp);
-  if (seconds < 60) return "just now";
-  const units: [number, string][] = [
-    [86400 * 7, "week"],
-    [86400, "day"],
-    [3600, "hour"],
-    [60, "minute"],
-  ];
-  for (const [size, name] of units) {
-    const value = Math.floor(seconds / size);
-    if (value >= 1) return `${value} ${name}${value === 1 ? "" : "s"} ago`;
-  }
-  return "just now";
+  return timestamp ? formatDateTime(new Date(timestamp * 1000)) : t("accountTab.never");
 }
 
 function formatUsageWindowLabel(window: string): string {
   if (window === "7d") return t("accountTab.weekly7d");
-  if (window === "1d" || window === "24h") return `Daily (${window})`;
-  if (/^\d+h$/.test(window)) return `Session (${window})`;
-  if (/^(28|30|31)d$/.test(window)) return `Monthly (${window})`;
+  if (window === "1d" || window === "24h") return t("accountTab.daily", { window });
+  if (/^\d+h$/.test(window)) return t("accountTab.session", { window });
+  if (/^(28|30|31)d$/.test(window)) return t("accountTab.monthly", { window });
   return window;
 }
 
@@ -288,22 +277,22 @@ function formatCountdown(epochMs: number): string {
 
 function formatDrainTooltip(row: DrainEstimate): string {
   const parts = [
-    `${row.intervals} solved interval${row.intervals === 1 ? "" : "s"}`,
-    `${row.requests} request${row.requests === 1 ? "" : "s"} measured`,
-    `${formatRequestCount(row.requestsPerWindow)} requests per full window`,
+    row.intervals === 1 ? t("accountTab.solvedIntervalsOne", { count: row.intervals }) : t("accountTab.solvedIntervalsOther", { count: row.intervals }),
+    row.requests === 1 ? t("accountTab.requestsMeasuredOne", { count: row.requests }) : t("accountTab.requestsMeasuredOther", { count: row.requests }),
+    t("accountTab.requestsPerFullWindow", { value1: formatRequestCount(row.requestsPerWindow) }),
   ];
   if (row.hoursUsedThisWindow != null) {
     parts.push(
-      `${formatModelHours(row.hoursUsedThisWindow)} of model time spent since this window opened`,
+      t("accountTab.ofModelTimeSpentSinceThis", { value1: formatModelHours(row.hoursUsedThisWindow) }),
     );
   }
   if (row.hoursPerWeek != null) {
-    parts.push(`${row.hoursPerWeek.toFixed(1)}h of model runtime per week`);
+    parts.push(t("accountTab.hOfModelRuntimePerWeek", { value1: row.hoursPerWeek.toFixed(1) }));
   } else {
     parts.push(t("accountTab.weeklyAllowanceUnknownTheProviderDoes"));
   }
-  if (row.models.length > 0) parts.push(`models: ${row.models.join(", ")}`);
-  if (row.resetsAt) parts.push(`resets ${new Date(row.resetsAt).toLocaleString()}`);
+  if (row.models.length > 0) parts.push(t("accountTab.models", { models: row.models.join(", ") }));
+  if (row.resetsAt) parts.push(t("accountTab.resets", { v1: formatDateTime(new Date(row.resetsAt)) }));
   return parts.join(" · ");
 }
 
@@ -359,7 +348,7 @@ export function UsageSyncPanel() {
     (source) => source.pendingRetry || source.lastError,
   ) ?? false;
   const outcomeLabel = status?.overallOutcome
-    ? OUTCOME_LABELS[status.overallOutcome]
+    ? OUTCOME_LABELS()[status.overallOutcome]
     : t("accountTab.notSynced");
 
   return (
@@ -389,7 +378,7 @@ export function UsageSyncPanel() {
               <div
                 key={`${row.provider}-${row.window}`}
                 className={`usage-window-row ${row.isStale ? "is-stale" : ""}`}
-                title={t((row.isStale ? "accountTab.used.stale" : "accountTab.used.none"), { provider: row.provider, label: label, pct: pct, value: row.resetsAt ? `, resets ${row.resetsAt}` : "" })}
+                title={t((row.isStale ? "accountTab.used.stale" : "accountTab.used.none"), { provider: row.provider, label: label, pct: pct, value: row.resetsAt ? t("accountTab.resets2", { resetsAt: row.resetsAt }) : "" })}
               >
                 <span className="usage-window-label">
                   <strong className="text-sm">{label}</strong>
@@ -602,7 +591,7 @@ export function UsageSyncPanel() {
               .sort((a, b) =>
                 a.available !== b.available
                   ? Number(b.available) - Number(a.available)
-                  : SOURCE_LABELS[a.source].localeCompare(SOURCE_LABELS[b.source]),
+                  : SOURCE_LABELS()[a.source].localeCompare(SOURCE_LABELS()[b.source]),
               )
               .map((source) => {
                 const state = sourceState(source);
@@ -610,14 +599,14 @@ export function UsageSyncPanel() {
                   <div
                     className={`usage-source-row ${source.available ? "" : "is-unavailable"}`}
                     key={source.source}
-                    title={t("accountTab.lastAcceptedUpload", { value: SOURCE_LABELS[source.source], value2: SOURCE_HINTS[source.source], lastSuccessAt: formatSyncTime(source.lastSuccessAt) })}
+                    title={t("accountTab.lastAcceptedUpload", { value: SOURCE_LABELS()[source.source], value2: SOURCE_HINTS()[source.source], lastSuccessAt: formatSyncTime(source.lastSuccessAt) })}
                   >
                     <div className="usage-source-name">
                       {state.className === "is-ok" ? <CheckCircle2 size={14} /> : null}
                       {state.className === "is-warning" ? <Clock3 size={14} /> : null}
                       {state.className === "is-error" ? <AlertCircle size={14} /> : null}
                       {state.className === "is-muted" ? <ShieldCheck size={14} /> : null}
-                      <strong className="text-sm">{SOURCE_LABELS[source.source]}</strong>
+                      <strong className="text-sm">{SOURCE_LABELS()[source.source]}</strong>
                     </div>
                     <span className={`usage-source-state ${state.className}`}>{state.label}</span>
                     <span

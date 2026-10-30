@@ -31,7 +31,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     this.persist(
       t("errorBoundary.reactRender"),
       error.message || t("errorBoundary.renderError"),
-      [error.stack ?? error.message, stack].filter(Boolean).join("\n\nComponent stack:\n"),
+      [error.stack ?? error.message, stack].filter(Boolean).join("\n\nComponent stack:\n" /* i18n-exempt: developer diagnostics */),
     );
   }
 
@@ -43,7 +43,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     // here (no second report).
     listen<string>("rust://panic", (event) => {
       this.setState({
-        error: new Error("Rust backend panic"),
+        error: new Error(t("errorBoundary.rustBackendPanic")),
         stack: event.payload,
         source: t("errorBoundary.rustBackend"),
       });
@@ -89,9 +89,9 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   private copyDetails = async () => {
     const { error, stack, source } = this.state;
-    const details = [`Source: ${source ?? t("errorBoundary.unknown")}`, error?.stack ?? error?.message ?? t("errorBoundary.unknownRendererError"), stack]
+    const details = [t("errorBoundary.source", { value1: source ?? t("errorBoundary.unknown") }), error?.stack ?? error?.message ?? t("errorBoundary.unknownRendererError"), stack]
       .filter(Boolean)
-      .join("\n\nComponent stack:\n");
+      .join("\n\nComponent stack:\n" /* i18n-exempt: developer diagnostics */);
     await navigator.clipboard.writeText(details);
   };
 
@@ -105,7 +105,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
     if (!error) return this.props.children;
 
-    const details = [`Source: ${source ?? t("errorBoundary.unknown")}`, error.stack ?? error.message, stack].filter(Boolean).join("\n\nComponent stack:\n");
+    const details = [t("errorBoundary.source2", { value1: source ?? t("errorBoundary.unknown") }), error.stack ?? error.message, stack].filter(Boolean).join("\n\nComponent stack:\n" /* i18n-exempt: developer diagnostics */);
 
     return (
       <div className="app-container">

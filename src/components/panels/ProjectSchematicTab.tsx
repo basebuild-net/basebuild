@@ -12,7 +12,7 @@ export type ProjectSchematicTabProps = {
   onOpenRaw: () => void;
 };
 
-const SECTION_GUIDE: Record<string, string> = {
+const sectionGuide = (): Record<string, string> => ({
   Purpose: t("projectSchematicTab.whatTheProjectDoesForWhom"),
   Vision: t("projectSchematicTab.whatTheProjectShouldBecomeSteers"),
   Blueprint: t("projectSchematicTab.archetypeTeamSizeAndStageScopes"),
@@ -24,13 +24,13 @@ const SECTION_GUIDE: Record<string, string> = {
   "Development conventions": t("projectSchematicTab.namingErrorsTestingDocsCoreProject"),
   "Current priorities": t("projectSchematicTab.top35OpenConcernsRanked"),
   "Open questions": t("projectSchematicTab.whatIsUnclearDecisionsNeedingA"),
-};
+});
 
-const HEALTH_LABEL: Record<string, string> = {
+const healthLabel = (): Record<string, string> => ({
   complete: t("projectSchematicTab.complete"),
   partial: t("projectSchematicTab.partial"),
   missing: t("projectSchematicTab.missing"),
-};
+});
 
 export function ProjectSchematicTab({ projectPath, onStartWizard, onOpenRaw }: ProjectSchematicTabProps) {
   const schematic = useProjectSchematic(projectPath);
@@ -79,10 +79,10 @@ export function ProjectSchematicTab({ projectPath, onStartWizard, onOpenRaw }: P
           <button
             className={`schematic-health-badge is-${report.health}`}
             type="button"
-            title={t("projectSchematicTab.schematicClickForRawView", { health: report.health, value: report.health === "complete" ? "all core sections filled" : report.sections.filter((s) => s.state !== "filled").map((s) => s.name).join(", ") || "all filled" })}
+            title={t("projectSchematicTab.schematicClickForRawView", { health: report.health, value: report.health === "complete" ? t("projectSchematicTab.allCoreSectionsFilled") : report.sections.filter((s) => s.state !== "filled").map((s) => s.name).join(", ") || t("projectSchematicTab.allFilled") })}
             onClick={onOpenRaw}
           >
-            {HEALTH_LABEL[report.health]}
+            {healthLabel()[report.health]}
           </button>
         )}
         <button
@@ -186,7 +186,7 @@ function SectionCard({
           </div>
         ) : null
       ) : (
-        <p className="schematic-section-placeholder">{SECTION_GUIDE[section.name] ?? t("projectSchematicTab.fillInThisSection")}</p>
+        <p className="schematic-section-placeholder">{sectionGuide()[section.name] ?? t("projectSchematicTab.fillInThisSection")}</p>
       )}
     </div>
   );

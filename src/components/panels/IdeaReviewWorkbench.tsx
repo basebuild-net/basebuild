@@ -215,13 +215,13 @@ export function IdeaReviewWorkbench({
       </div>
       {idea?.status === "concept" ? (
         <div className="idea-review-actions" aria-label={t("ideaReviewWorkbench.ideaDecisionActions")}>
-          <button className="btn btn-sm btn-ghost" type="button" title={t("ideaReviewWorkbench.deferForLater", { title: proposal?.title ?? "this idea" })} disabled={busyAction !== null} onClick={() => void runAction("defer")}>
+          <button className="btn btn-sm btn-ghost" type="button" title={t("ideaReviewWorkbench.deferForLater", { title: proposal?.title ?? t("ideaReviewWorkbench.thisIdea") })} disabled={busyAction !== null} onClick={() => void runAction("defer")}>
             {busyAction === "defer" ? <Loader2 size={12} className="is-spinning" /> : <Archive size={12} />} {t("ideaReviewWorkbench.defer")}
           </button>
-          <button className="btn btn-sm" type="button" title={t("ideaReviewWorkbench.passOn", { title: proposal?.title ?? "this idea" })} disabled={busyAction !== null} onClick={() => void runAction("reject")}>
+          <button className="btn btn-sm" type="button" title={t("ideaReviewWorkbench.passOn", { title: proposal?.title ?? t("ideaReviewWorkbench.thisIdea2") })} disabled={busyAction !== null} onClick={() => void runAction("reject")}>
             {busyAction === "reject" ? <Loader2 size={12} className="is-spinning" /> : <X size={12} />} {t("ideaReviewWorkbench.pass")}
           </button>
-          <button className="btn btn-sm btn-primary" type="button" title={t("ideaReviewWorkbench.createAndPrepareAnOpenSpecPlan", { title: proposal?.title ?? "this idea" })} disabled={busyAction !== null} onClick={() => void runAction("promote")}>
+          <button className="btn btn-sm btn-primary" type="button" title={t("ideaReviewWorkbench.createAndPrepareAnOpenSpecPlan", { title: proposal?.title ?? t("ideaReviewWorkbench.thisIdea3") })} disabled={busyAction !== null} onClick={() => void runAction("promote")}>
             {busyAction === "promote" ? <Loader2 size={12} className="is-spinning" /> : <Rocket size={12} />} {busyAction === "promote" ? t("ideaReviewWorkbench.preparing") : t("ideaReviewWorkbench.makePlan")}
           </button>
         </div>
@@ -249,13 +249,13 @@ export function IdeaReviewWorkbench({
 
   return (
     <WorkbenchShell
-      ariaLabel={readOnly ? `${proposals.length} reviewed ideas` : `${proposals.length} generated ideas`}
+      ariaLabel={readOnly ? t("ideaReviewWorkbench.reviewedIdeas", { length: proposals.length }) : t("ideaReviewWorkbench.generatedIdeas", { length: proposals.length })}
       eyebrow={<><Lightbulb size={14} /> {readOnly ? t("ideaReviewWorkbench.ideaHistory") : t("ideaReviewWorkbench.ideaStudioReview")}</>}
       title={readOnly ? t("ideaReviewWorkbench.reviewCompletedDecisions") : isRunning ? t("ideaReviewWorkbench.findingIdeasWorthYourTime") : t("ideaReviewWorkbench.chooseWhatDeservesAPlan")}
       description={readOnly ? t("ideaReviewWorkbench.theseDecisionsAreReadOnlyBecause") : isRunning ? t("ideaReviewWorkbench.theBatchStaysFocusedHereWhile") : t("ideaReviewWorkbench.reviewOneOptionAtATime")}
       headerActions={headerActions}
-      progressLabel={proposals.length > 0 ? `Idea ${boundedIndex + 1} of ${proposals.length}` : t("ideaReviewWorkbench.preparingBatch")}
-      progressTitle={readOnly ? `${decidedCount} completed decisions` : proposals.length > 0 ? `${decidedCount} decided · ${proposals.length - decidedCount} remaining` : t("ideaReviewWorkbench.waitingForGroundedProposals")}
+      progressLabel={proposals.length > 0 ? t("ideaReviewWorkbench.ideaOf", { v1: boundedIndex + 1, length: proposals.length }) : t("ideaReviewWorkbench.preparingBatch")}
+      progressTitle={readOnly ? t("ideaReviewWorkbench.completedDecisions", { decidedCount }) : proposals.length > 0 ? t("ideaReviewWorkbench.decidedRemaining", { decidedCount, value2: proposals.length - decidedCount }) : t("ideaReviewWorkbench.waitingForGroundedProposals")}
       footer={proposals.length > 0 ? footer : undefined}
       className="idea-review-workbench"
     >

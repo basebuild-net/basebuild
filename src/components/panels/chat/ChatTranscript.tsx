@@ -20,6 +20,7 @@ import {
   type LegacyChatMessage,
 } from "./chatFormat";
 import { t } from "../../../i18n";
+import { formatDateTime, formatAgo } from "../../../i18n/format";
 
 type ChatTranscriptProps = {
   scrollRef: RefObject<HTMLDivElement | null>;
@@ -209,11 +210,11 @@ export function ChatTranscript({
                       key={`compaction-${ev.id}`}
                       className="chat-compaction-row"
                       role="separator"
-                      title="Older messages are summarized for later requests. They stay visible in the transcript."
+                      title={t("chatTranscript.olderMessagesAreSummarizedForLater")}
                     >
                       <span>
-                        Conversation compacted{ev.compactedMessages != null ? `: ${ev.compactedMessages} earlier messages` : ""}
-                        {ev.tokensBefore != null && ev.tokensAfter != null ? ` (about ${ev.tokensBefore} tokens down to ${ev.tokensAfter})` : ""}
+                        {t("chatTranscript.conversationCompacted")}{ev.compactedMessages != null ? t("chatTranscript.earlierMessages", { count: ev.compactedMessages }) : ""}
+                        {ev.tokensBefore != null && ev.tokensAfter != null ? t("chatTranscript.aboutTokensDownTo", { tokensBefore: ev.tokensBefore, tokensAfter: ev.tokensAfter }) : ""}
                       </span>
                     </div>,
                   );
@@ -223,9 +224,9 @@ export function ChatTranscript({
                 // the message content, so thinking splits around tool calls.
                 const isOfflineTurn = ev.kind === "assistant" && ev.providerId === LOCAL_PROVIDER_ID;
                 const timeStr = ev.createdAt != null
-                  ? new Date(ev.createdAt * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+                  ? formatDateTime(new Date(ev.createdAt * 1000), { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
                   : null;
-                const fullDate = ev.createdAt != null ? new Date(ev.createdAt * 1000).toLocaleString() : null;
+                const fullDate = ev.createdAt != null ? formatDateTime(new Date(ev.createdAt * 1000)) : null;
                 // Thinking block as its own row (split around interruptions).
                 if (ev.reasoning && ev.reasoning.trim()) {
                   rendered.push(
@@ -408,11 +409,11 @@ export function ChatTranscript({
             } catch { /* ignore malformed JSON */ }
             return null;
           })();
-          // "Xs ago" elapsed since the last tool event.
+          // Elapsed since the last tool event, e.g. "24s ago" or "2m ago".
           const toolAgoText = toolAgoSeconds > 0
             ? toolAgoSeconds < 60
-              ? `${toolAgoSeconds}s ago`
-              : `${Math.floor(toolAgoSeconds / 60)}m ${toolAgoSeconds % 60}s ago`
+              ? formatAgo(toolAgoSeconds, "second")
+              : formatAgo(Math.floor(toolAgoSeconds / 60), "minute")
             : null;
           return (
             <div

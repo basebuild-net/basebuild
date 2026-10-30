@@ -78,6 +78,7 @@ import { SkillsTab } from "./settings/SkillsTab";
 import { AppearanceTab } from "./settings/AppearanceTab";
 import { LoadingBlock, SkeletonControl, SkeletonRows } from "./Loading";
 import { t } from "../../i18n";
+import { formatDateTime } from "../../i18n/format";
 
 type SettingsModalProps = {
   open: boolean;
@@ -398,7 +399,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
   // Appearance leads so theme and UI scale are one click away.
   const tabGroups: { group: string; tabs: { id: Tab; label: string; icon: typeof Settings2 }[] }[] = [
     {
-      group: "Appearance",
+      group: t("settingsModal.appearance"),
       tabs: [
         { id: "appearance", label: t("settingsModal.appearance"), icon: Sun },
         { id: "notifications", label: t("settingsModal.notifications"), icon: Bell },
@@ -985,7 +986,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                             {entry.scope ? <code className="text-muted"> {entry.scope}</code> : null}
                             {entry.sourceWorkflow ? <span className="text-muted"> ({entry.sourceWorkflow})</span> : null}
                             {" "}
-                            <span className="text-muted text-xs">{new Date(entry.createdAt * 1000).toLocaleString()}</span>
+                            <span className="text-muted text-xs">{formatDateTime(new Date(entry.createdAt * 1000))}</span>
                           </div>
                         ))}
                       </div>

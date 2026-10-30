@@ -8,21 +8,25 @@ import { t } from "../../../i18n";
  * is the microphone hearing me right now, or is something else happening?
  */
 
-const STATE_LABELS: Record<VoiceState, string> = {
-  off: t("voiceCallBar.callEnded"),
-  idle: t("voiceCallBar.listening"),
-  capturing: t("voiceCallBar.hearingYou"),
-  transcribing: t("voiceCallBar.transcribing"),
-  speaking: t("voiceCallBar.speaking"),
-};
+function STATE_LABELS(): Record<VoiceState, string> {
+  return {
+    off: t("voiceCallBar.callEnded"),
+    idle: t("voiceCallBar.listening"),
+    capturing: t("voiceCallBar.hearingYou"),
+    transcribing: t("voiceCallBar.transcribing"),
+    speaking: t("voiceCallBar.speaking"),
+  };
+}
 
-const STATE_TITLES: Record<VoiceState, string> = {
-  off: t("voiceCallBar.theCallIsNotActive"),
-  idle: t("voiceCallBar.waitingForYouToSpeakJust"),
-  capturing: t("voiceCallBar.capturingYourSpeechItSendsWhen"),
-  transcribing: t("voiceCallBar.convertingYourSpeechToText"),
-  speaking: t("voiceCallBar.readingTheReplyAloudTalkOver"),
-};
+function STATE_TITLES(): Record<VoiceState, string> {
+  return {
+    off: t("voiceCallBar.theCallIsNotActive"),
+    idle: t("voiceCallBar.waitingForYouToSpeakJust"),
+    capturing: t("voiceCallBar.capturingYourSpeechItSendsWhen"),
+    transcribing: t("voiceCallBar.convertingYourSpeechToText"),
+    speaking: t("voiceCallBar.readingTheReplyAloudTalkOver"),
+  };
+}
 
 /** Eight bars is enough to read as a level meter without becoming decoration. */
 const METER_BARS = 8;
@@ -80,8 +84,8 @@ export function VoiceCallBar({
         ) : (
           <Mic size={13} />
         )}
-        <span className="voice-call-state" title={muted ? t("voiceCallBar.microphoneMutedTheAgentCannot") : STATE_TITLES[state]}>
-          {muted ? t("voiceCallBar.muted") : STATE_LABELS[state]}
+        <span className="voice-call-state" title={muted ? t("voiceCallBar.microphoneMutedTheAgentCannot") : STATE_TITLES()[state]}>
+          {muted ? t("voiceCallBar.muted") : STATE_LABELS()[state]}
         </span>
       </div>
 
