@@ -1739,9 +1739,10 @@ export function ChatPanel({
     }
   }, [nativeMode, nativeSessionId, addLog]);
 
-  const handleSend = useCallback(async () => {
-    const text = input.trim();
-    addLog("debug", "Chat send", `text=${text.slice(0, 80)} nativeMode=${nativeMode} session=${nativeSessionId ?? "none"}`);
+  /** Sends the composer text, or `override` (an empty-chat starter command). */
+  const handleSend = useCallback(async (override?: string) => {
+    const text = (override ?? input).trim();
+    addLog("debug", "Chat send", `text=${text.slice(0, 80)} nativeMode=${nativeMode} session=${nativeSessionId ?? "none"} starter=${override !== undefined}`);
     if (!text) return;
     // A turn is already in flight: interject into it rather than blocking the
     // composer. Slash commands are excluded, they stay local UI actions and
@@ -1872,8 +1873,13 @@ export function ChatPanel({
         },
         idea: () => {
           if (rest === "generate") {
-            void generateIdeasRef.current?.();
-            setCommandNotice(t("chatPanel.generatingIdeas"));
+            // The notice lasts as long as the run: a setup error or the
+            // finished batch replaces it, never a stale "Generating…".
+            const generatingNotice = t("chatPanel.generatingIdeas");
+            setCommandNotice(generatingNotice);
+            void generateIdeasRef.current?.().finally(() => {
+              setCommandNotice((current) => (current === generatingNotice ? null : current));
+            });
           } else if (rest === "promote") {
             setCommandNotice(t("chatPanel.pickAnIdeaInTheIdeas"));
           } else {
@@ -3148,6 +3154,12 @@ export function ChatPanel({
         handleStopNative={handleStopNative}
         handleStopAgent={handleStopAgent}
         sendMessage={sendMessage}
+        hasSchematic={Boolean(schematicContent?.trim())}
+        planMode={planMode}
+        onStarter={(command) => {
+          addLog("debug", "Chat starter", command);
+          void handleSend(command);
+        }}
       />
       {/* Sticky approval bar — always visible above the composer whenever a
           tool call is awaiting approval, independent of scroll position or

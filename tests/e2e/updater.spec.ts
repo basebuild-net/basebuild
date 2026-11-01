@@ -11,10 +11,10 @@ test.describe("updater taskbar", () => {
     await page.goto("/");
 
     // The update downloads silently and is staged; the app keeps running.
-    // The taskbar then shows an explicit "Restart to apply update" CTA —
+    // The taskbar then shows an explicit "Restart to update" CTA —
     // the app never restarts on its own mid-session.
     const restartCta = page.getByTitle(/Basebuild 0\.0\.5 is downloaded — click to restart and apply it/);
-    await expect(restartCta).toContainText("Restart to apply update");
+    await expect(restartCta).toContainText("Restart to update");
     await expect(restartCta).toBeEnabled();
 
     // Clicking the CTA is the only path that triggers the install/restart.

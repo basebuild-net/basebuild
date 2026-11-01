@@ -43,7 +43,7 @@ export function StartupSplash({ updates, onComplete }: StartupSplashProps) {
   // is applied automatically: at startup nothing is open yet, so a restart
   // is free and a closed/re-opened app comes up already updated. Once the
   // splash is dismissed, updates only download in the background and apply
-  // via the explicit "Restart to apply update" button.
+  // via the explicit "Restart to update" button.
   useEffect(() => {
     const { status, info } = updates;
 
@@ -97,8 +97,8 @@ export function StartupSplash({ updates, onComplete }: StartupSplashProps) {
   }, [updates, onComplete, autoStarted]);
 
   // Enter the app while the download continues in the background. The
-  // staged update is applied later via the taskbar "Restart to apply
-  // update" button (or automatically on the next launch).
+  // staged update is applied later via the sidebar "Restart to update"
+  // button (or automatically on the next launch).
   const handleContinueWithoutRestart = () => {
     setPhase("ready");
     onComplete();

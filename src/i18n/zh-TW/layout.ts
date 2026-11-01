@@ -754,7 +754,7 @@ export const layoutZhTW = {
   "toolRail.expandToolRail": "展開工具列",
   "toolRail.collapseToolRail": "收起工具列",
   "updateButton.restarting": "正在重啟…",
-  "updateButton.restartToApplyUpdate": "重啟以應用更新",
+  "updateButton.restartToApplyUpdate": "重啟以更新",
   "updateButton.checkingForBasebuildUpdates": "正在檢查 Basebuild 更新",
   "updateButton.checking": "檢查中",
   "updateButton.updateCheckFailed": "更新檢查失敗",

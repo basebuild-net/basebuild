@@ -752,7 +752,7 @@ export const layoutEn = {
   "toolRail.expandToolRail": "Expand tool rail",
   "toolRail.collapseToolRail": "Collapse tool rail",
   "updateButton.restarting": "Restarting…",
-  "updateButton.restartToApplyUpdate": "Restart to apply update",
+  "updateButton.restartToApplyUpdate": "Restart to update",
   "updateButton.checkingForBasebuildUpdates": "Checking for Basebuild updates",
   "updateButton.checking": "Checking",
   "updateButton.updateCheckFailed": "Update check failed",

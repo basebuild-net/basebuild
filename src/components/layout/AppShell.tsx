@@ -76,6 +76,7 @@ import {
   emptyGrid,
   equalizeSplit,
   findParentSplit,
+  findPanel,
   flattenPanels,
   hiddenPanelsOf,
   hidePanel,
@@ -248,6 +249,28 @@ export function AppShell({ updates }: AppShellProps) {
   const plans = usePlans(session.activeSessionId, activeProjectPath);
   const schematic = useProjectSchematic(activeProjectPath);
   const ideaState = useIdeaState(session.activeSessionId, activeProjectPath);
+  // A chat panel and its backing session tab are created separately: the
+  // panel id is minted here, the tab id by the backend. This map links them
+  // until the panel's native chat session exists, so the tab is bound to that
+  // session (and any prompt queued for the tab is delivered) whichever of the
+  // two finishes first.
+  const panelGridStateRef = useRef(panelGridState);
+  panelGridStateRef.current = panelGridState;
+  const chatTabByPanelRef = useRef<Map<string, string>>(new Map());
+  const bindChatTab = useCallback((panelId: string, tabId: string) => {
+    chatTabByPanelRef.current.set(panelId, tabId);
+    const grid = panelGridStateRef.current;
+    const panel = findPanel(grid.root, panelId) ?? hiddenPanelsOf(grid).find((p) => p.id === panelId) ?? null;
+    addLog("debug", "Chat tab linked to panel", `tab=${tabId} panel=${panelId} chatSessionId=${panel?.chatSessionId ?? "pending"}`);
+    if (!panel?.chatSessionId) return;
+    void session.setTabChatSession(tabId, panel.chatSessionId);
+    const pending = pendingNewPanelPrompts.current.get(tabId);
+    if (pending) {
+      addLog("debug", "Flushing pending prompt", `tab=${tabId} mode=${pending.mode}`);
+      pendingNewPanelPrompts.current.delete(tabId);
+      deliverPrompt({ chatSessionId: panel.chatSessionId, text: pending.text, mode: pending.mode, action: pending.action });
+    }
+  }, [session, addLog]);
   const account = useAccount();
   const [ompInstalled, setOmpInstalled] = useState(false);
   useEffect(() => {
@@ -265,6 +288,12 @@ export function AppShell({ updates }: AppShellProps) {
     const interval = setInterval(sendHeartbeat, 5000);
     return () => clearInterval(interval);
   }, []);
+  // Effects re-run on every render while the async create is in flight, so
+  // each auto-create is single-flight: one per project (session) and one per
+  // session (first chat tab). A guard clears once its result exists, so a
+  // project emptied later can be seeded again.
+  const autoSessionProjectRef = useRef<string | null>(null);
+  const autoTabSessionRef = useRef<string | null>(null);
   useEffect(() => {
     // Launch does not mint sessions: if sessions exist, select the most
     // recent (created_at DESC from the backend). Only create a session when
@@ -273,11 +302,19 @@ export function AppShell({ updates }: AppShellProps) {
     // hydration mutates UI state.
     if (!activeProjectPath || session.activeSessionId || projectRestoreLoading) return;
     if (session.sessions.length > 0) {
+      autoSessionProjectRef.current = null;
       void session.selectSession(session.sessions[0].id);
     } else if (!session.activeSession) {
-      void session.createSession();
+      // Re-renders while the create is in flight must not create again.
+      if (autoSessionProjectRef.current === activeProjectPath) return;
+      autoSessionProjectRef.current = activeProjectPath;
+      addLog("debug", "First session creating", activeProjectPath);
+      void session.createSession().catch((caught: unknown) => {
+        autoSessionProjectRef.current = null;
+        addLog("error", "First session creation failed", caught instanceof Error ? caught.message : String(caught));
+      });
     }
-  }, [activeProjectPath, session.sessions.length, session.activeSessionId, session.activeSession, session, projectRestoreLoading]);
+  }, [activeProjectPath, session.sessions.length, session.activeSessionId, session.activeSession, session, projectRestoreLoading, addLog]);
 
   // Auto-create a chat tab when a session is active but has no tabs.
   // Gated on restore completion to avoid racing with tab loading:
@@ -287,14 +324,29 @@ export function AppShell({ updates }: AppShellProps) {
   useEffect(() => {
     if (!activeProjectPath || !session.activeSessionId || projectRestoreLoading) return;
     if (restoredProjectRef.current !== activeProjectPath) return;
-    if (session.tabs.length > 0) return;
+    if (session.tabs.length > 0) {
+      autoTabSessionRef.current = null;
+      return;
+    }
     // If the restore state has a lastSessionId, the session should already
     // have tabs — don't auto-create a spurious tab that races with the
     // tab loader and becomes a false orphan.
     if (workspaceRestore?.lastSessionId) return;
     if (session.activeSession?.title === "New Session") return;
-    void session.createTab("chat", t("appShell.chat1"));
-  }, [activeProjectPath, session.activeSessionId, session.tabs.length, session.activeSession?.title, session, projectRestoreLoading, workspaceRestore]);
+    if (autoTabSessionRef.current === session.activeSessionId) return;
+    const sessionId = session.activeSessionId;
+    autoTabSessionRef.current = sessionId;
+    addLog("debug", "First chat tab creating", sessionId);
+    void session.createTab("chat", t("appShell.chat1"))
+      .then((tab) => {
+        // The seed effect below gives this session's first chat panel a fixed id.
+        if (tab) bindChatTab(`panel-seed-${sessionId}`, tab.id);
+      })
+      .catch((caught: unknown) => {
+        autoTabSessionRef.current = null;
+        addLog("error", "First chat tab creation failed", caught instanceof Error ? caught.message : String(caught));
+      });
+  }, [activeProjectPath, session.activeSessionId, session.tabs.length, session.activeSession?.title, session, projectRestoreLoading, workspaceRestore, addLog, bindChatTab]);
   // Seed a first chat only for a genuinely empty project. Active hidden
   // surfaces intentionally leave the center empty until the user restores one
   // or presses the explicit Add chat window action.
@@ -303,14 +355,18 @@ export function AppShell({ updates }: AppShellProps) {
     if (restoredProjectRef.current !== activeProjectPath) return;
     if (panelGridState.root || hiddenPanelsOf(panelGridState).length > 0) return;
     if (session.activeSession?.title === "New Session") return;
+    // A fixed id per session lets the first-tab effect above link its tab to
+    // this panel. `creating` until its chat session exists: the backing tab is
+    // still unbound and must not be reported as an orphan meanwhile.
     const newPanel: Panel = {
-      id: newPanelId(),
+      id: `panel-seed-${session.activeSessionId}`,
       type: "chat",
       title: t("appShell.chat12"),
       chatSessionId: null,
       terminalId: null,
       filePath: null,
       createdAt: Date.now(),
+      creating: true,
     };
     setPanelGridState((prev) => prev.root || hiddenPanelsOf(prev).length > 0 ? prev : singlePanelGrid(newPanel));
   }, [activeProjectPath, session.activeSessionId, panelGridState, session.activeSession?.title, projectRestoreLoading]);
@@ -1473,9 +1529,12 @@ export function AppShell({ updates }: AppShellProps) {
               addLog("warn", "Chat tab creation returned no tab", panelId);
             } else {
               addLog("debug", "Chat tab created", `tab=${tab.id} panel=${panelId}`);
+              // Queue first: linking delivers it at once if the panel's chat
+              // session already exists.
               if (pendingPrompt) {
                 pendingNewPanelPrompts.current.set(tab.id, pendingPrompt);
               }
+              bindChatTab(panelId, tab.id);
             }
             handleShowToast(t("appShell.chatCreated2"), t("appShell.chatReady", { chatCount }), "success");
           } catch (err) {
@@ -1537,7 +1596,7 @@ export function AppShell({ updates }: AppShellProps) {
       addLog("debug", "Schematic panel created", panelId);
       releaseGuard();
     },
-    [session, activeProjectPath, projectRestoreLoading, panelGridState, commitInsert, addLog, handleShowToast],
+    [session, activeProjectPath, projectRestoreLoading, panelGridState, commitInsert, addLog, handleShowToast, bindChatTab],
   );
   handleCreateTypedPanelRef.current = handleCreateTypedPanel;
   const renderPanel = useCallback(
@@ -1550,6 +1609,7 @@ export function AppShell({ updates }: AppShellProps) {
         const tab = session.tabs.find(
           (t) => t.kind === "chat" && (
             (panel.chatSessionId && t.chatSessionId === panel.chatSessionId) ||
+            t.id === chatTabByPanelRef.current.get(panel.id) ||
             t.id === panel.id
           ),
         );

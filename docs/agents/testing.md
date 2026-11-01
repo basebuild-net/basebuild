@@ -135,6 +135,8 @@ self-healing, project-scoped, transactional panel-grid state:
 | Normalization (malformed/stale/dup ids) | `panel-grid-math.spec.ts` | `parsePanelGridWithDiagnostics` repairs stale active ids, quarantines duplicate ids without deleting backing sessions, and rejects malformed JSON / invalid sizes / nested splits. |
 | Orphan recovery (non-destructive) | `panel-grid-math.spec.ts` | `detectOrphanedTabs` flags backing tabs with no reachable panel; detection never deletes. |
 | Rollback on failed resource creation | `panel-grid-math.spec.ts` | `removePanelFromGrid` rolls back a `creating` reservation without touching history. |
+| First open seeds one bound chat | `first-open-chat.spec.ts` | Opening a new project creates one session and one chat tab; every chat tab is bound to its panel's chat session, and no orphan warning is logged. |
+| Empty-chat starters | `first-open-chat.spec.ts` | An empty chat lists the schematic, ideas and plan-mode starters; each runs its slash command and the list leaves once the transcript has a turn. |
 
 When adding new panel creation paths, route them through `insertPanel` /
 `commitInsert` and add a row to this matrix.
