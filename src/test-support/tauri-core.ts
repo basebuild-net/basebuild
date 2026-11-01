@@ -2542,6 +2542,11 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         date: "2026-07-01T14:30:00Z",
         target: "windows-x86_64",
         downloadUrl: "https://github.com/basebuild-net/basebuild/releases/download/v0.0.5/Basebuild_0.0.5_x64-setup.exe",
+        channelStatus: "ok",
+        channelExplanation: "",
+        rawError: null,
+        policy: { mandatory: false, minimumSupportedVersion: null, releaseSummary: null },
+        skipped: false,
       } as T;
     case "get_skipped_update_version":
       return null as T;
