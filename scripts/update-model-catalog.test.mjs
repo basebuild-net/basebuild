@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { assertCatalogShape, decodeOhMyPiCatalog } from "./update-model-catalog.mjs";
+import { assertCatalogShape, assertNoCatalogCollapse, decodeOhMyPiCatalog } from "./update-model-catalog.mjs";
 
 // keys: 0 name, 1 api, 2 baseUrl, 3 reasoning, 4 input, 5 cost, 6 input$, 7 supportsTools, 8 strict
 const compact = {
@@ -47,4 +47,22 @@ test("map-shaped catalogs pass through and malformed ones are rejected", () => {
   const map = { p: { m: { id: "m", api: "openai-completions" } } };
   assert.equal(decodeOhMyPiCatalog(map), map);
   assert.throws(() => assertCatalogShape({ version: 1, nodes: [] }), /not a model map/);
+});
+
+function catalogOf(providers, modelsEach) {
+  const catalog = {};
+  for (let p = 0; p < providers; p++) {
+    catalog[`p${p}`] = {};
+    for (let m = 0; m < modelsEach; m++) catalog[`p${p}`][`m${m}`] = { id: `m${m}`, api: "openai-completions" };
+  }
+  return catalog;
+}
+
+test("a refresh may lose up to 10% of providers or models, not more", () => {
+  const bundled = catalogOf(20, 10);
+  assert.doesNotThrow(() => assertNoCatalogCollapse(bundled, catalogOf(18, 10)));
+  assert.doesNotThrow(() => assertNoCatalogCollapse(bundled, catalogOf(25, 10)));
+  assert.throws(() => assertNoCatalogCollapse(bundled, catalogOf(17, 10)), /providers would drop from 20 to 17/);
+  // Providers intact, models gutted (the upstream format change that shipped 2 Devin models).
+  assert.throws(() => assertNoCatalogCollapse(bundled, catalogOf(20, 8)), /models would drop from 200 to 160/);
 });

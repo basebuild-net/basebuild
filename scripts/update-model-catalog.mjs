@@ -258,6 +258,34 @@ export function assertCatalogShape(catalog) {
   if (models === 0) throw new Error("catalog: no models");
 }
 
+/** Largest share of providers or models one refresh may drop without an override. */
+export const MAX_CATALOG_LOSS = 0.1;
+
+function catalogSize(catalog) {
+  let models = 0;
+  for (const entries of Object.values(catalog)) models += Object.keys(entries).length;
+  return { providers: Object.keys(catalog).length, models };
+}
+
+/**
+ * Fail before writing if the refreshed catalog lost more than MAX_CATALOG_LOSS
+ * of the bundled providers or models. A source format change once decoded to a
+ * third of the catalog (258 providers to 79) and the daily job shipped it;
+ * a real mass removal is rare enough to need BASEBUILD_CATALOG_ALLOW_SHRINK=1.
+ */
+export function assertNoCatalogCollapse(previous, next) {
+  const before = catalogSize(previous);
+  const after = catalogSize(next);
+  for (const unit of ["providers", "models"]) {
+    if (before[unit] > 0 && after[unit] < before[unit] * (1 - MAX_CATALOG_LOSS)) {
+      throw new Error(
+        `catalog: ${unit} would drop from ${before[unit]} to ${after[unit]}; ` +
+          "refusing to write. Check the upstream source format, or set BASEBUILD_CATALOG_ALLOW_SHRINK=1 if the removal is real.",
+      );
+    }
+  }
+}
+
 async function main() {
   console.log("Fetching OhMyPi catalog from upstream...");
   const catalog = decodeOhMyPiCatalog(await fetchJson(OHMYPI_CATALOG_URL));
@@ -305,6 +333,10 @@ async function main() {
   // Deterministic serialization (stable key order from source objects, tab
   // indent like upstream) so repeated runs with identical data are no-ops.
   assertCatalogShape(catalog);
+  if (process.env.BASEBUILD_CATALOG_ALLOW_SHRINK !== "1") {
+    const bundled = JSON.parse(await readFile(resolve(CATALOG_DIR, "models.json"), "utf8"));
+    assertNoCatalogCollapse(bundled, catalog);
+  }
   const catalogText = JSON.stringify(catalog, null, "\t") + "\n";
 
   // Content-hash version stamp (SHA-256 of the canonical JSON, first 16 hex chars).
