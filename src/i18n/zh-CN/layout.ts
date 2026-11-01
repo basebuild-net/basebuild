@@ -752,7 +752,7 @@ export const layoutZhCN = {
   "toolRail.expandToolRail": "展开工具栏",
   "toolRail.collapseToolRail": "收起工具栏",
   "updateButton.restarting": "正在重启…",
-  "updateButton.restartToApplyUpdate": "重启以应用更新",
+  "updateButton.restartToApplyUpdate": "重启以更新",
   "updateButton.checkingForBasebuildUpdates": "正在检查 Basebuild 更新",
   "updateButton.checking": "检查中",
   "updateButton.updateCheckFailed": "更新检查失败",

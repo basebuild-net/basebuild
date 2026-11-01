@@ -155,7 +155,7 @@ export function useUpdater(): UpdaterState {
   }, []);
 
   // Install the staged update and restart. Only ever invoked from an
-  // explicit user action ("Restart to apply update") or the startup splash.
+  // explicit user action ("Restart to update") or the startup splash.
   const restartToApply = useCallback(async () => {
     if (applyInFlight.current) return;
     applyInFlight.current = true;
@@ -197,7 +197,7 @@ export function useUpdater(): UpdaterState {
 
   // Background auto-DOWNLOAD (not install): when an update is available,
   // stage it silently. The app is never restarted mid-session — the update
-  // applies when the user clicks "Restart to apply update" or on the next
+  // applies when the user clicks "Restart to update" or on the next
   // launch via the startup splash.
   // Never in dev: the dev build runs as 0.0.0, so every release looks
   // "newer" (backend also refuses in debug builds). Playwright e2e

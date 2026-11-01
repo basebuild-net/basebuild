@@ -128,7 +128,8 @@ Current classes include `.btn`, `.btn-primary`, `.btn-update`, `.btn-ghost`,
 
 Onboarding primitives (all in `globals.css`, existing tokens only):
 `.first-run-*` (one-sheet welcome modal), `.get-started-*` (three-step home
-cards), and `.usage-consent-banner` (compact 32px row). `.text-sm` renders at
+cards), `.chat-starter-*` (empty-chat first steps: each row runs a slash
+command), and `.usage-consent-banner` (compact 32px row). `.text-sm` renders at
 10px in this codebase; set an explicit size when the text needs more.
 
 ### Disclosure (`src/components/Disclosure.tsx`)

@@ -1,5 +1,5 @@
 import { type Dispatch, type ReactNode, type RefObject, type SetStateAction } from "react";
-import { AlertCircle, Copy, Edit2, Loader2, RefreshCw } from "lucide-react";
+import { AlertCircle, ChevronRight, Copy, Edit2, FileText, Lightbulb, ListChecks, Loader2, RefreshCw } from "lucide-react";
 import { LogoPulse } from "../../layout/LogoPulse";
 import { SkeletonRows } from "../../layout/Loading";
 import { MarkdownView } from "../MarkdownView";
@@ -67,6 +67,11 @@ type ChatTranscriptProps = {
   handleStopNative: () => void;
   handleStopAgent: () => void;
   sendMessage: (text: string) => void;
+  /** The project has a Project Schematic. */
+  hasSchematic: boolean;
+  planMode: boolean;
+  /** Runs a starter's slash command, as if it were typed and sent. */
+  onStarter: (command: string) => void;
 };
 
 export function ChatTranscript({
@@ -112,6 +117,9 @@ export function ChatTranscript({
   handleStopNative,
   handleStopAgent,
   sendMessage,
+  hasSchematic,
+  planMode,
+  onStarter,
 }: ChatTranscriptProps) {
   return (
       <div className="chat-messages" ref={scrollRef}>
@@ -124,6 +132,55 @@ export function ChatTranscript({
               <span className="text-sm text-muted">{t("chatTranscript.loadingConversation")}</span>
             </div>
           )
+        ) : null}
+        {nativeMode && !hydrating && chatTimeline.length === 0 && !loading && !streaming && !reasoningText && !streamText ? (
+          <div className="chat-starter">
+            <div className="chat-starter-header">
+              <h3>{t("chatTranscript.starterTitle")}</h3>
+              <p>{t("chatTranscript.starterSub")}</p>
+            </div>
+            <ul className="chat-starter-list">
+              {[
+                {
+                  key: "schematic",
+                  icon: <FileText size={14} />,
+                  title: hasSchematic ? t("chatTranscript.starterSchematicUpdate") : t("chatTranscript.starterSchematicCreate"),
+                  hint: t("chatTranscript.starterSchematicHint"),
+                  command: "/schematic",
+                },
+                {
+                  key: "ideas",
+                  icon: <Lightbulb size={14} />,
+                  title: t("chatTranscript.starterIdeas"),
+                  hint: t("chatTranscript.starterIdeasHint"),
+                  command: "/idea generate",
+                },
+                ...(planMode ? [] : [{
+                  key: "plan",
+                  icon: <ListChecks size={14} />,
+                  title: t("chatTranscript.starterPlan"),
+                  hint: t("chatTranscript.starterPlanHint"),
+                  command: "/plan on",
+                }]),
+              ].map((starter) => (
+                <li key={starter.key}>
+                  <button
+                    type="button"
+                    className="chat-starter-item"
+                    title={t("chatTranscript.starterRuns", { command: starter.command })}
+                    onClick={() => onStarter(starter.command)}
+                  >
+                    <span className="chat-starter-icon">{starter.icon}</span>
+                    <span className="chat-starter-text">
+                      <span className="chat-starter-title">{starter.title}</span>
+                      <span className="chat-starter-hint">{starter.hint}</span>
+                    </span>
+                    <ChevronRight size={14} className="chat-starter-chevron" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
         ) : null}
         {nativeMode
           ? (() => {
