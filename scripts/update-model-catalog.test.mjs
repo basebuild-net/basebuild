@@ -1,6 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { assertCatalogShape, assertNoCatalogCollapse, decodeOhMyPiCatalog } from "./update-model-catalog.mjs";
+import {
+  assertCatalogShape,
+  assertNoCatalogCollapse,
+  carryForwardProviders,
+  decodeOhMyPiCatalog,
+  overlayModelsDevCatalog,
+} from "./update-model-catalog.mjs";
 
 // keys: 0 name, 1 api, 2 baseUrl, 3 reasoning, 4 input, 5 cost, 6 input$, 7 supportsTools, 8 strict
 const compact = {
@@ -65,4 +71,52 @@ test("a refresh may lose up to 10% of providers or models, not more", () => {
   assert.throws(() => assertNoCatalogCollapse(bundled, catalogOf(17, 10)), /providers would drop from 20 to 17/);
   // Providers intact, models gutted (the upstream format change that shipped 2 Devin models).
   assert.throws(() => assertNoCatalogCollapse(bundled, catalogOf(20, 8)), /models would drop from 200 to 160/);
+});
+
+test("models.dev adds connectable providers and missing models, never overwriting existing rows", () => {
+  const existing = { id: "kept", name: "Kept", api: "anthropic-messages", provider: "known", baseUrl: "https://known.test", reasoning: true, input: ["text"], cost: { input: 9, output: 9, cacheRead: 0, cacheWrite: 0 }, contextWindow: 1, maxTokens: 1 };
+  const catalog = { known: { kept: existing } };
+  const stats = overlayModelsDevCatalog(catalog, {
+    known: { models: { kept: { name: "Overwrite attempt" }, extra: { name: "Extra" } } },
+    compat: {
+      npm: "@ai-sdk/openai-compatible",
+      api: "https://compat.test/v1",
+      models: {
+        m: { name: "M", reasoning: true, modalities: { input: ["text", "image"], output: ["text"] }, cost: { input: 1.5, output: 3, cache_read: 0.1 }, limit: { context: 200000, output: 8000 } },
+      },
+    },
+    "no-route": { npm: "custom-sdk", models: { x: { name: "X" } } },
+  });
+
+  assert.deepEqual(stats, { providersAdded: 1, modelsAdded: 2, skipped: 1 });
+  assert.equal(catalog.known.kept, existing);
+  assert.equal(catalog.known.extra.api, "anthropic-messages");
+  assert.equal(catalog.known.extra.baseUrl, "https://known.test");
+  assert.deepEqual(catalog.compat.m, {
+    id: "m",
+    name: "M",
+    api: "openai-completions",
+    provider: "compat",
+    baseUrl: "https://compat.test/v1",
+    reasoning: true,
+    input: ["text", "image"],
+    output: ["text"],
+    cost: { input: 1.5, output: 3, cacheRead: 0.1, cacheWrite: 0 },
+    contextWindow: 200000,
+    maxTokens: 8000,
+  });
+  assert.equal(catalog["no-route"], undefined);
+  assert.doesNotThrow(() => assertCatalogShape(catalog));
+});
+
+test("missing models and providers survive refresh while fresh entries take precedence", () => {
+  const fresh = { a: { m1: { id: "m1", api: "fresh" } } };
+  const previous = {
+    a: { m1: { id: "m1", api: "old" }, old: { id: "old", api: "openai-completions" } },
+    b: { m2: { id: "m2", api: "openai-completions" } },
+  };
+  assert.deepEqual(carryForwardProviders(fresh, previous), { providers: 1, models: 2 });
+  assert.equal(fresh.a.m1.api, "fresh");
+  assert.deepEqual(fresh.a.old, previous.a.old);
+  assert.deepEqual(fresh.b, previous.b);
 });

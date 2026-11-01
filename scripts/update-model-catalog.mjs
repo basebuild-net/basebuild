@@ -20,6 +20,11 @@
 //
 // Usage: node scripts/update-model-catalog.mjs
 // Env:   BASEBUILD_CATALOG_URL overrides https://basebuild.net (dev/testing).
+//
+// OhMyPi's bundled file stopped carrying most providers on 2026-10-29 (they
+// moved to runtime discovery), so models.dev, the source OhMyPi itself draws
+// on, is merged in directly, and providers no source returns are carried over
+// from the previous bundle instead of being dropped.
 
 import { createHash } from "node:crypto";
 import { writeFile, readFile, mkdir } from "node:fs/promises";
@@ -35,6 +40,24 @@ const OHMYPI_LICENSE_URL =
 const BASEBUILD_BASE_URL = (
   process.env.BASEBUILD_CATALOG_URL || "https://basebuild.net"
 ).replace(/\/+$/, "");
+const MODELS_DEV_CATALOG_URL = "https://models.dev/api.json";
+
+/** AI SDK npm package (models.dev `npm`) → OhMyPi wire-protocol kind.
+ *  Mirrors deriveApiKind in basebuild-website/src/lib/desktop-catalog.ts. */
+const NPM_TO_API_KIND = {
+  "@ai-sdk/anthropic": "anthropic-messages",
+  "@ai-sdk/openai": "openai-responses",
+  "@ai-sdk/openai-compatible": "openai-completions",
+  "@ai-sdk/google": "google-generative-ai",
+  "@ai-sdk/amazon-bedrock": "bedrock",
+};
+
+/** Wire kind for a models.dev provider, or null when the protocol is unknown. */
+export function modelsDevApiKind(npmPackage, apiUrl) {
+  if (typeof npmPackage === "string" && NPM_TO_API_KIND[npmPackage]) return NPM_TO_API_KIND[npmPackage];
+  if (typeof apiUrl === "string" && /\/v1\/?$/.test(apiUrl)) return "openai-completions";
+  return null;
+}
 // Must match SUPPORTED_CATALOG_VERSION in catalog_sync_service.rs — a newer
 // response shape is refused, not ingested.
 const SUPPORTED_DESKTOP_CATALOG_VERSION = 2;
@@ -133,6 +156,79 @@ function overlayBasebuildCatalog(catalog, desktop) {
     }
   }
   return stats;
+}
+
+/**
+ * Overlay models.dev (`{ [provider]: { npm, api, models: { [id]: model } } }`)
+ * onto the catalog. Additive and connectable-only, like the basebuild overlay:
+ * an existing entry is never overwritten, and a provider whose wire kind or
+ * base URL is unknown is skipped. Mutates `catalog`; returns stats.
+ */
+export function overlayModelsDevCatalog(catalog, modelsDev) {
+  const stats = { providersAdded: 0, modelsAdded: 0, skipped: 0 };
+  for (const [slug, provider] of Object.entries(modelsDev ?? {})) {
+    const models = provider?.models;
+    if (!models || typeof models !== "object") continue;
+    const existing = catalog[slug];
+    const apiKind = modelsDevApiKind(provider.npm, provider.api) ?? (existing ? modalValue(existing, "api") : null);
+    const baseUrl = (typeof provider.api === "string" && provider.api) || (existing ? modalValue(existing, "baseUrl") : null);
+    if (!apiKind || !baseUrl) {
+      if (!existing) stats.skipped += Object.keys(models).length;
+      continue;
+    }
+    let bucket = existing;
+    if (!bucket) {
+      bucket = {};
+      catalog[slug] = bucket;
+      stats.providersAdded += 1;
+    }
+    for (const [id, model] of Object.entries(models)) {
+      if (bucket[id] || typeof id !== "string" || id.length === 0) continue;
+      const input = Array.isArray(model?.modalities?.input) ? model.modalities.input.filter((m) => typeof m === "string") : [];
+      const output = Array.isArray(model?.modalities?.output) ? model.modalities.output.filter((m) => typeof m === "string") : [];
+      bucket[id] = {
+        id,
+        name: model?.name || id,
+        api: apiKind,
+        provider: slug,
+        baseUrl,
+        reasoning: Boolean(model?.reasoning),
+        input: input.length > 0 ? input : ["text"],
+        ...(output.length > 0 ? { output } : {}),
+        cost: {
+          input: Number(model?.cost?.input) || 0,
+          output: Number(model?.cost?.output) || 0,
+          cacheRead: Number(model?.cost?.cache_read) || 0,
+          cacheWrite: Number(model?.cost?.cache_write) || 0,
+        },
+        contextWindow: model?.limit?.context ?? null,
+        maxTokens: model?.limit?.output ?? null,
+      };
+      stats.modelsAdded += 1;
+    }
+  }
+  return stats;
+}
+
+/**
+ * Preserve previously bundled models missing from this refresh, including
+ * models under providers that are still present. Fresh entries take precedence.
+ */
+export function carryForwardProviders(catalog, previous) {
+  let providers = 0;
+  let models = 0;
+  for (const [slug, entries] of Object.entries(previous ?? {})) {
+    if (!catalog[slug]) {
+      catalog[slug] = {};
+      providers++;
+    }
+    for (const [id, model] of Object.entries(entries)) {
+      if (Object.hasOwn(catalog[slug], id)) continue;
+      catalog[slug][id] = model;
+      models++;
+    }
+  }
+  return { providers, models };
 }
 
 /**
@@ -287,6 +383,8 @@ export function assertNoCatalogCollapse(previous, next) {
 }
 
 async function main() {
+  const previous = JSON.parse(await readFile(resolve(CATALOG_DIR, "models.json"), "utf8"));
+
   console.log("Fetching OhMyPi catalog from upstream...");
   const catalog = decodeOhMyPiCatalog(await fetchJson(OHMYPI_CATALOG_URL));
   assertCatalogShape(catalog);
@@ -296,6 +394,17 @@ async function main() {
     modelCount += Object.keys(models).length;
   }
   console.log(`  ${providerCount} providers, ${modelCount} models`);
+
+  console.log(`Fetching models.dev catalog (${MODELS_DEV_CATALOG_URL})...`);
+  try {
+    const stats = overlayModelsDevCatalog(catalog, await fetchJson(MODELS_DEV_CATALOG_URL));
+    console.log(
+      `  models.dev: +${stats.providersAdded} providers, +${stats.modelsAdded} models, ${stats.skipped} not connectable`,
+    );
+  } catch (err) {
+    // Fail-soft: providers it would have added are carried over below.
+    console.warn(`  warning: models.dev overlay skipped (${err.message})`);
+  }
 
   console.log(`Fetching basebuild.net desktop catalog (${BASEBUILD_BASE_URL})...`);
   try {
@@ -318,6 +427,11 @@ async function main() {
     console.warn(`  warning: basebuild overlay skipped (${err.message})`);
   }
 
+  const carried = carryForwardProviders(catalog, previous);
+  if (carried.models > 0) {
+    console.log(`  kept ${carried.models} previous models across ${carried.providers} otherwise missing providers`);
+  }
+
   console.log("Applying first-party voice overlay...");
   const voiceOverlay = JSON.parse(
     await readFile(resolve(CATALOG_DIR, "voice-overlay.json"), "utf8"),
@@ -334,8 +448,7 @@ async function main() {
   // indent like upstream) so repeated runs with identical data are no-ops.
   assertCatalogShape(catalog);
   if (process.env.BASEBUILD_CATALOG_ALLOW_SHRINK !== "1") {
-    const bundled = JSON.parse(await readFile(resolve(CATALOG_DIR, "models.json"), "utf8"));
-    assertNoCatalogCollapse(bundled, catalog);
+    assertNoCatalogCollapse(previous, catalog);
   }
   const catalogText = JSON.stringify(catalog, null, "\t") + "\n";
 

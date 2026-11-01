@@ -1,15 +1,16 @@
 name: Update model catalog
 
 # Keeps Basebuild's first-party provider/model catalog
-# (src-tauri/catalog/models.json) current: merges OhMyPi sourcing with the
-# canonical basebuild.net desktop catalog (new launches like kimi-k3 that only
-# Basebuild tracks), and commits the diff back to main.
+# (src-tauri/catalog/models.json) current: merges OhMyPi sourcing, models.dev,
+# and the canonical basebuild.net desktop catalog (new launches like kimi-k3
+# that only Basebuild tracks), retains missing previously bundled models, and
+# commits the diff back to main.
 #
-# Security: this workflow fetches from two pinned hosts
-# (raw.githubusercontent.com/can1357/oh-my-pi and basebuild.net), touches only
-# src-tauri/catalog/, and uses the default GITHUB_TOKEN (no secrets). Fetched
-# content is parsed as JSON, never executed. Commits made with GITHUB_TOKEN do
-# not retrigger workflows, so no push loop is possible.
+# Security: this workflow fetches from three pinned hosts
+# (raw.githubusercontent.com/can1357/oh-my-pi, models.dev and basebuild.net),
+# touches only src-tauri/catalog/, and uses the default GITHUB_TOKEN (no
+# secrets). Fetched content is parsed as JSON, never executed. Commits made
+# with GITHUB_TOKEN do not retrigger workflows, so no push loop is possible.
 
 on:
   push:

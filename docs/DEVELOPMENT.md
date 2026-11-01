@@ -29,6 +29,11 @@ npm run tauri dev       # Direct command
 | `npm run build` | Production frontend build |
 | `npm run tauri build -- --bundles <targets>` | Build native packages for the current host OS |
 
+The bundled provider catalog can be refreshed with `node scripts/update-model-catalog.mjs`.
+It combines upstream sources and retains previously bundled models absent from a
+refresh, including when an optional source is unavailable. Retained metadata may
+be stale; a model's presence does not guarantee that its provider still serves it.
+
 ## Architecture
 
 ```
